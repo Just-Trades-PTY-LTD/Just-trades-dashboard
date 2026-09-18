@@ -4,14 +4,22 @@
   "version": "1.0.0",
   "workspaces": [
     "server",
-    "client"
+    "client",
+    "service-crm/server",
+    "service-crm/client"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev": "concurrently -n dash-api,dash-web -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "build": "npm run build -w client",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "crm:dev": "concurrently -n crm-api,crm-web -c magenta,yellow \"npm run dev -w @just-trades/service-crm-server\" \"npm run dev -w @just-trades/service-crm-client\"",
+    "crm:dev:server": "npm run dev -w @just-trades/service-crm-server",
+    "crm:dev:client": "npm run dev -w @just-trades/service-crm-client",
+    "crm:build": "npm run build -w @just-trades/service-crm-client",
+    "crm:start": "npm run start -w @just-trades/service-crm-server",
+    "crm:test": "npm run test -w @just-trades/service-crm-server"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
