@@ -52,7 +52,15 @@ function runMigrations(database) {
  * this to point the whole app at a fresh, isolated file per run. */
 export function openDb(dbPath) {
   if (db) db.close();
+  const foundExistingFile = fs.existsSync(dbPath);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  // Prints on every boot so a deploy's logs show, unambiguously, whether the
+  // database path actually resolved onto persistent storage: a fresh install
+  // says "creating new file" once; any other boot claiming that is a red
+  // flag that the volume isn't being reached (wrong path, wrong environment,
+  // or a quoted/malformed DB_PATH value swallowing the leading '/').
+  // eslint-disable-next-line no-console
+  console.log(`[db] opening ${dbPath} (${foundExistingFile ? 'existing file found' : 'no existing file — creating new database'})`);
   db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
