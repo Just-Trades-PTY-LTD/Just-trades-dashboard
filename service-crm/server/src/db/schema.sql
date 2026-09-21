@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS calls (
   call_back_reason_id INTEGER REFERENCES list_items(id),
   job_number TEXT NOT NULL DEFAULT '',
   job_id INTEGER REFERENCES jobs(id),
+  -- Set when call_type = 'Cancellation' and cancellation_type = 'Pending
+  -- Cancellation': the pending_cancellations row this call created/maintains
+  -- against the existing Technician & Sales record it links to by job
+  -- number. Never creates a new job or sale of its own. ON DELETE SET NULL
+  -- so removing that row (the call was edited away from Pending Cancellation,
+  -- or deleted) never trips over this call's own reference to it.
+  pending_cancellation_id INTEGER REFERENCES pending_cancellations(id) ON DELETE SET NULL,
   suburb TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   follow_up INTEGER NOT NULL DEFAULT 0,

@@ -1,8 +1,66 @@
 import { Router } from 'express';
-import { all, get, run } from '../db/index.js';
+import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
-import { findOriginalJob } from '../services/lookup.js';
+import { mergeId } from '../lib/merge.js';
+import { findLatestSale, findOriginalJob } from '../services/lookup.js';
+
+const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
+
+/**
+ * A "Pending Cancellation" call links to the job's existing sale by JN — it
+ * never creates a new job or sale. This keeps that link's pending_cancellations
+ * row in sync with the call: created the first time a call becomes a Pending
+ * Cancellation, updated in place on later edits, and removed if the call is
+ * edited away from Pending Cancellation or deleted outright. Returns the
+ * pending_cancellation_id the calls row should now store (or null).
+ */
+function syncPendingCancellation({ existingPendingCancellationId, callType, cancellationType, jobNumber, tradeId, cancellationReasonId, notes, callAt, userId }) {
+  const shouldHaveLink = callType === 'Cancellation' && cancellationType === 'Pending Cancellation' && !!jobNumber;
+
+  if (!shouldHaveLink) {
+    if (existingPendingCancellationId) run('DELETE FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+    return null;
+  }
+
+  const sale = findLatestSale(jobNumber);
+  const fields = {
+    sale_id: sale?.id || null,
+    job_number: jobNumber,
+    date_logged: (callAt || '').slice(0, 10),
+    credited_technician_id: sale?.credited_technician_id || null,
+    trade_id: tradeId || sale?.trade_id || null,
+    reason_id: cancellationReasonId || null,
+    comments: notes || '',
+  };
+
+  if (existingPendingCancellationId) {
+    const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+    run(
+      `UPDATE pending_cancellations SET sale_id=?, job_number=?, date_logged=?, credited_technician_id=?, trade_id=?,
+        reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
+      [fields.sale_id, fields.job_number, fields.date_logged, fields.credited_technician_id, fields.trade_id, fields.reason_id, fields.comments, existingPendingCancellationId]
+    );
+    if (before) {
+      recordAudit({
+        entityType: 'pending_cancellation',
+        entityId: existingPendingCancellationId,
+        before,
+        after: fields,
+        fields: PENDING_CANCELLATION_TRACKED_FIELDS,
+        userId,
+      });
+    }
+    return existingPendingCancellationId;
+  }
+
+  const { lastInsertRowid } = run(
+    `INSERT INTO pending_cancellations (sale_id, job_number, date_logged, credited_technician_id, trade_id, reason_id, comments, created_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [fields.sale_id, fields.job_number, fields.date_logged, fields.credited_technician_id, fields.trade_id, fields.reason_id, fields.comments, userId]
+  );
+  return lastInsertRowid;
+}
 
 const TRACKED_FIELDS = [
   'direction',
@@ -119,31 +177,45 @@ export function createCallsRouter() {
 
   router.post('/', (req, res) => {
     const b = req.body || {};
-    const { lastInsertRowid } = run(
-      `INSERT INTO calls (call_at, direction, handled_by_user_id, call_type, trade_id, job_type_id, lead_source_id,
-        booked, not_booked_reason_id, cancellation_type, cancellation_reason_id, call_back_reason_id, job_number,
-        suburb, notes, follow_up, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        b.callAt,
-        b.direction || 'Inbound',
-        b.handledByUserId || null,
-        b.callType || 'Lead',
-        b.tradeId || null,
-        b.jobTypeId || null,
-        b.leadSourceId || null,
-        b.booked || '',
-        b.notBookedReasonId || null,
-        b.cancellationType || '',
-        b.cancellationReasonId || null,
-        b.callBackReasonId || null,
-        b.jobNumber || '',
-        b.suburb || '',
-        b.notes || '',
-        b.followUp ? 1 : 0,
-        req.user.id,
-      ]
-    );
+    const lastInsertRowid = transaction(() => {
+      const pendingCancellationId = syncPendingCancellation({
+        existingPendingCancellationId: null,
+        callType: b.callType || 'Lead',
+        cancellationType: b.cancellationType || '',
+        jobNumber: b.jobNumber || '',
+        tradeId: b.tradeId || null,
+        cancellationReasonId: b.cancellationReasonId || null,
+        notes: b.notes || '',
+        callAt: b.callAt,
+        userId: req.user.id,
+      });
+      return run(
+        `INSERT INTO calls (call_at, direction, handled_by_user_id, call_type, trade_id, job_type_id, lead_source_id,
+          booked, not_booked_reason_id, cancellation_type, cancellation_reason_id, call_back_reason_id, job_number,
+          pending_cancellation_id, suburb, notes, follow_up, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          b.callAt,
+          b.direction || 'Inbound',
+          b.handledByUserId || null,
+          b.callType || 'Lead',
+          b.tradeId || null,
+          b.jobTypeId || null,
+          b.leadSourceId || null,
+          b.booked || '',
+          b.notBookedReasonId || null,
+          b.cancellationType || '',
+          b.cancellationReasonId || null,
+          b.callBackReasonId || null,
+          b.jobNumber || '',
+          pendingCancellationId,
+          b.suburb || '',
+          b.notes || '',
+          b.followUp ? 1 : 0,
+          req.user.id,
+        ]
+      ).lastInsertRowid;
+    });
     res.status(201).json(toRow(get(`${SELECT_SQL} WHERE c.id = ?`, [lastInsertRowid])));
   });
 
@@ -154,46 +226,60 @@ export function createCallsRouter() {
     const next = {
       call_at: b.callAt ?? existing.call_at,
       direction: b.direction ?? existing.direction,
-      handled_by_user_id: b.handledByUserId ?? existing.handled_by_user_id,
+      handled_by_user_id: mergeId(b.handledByUserId, existing.handled_by_user_id),
       call_type: b.callType ?? existing.call_type,
-      trade_id: b.tradeId ?? existing.trade_id,
-      job_type_id: b.jobTypeId ?? existing.job_type_id,
-      lead_source_id: b.leadSourceId ?? existing.lead_source_id,
+      trade_id: mergeId(b.tradeId, existing.trade_id),
+      job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
+      lead_source_id: mergeId(b.leadSourceId, existing.lead_source_id),
       booked: b.booked ?? existing.booked,
-      not_booked_reason_id: b.notBookedReasonId ?? existing.not_booked_reason_id,
+      not_booked_reason_id: mergeId(b.notBookedReasonId, existing.not_booked_reason_id),
       cancellation_type: b.cancellationType ?? existing.cancellation_type,
-      cancellation_reason_id: b.cancellationReasonId ?? existing.cancellation_reason_id,
-      call_back_reason_id: b.callBackReasonId ?? existing.call_back_reason_id,
+      cancellation_reason_id: mergeId(b.cancellationReasonId, existing.cancellation_reason_id),
+      call_back_reason_id: mergeId(b.callBackReasonId, existing.call_back_reason_id),
       job_number: b.jobNumber ?? existing.job_number,
       suburb: b.suburb ?? existing.suburb,
       notes: b.notes ?? existing.notes,
       follow_up: b.followUp !== undefined ? (b.followUp ? 1 : 0) : existing.follow_up,
     };
-    run(
-      `UPDATE calls SET call_at=?, direction=?, handled_by_user_id=?, call_type=?, trade_id=?, job_type_id=?,
-        lead_source_id=?, booked=?, not_booked_reason_id=?, cancellation_type=?, cancellation_reason_id=?,
-        call_back_reason_id=?, job_number=?, suburb=?, notes=?, follow_up=?, updated_at=datetime('now')
-       WHERE id=?`,
-      [
-        next.call_at,
-        next.direction,
-        next.handled_by_user_id,
-        next.call_type,
-        next.trade_id,
-        next.job_type_id,
-        next.lead_source_id,
-        next.booked,
-        next.not_booked_reason_id,
-        next.cancellation_type,
-        next.cancellation_reason_id,
-        next.call_back_reason_id,
-        next.job_number,
-        next.suburb,
-        next.notes,
-        next.follow_up,
-        req.params.id,
-      ]
-    );
+    transaction(() => {
+      const pendingCancellationId = syncPendingCancellation({
+        existingPendingCancellationId: existing.pending_cancellation_id,
+        callType: next.call_type,
+        cancellationType: next.cancellation_type,
+        jobNumber: next.job_number,
+        tradeId: next.trade_id,
+        cancellationReasonId: next.cancellation_reason_id,
+        notes: next.notes,
+        callAt: next.call_at,
+        userId: req.user.id,
+      });
+      run(
+        `UPDATE calls SET call_at=?, direction=?, handled_by_user_id=?, call_type=?, trade_id=?, job_type_id=?,
+          lead_source_id=?, booked=?, not_booked_reason_id=?, cancellation_type=?, cancellation_reason_id=?,
+          call_back_reason_id=?, job_number=?, pending_cancellation_id=?, suburb=?, notes=?, follow_up=?,
+          updated_at=datetime('now') WHERE id=?`,
+        [
+          next.call_at,
+          next.direction,
+          next.handled_by_user_id,
+          next.call_type,
+          next.trade_id,
+          next.job_type_id,
+          next.lead_source_id,
+          next.booked,
+          next.not_booked_reason_id,
+          next.cancellation_type,
+          next.cancellation_reason_id,
+          next.call_back_reason_id,
+          next.job_number,
+          pendingCancellationId,
+          next.suburb,
+          next.notes,
+          next.follow_up,
+          req.params.id,
+        ]
+      );
+    });
     recordAudit({
       entityType: 'call',
       entityId: Number(req.params.id),
@@ -206,12 +292,23 @@ export function createCallsRouter() {
   });
 
   router.patch('/:id/archive', (req, res) => {
-    run('UPDATE calls SET archived = ? WHERE id = ?', [req.body?.archived ? 1 : 0, req.params.id]);
+    const archived = req.body?.archived ? 1 : 0;
+    transaction(() => {
+      const call = get('SELECT pending_cancellation_id FROM calls WHERE id = ?', [req.params.id]);
+      run('UPDATE calls SET archived = ? WHERE id = ?', [archived, req.params.id]);
+      if (call?.pending_cancellation_id) {
+        run('UPDATE pending_cancellations SET archived = ? WHERE id = ?', [archived, call.pending_cancellation_id]);
+      }
+    });
     res.json({ ok: true });
   });
 
   router.delete('/:id', (req, res) => {
-    run('DELETE FROM calls WHERE id = ?', [req.params.id]);
+    transaction(() => {
+      const call = get('SELECT pending_cancellation_id FROM calls WHERE id = ?', [req.params.id]);
+      run('DELETE FROM calls WHERE id = ?', [req.params.id]);
+      if (call?.pending_cancellation_id) run('DELETE FROM pending_cancellations WHERE id = ?', [call.pending_cancellation_id]);
+    });
     res.json({ ok: true });
   });
 

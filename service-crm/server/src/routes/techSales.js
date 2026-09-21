@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
+import { mergeId } from '../lib/merge.js';
 import { findConvertibleKnockback, findDuplicateInvoice, findOriginalJob, findLatestSale, normKey } from '../services/lookup.js';
 
 const JOB_TRACKED_FIELDS = [
@@ -346,17 +347,17 @@ export function createTechSalesRouter() {
     const isSaleMade = !!existing.had_sale_at_visit;
 
     const next = {
-      technician_id: b.technicianId ?? existing.technician_id,
+      technician_id: mergeId(b.technicianId, existing.technician_id),
       job_number: b.jobNumber ?? existing.job_number,
-      trade_id: b.tradeId ?? existing.trade_id,
-      job_type_id: b.jobTypeId ?? existing.job_type_id,
+      trade_id: mergeId(b.tradeId, existing.trade_id),
+      job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       lead: b.lead ?? existing.lead,
       inspection_sheet: b.inspectionSheet ?? existing.inspection_sheet,
       option_sheet: b.optionSheet ?? existing.option_sheet,
       knockback: existing.knockback,
-      knockback_reason_id: isSaleMade ? null : b.knockbackReasonId ?? existing.knockback_reason_id,
+      knockback_reason_id: isSaleMade ? null : mergeId(b.knockbackReasonId, existing.knockback_reason_id),
       work_completion: isSaleMade ? b.workCompletion ?? existing.work_completion : '',
-      install_technician_id: isSaleMade ? b.installTechnicianId ?? existing.install_technician_id : null,
+      install_technician_id: isSaleMade ? mergeId(b.installTechnicianId, existing.install_technician_id) : null,
       install_date: isSaleMade ? b.installDate ?? existing.install_date : '',
       comments: b.comments ?? existing.comments,
     };
@@ -459,7 +460,7 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
-      credited_technician_id: b.creditedTechnicianId ?? existing.credited_technician_id,
+      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
       invoice_number: b.invoiceNumber ?? existing.invoice_number,
       invoice_date: b.invoiceDate ?? existing.invoice_date,
       sale_value_ex_gst: b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : existing.sale_value_ex_gst,
@@ -505,9 +506,9 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
-      attending_technician_id: b.technicianId ?? existing.attending_technician_id,
-      credited_technician_id: b.creditedTechnicianId ?? existing.credited_technician_id,
-      reason_id: b.reasonId ?? existing.reason_id,
+      attending_technician_id: mergeId(b.technicianId, existing.attending_technician_id),
+      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      reason_id: mergeId(b.reasonId, existing.reason_id),
       comments: b.comments ?? existing.comments,
     };
     const visitDate = b.visitDate ?? existing.visit_date;
@@ -548,8 +549,8 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
-      credited_technician_id: b.creditedTechnicianId ?? existing.credited_technician_id,
-      reason_id: b.reasonId ?? existing.reason_id,
+      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      reason_id: mergeId(b.reasonId, existing.reason_id),
       comments: b.comments ?? existing.comments,
     };
     const dateLogged = b.dateLogged ?? existing.date_logged;

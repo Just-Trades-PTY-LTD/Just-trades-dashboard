@@ -68,8 +68,8 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
     bookingRate: pct(booked.length, leads.length),
     quotesApproved: reportCalls.filter((c) => c.call_type === 'Quote approved').length,
     callBackRequests: reportCalls.filter((c) => c.call_type === 'Call back').length,
-    newJobCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New job cancellation').length,
-    pendingJobCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending job cancellation').length,
+    newJobCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation').length,
+    pendingCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation').length,
   };
 
   const byTrade = countBy(reportCalls.filter((c) => c.trade_name), (c) => c.trade_name);
@@ -85,11 +85,11 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
 
   const notBookedReasons = countBy(leads.filter((c) => c.booked === 'No'), (c) => c.not_booked_reason_name);
   const newCancelReasons = countBy(
-    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New job cancellation'),
+    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation'),
     (c) => c.cancellation_reason_name
   );
   const pendingCancelReasons = countBy(
-    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending job cancellation'),
+    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation'),
     (c) => c.cancellation_reason_name
   );
 

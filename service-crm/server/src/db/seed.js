@@ -20,7 +20,6 @@ const DEFAULT_LISTS = {
   lead_source: ['Google search', 'Google ads', 'Facebook / Instagram', 'Referral', 'Repeat customer', 'Signage / vehicle', 'Website enquiry', 'Other'],
   not_booked_reason: ['Price', 'Timing / availability', 'Chose another provider', 'Just gathering quotes', 'Outside service area', 'Lost contact / no response', 'Other'],
   new_job_cancellation_reason: ['Changed mind', 'Price', 'Found alternative provider', 'Timing no longer suitable', 'Other'],
-  pending_job_cancellation_reason: ['Rescheduling', 'Price', 'No longer needed', 'Customer unresponsive', 'Other'],
   knockback_reason: ['Price', 'Wanted to compare quotes', 'Wants to think it over', 'Not the decision maker', 'Other'],
   callback_reason: ['Warranty issue', 'Customer reports a fault', 'Follow-up on workmanship', 'Parts replacement', 'Other'],
   pending_cancellation_reason: ['Customer changed mind after sale', 'Dispute over work', 'Could not honour price', 'Duplicate / error', 'Other'],

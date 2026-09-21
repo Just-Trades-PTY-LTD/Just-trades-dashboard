@@ -11,6 +11,11 @@ const ENTRY_TYPES = [
   ['new_job_sale_made', 'New Job — Sale Made'],
   ['quote_approved_later', 'Existing Job — Quote Approved Later'],
   ['call_back', 'Call Back'],
+  // Pending Cancellation is no longer creatable here — it's logged through
+  // Calls (Cancellation → Pending Cancellation) and links to the existing
+  // sale by job number instead of creating a new job or sale. Kept out of
+  // this list except when editing one already on record (below), so any
+  // older entries remain viewable/editable.
   ['pending_cancellation', 'Pending Cancellation'],
 ];
 const LEAD_OPTIONS = ['Qualified', 'Not Qualified'];
@@ -187,7 +192,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         label="Entry type"
         value={form.kind}
         onChange={changeEntryType}
-        options={ENTRY_TYPES.map(([id, label]) => ({ id, name: label }))}
+        options={ENTRY_TYPES.filter(([id]) => id !== 'pending_cancellation' || form.kind === 'pending_cancellation').map(([id, label]) => ({
+          id,
+          name: label,
+        }))}
         placeholder=""
       />
 

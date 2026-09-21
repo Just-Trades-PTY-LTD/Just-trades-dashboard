@@ -35,6 +35,9 @@ export function createLookupRouter() {
       creditedTechnicianId: sale.credited_technician_id,
       creditedTechnician: sale.credited_technician_name,
       tradeId: sale.trade_id,
+      trade: sale.trade_name,
+      jobTypeId: sale.job_type_id,
+      jobType: sale.job_type_name,
     });
   });
 

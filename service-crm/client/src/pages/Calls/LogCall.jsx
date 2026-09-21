@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { nowLocalDateTime } from '../../lib/dates.js';
 import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../components/Fields.jsx';
@@ -8,14 +9,14 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
-const CANCELLATION_TYPES = ['New job cancellation', 'Pending job cancellation'];
+const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
 const DIRECTIONS = ['Inbound', 'Outbound'];
 
-function emptyForm() {
+function emptyForm(defaultHandledByUserId) {
   return {
     callAt: nowLocalDateTime(),
     direction: 'Inbound',
-    handledByUserId: '',
+    handledByUserId: defaultHandledByUserId || '',
     callType: 'Lead',
     tradeId: '',
     jobTypeId: '',
@@ -33,8 +34,9 @@ function emptyForm() {
 }
 
 export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
+  const { user } = useAuth();
   const settings = useSettings();
-  const [form, setForm] = useState(emptyForm());
+  const [form, setForm] = useState(emptyForm(user?.id));
 
   useEffect(() => {
     if (editing) {
@@ -57,16 +59,18 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         followUp: editing.followUp || false,
       });
     } else {
-      setForm(emptyForm());
+      // Handled by defaults to whoever's logged in — still a normal editable
+      // select, in case one person is logging a call for a colleague.
+      setForm(emptyForm(user?.id));
     }
-  }, [editing]);
+  }, [editing, user]);
 
   function patch(p) {
     setForm((f) => ({ ...f, ...p }));
   }
 
   function resetForm() {
-    setForm(emptyForm());
+    setForm(emptyForm(user?.id));
   }
 
   async function handleSubmit(e) {
@@ -86,23 +90,35 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     }
   }
 
-  const showTrade = form.callType === 'Lead' || form.callType === 'Not lead';
+  const isCancellation = form.callType === 'Cancellation';
+  const isPendingCancellation = isCancellation && form.cancellationType === 'Pending Cancellation';
+  const showTrade = form.callType === 'Lead' || form.callType === 'Not lead' || isCancellation;
   const showLeadSource = form.callType === 'Lead';
   const showBooked = form.callType === 'Lead';
   const showNotBookedReason = showBooked && form.booked === 'No';
-  const showCancellationType = form.callType === 'Cancellation';
+  const showCancellationType = isCancellation;
   const showCallBackReason = form.callType === 'Call back';
   const showJobNumber = ['Quote approved', 'Call back', 'Cancellation'].includes(form.callType) || (form.callType === 'Lead' && form.booked === 'Yes');
   const showJobLookup = ['Quote approved', 'Call back', 'Cancellation'].includes(form.callType);
 
-  const lookupMode = form.callType === 'Quote approved' ? 'sale' : 'job';
+  // A Pending Cancellation is about a job that's already been sold, so it
+  // links against the sale record; everything else links against the job.
+  const lookupMode = form.callType === 'Quote approved' || isPendingCancellation ? 'sale' : 'job';
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', lookupMode);
 
+  // Silently autofill trade/job type from whatever the JN matched, the same
+  // way other auto-populated fields work — filled in, but never locked.
+  useEffect(() => {
+    if (!isCancellation || !lookupResult?.found || form.tradeId) return;
+    patch({ tradeId: lookupResult.tradeId || '', jobTypeId: lookupResult.jobTypeId || '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupResult, isCancellation]);
+
   const cancellationReasonList =
-    form.cancellationType === 'New job cancellation'
+    form.cancellationType === 'New Job Cancellation'
       ? settings.lists.new_job_cancellation_reason
-      : form.cancellationType === 'Pending job cancellation'
-      ? settings.lists.pending_job_cancellation_reason
+      : form.cancellationType === 'Pending Cancellation'
+      ? settings.lists.pending_cancellation_reason
       : [];
 
   return (
@@ -149,11 +165,11 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         )}
       </div>
 
-      {form.callType === 'Cancellation' && (
+      {isCancellation && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-          "New job cancellation" = a booked job cancelled before the technician attended. "Pending job cancellation" = the job was still
-          pending when the customer cancelled it — for a job that was already <strong>sold and invoiced</strong> being
-          cancelled/refunded, use Pending Cancellation on the Technician &amp; Sales page instead.
+          <strong>New Job Cancellation</strong> = booked, but cancelled before a technician attended. <strong>Pending Cancellation</strong> = a
+          technician attended and sold work, but the customer cancelled before we returned to complete it — this links to the job's sale by
+          JN rather than creating a new job or sale.
         </div>
       )}
 

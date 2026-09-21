@@ -39,9 +39,11 @@ export function findLatestSale(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return null;
   return get(
-    `SELECT s.*, t.name AS credited_technician_name
+    `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name
      FROM sales s
      LEFT JOIN technicians t ON t.id = s.credited_technician_id
+     LEFT JOIN trades tr ON tr.id = s.trade_id
+     LEFT JOIN job_types jt ON jt.id = s.job_type_id
      WHERE s.archived = 0 AND lower(trim(s.job_number)) = ?
      ORDER BY s.invoice_date DESC, s.id DESC
      LIMIT 1`,

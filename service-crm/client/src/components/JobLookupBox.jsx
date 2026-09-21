@@ -5,8 +5,9 @@ export function JobLookupBox({ jobNumber, mode, result }) {
     if (!result.found) return <div className="lookup-box lookup-missing">No recorded sale found yet for JN {jobNumber}.</div>;
     return (
       <div className="lookup-box lookup-found">
-        Matched sale: invoice {result.invoiceNumber} · ${Math.round(result.saleValueExGst).toLocaleString()} ex GST · credited to{' '}
-        {result.creditedTechnician || '—'} · {result.invoiceDate}
+        Matched sale: {result.trade}
+        {result.jobType ? ` — ${result.jobType}` : ''} · invoice {result.invoiceNumber} · ${Math.round(result.saleValueExGst).toLocaleString()}{' '}
+        ex GST · credited to {result.creditedTechnician || '—'} · {result.invoiceDate}
       </div>
     );
   }

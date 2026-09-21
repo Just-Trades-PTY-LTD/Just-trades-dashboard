@@ -6,11 +6,10 @@ import SettingsList from './SettingsList.jsx';
 const LIST_CATEGORIES = [
   ['lead_source', 'Lead sources'],
   ['not_booked_reason', 'Not-booked reasons'],
-  ['new_job_cancellation_reason', 'New job cancellation reasons'],
-  ['pending_job_cancellation_reason', 'Pending job cancellation reasons (booked, not yet attended)'],
+  ['new_job_cancellation_reason', 'New Job Cancellation reasons (booked, cancelled before attending)'],
   ['knockback_reason', 'Knock-back reasons'],
   ['callback_reason', 'Call back reasons'],
-  ['pending_cancellation_reason', 'Pending cancellation reasons (sold job, refund pending)'],
+  ['pending_cancellation_reason', 'Pending Cancellation reasons (sold, cancelled before completing)'],
 ];
 
 function JobTypesEditor({ trades, refresh }) {

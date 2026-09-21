@@ -10,7 +10,6 @@ const EMPTY_BUNDLE = {
     lead_source: [],
     not_booked_reason: [],
     new_job_cancellation_reason: [],
-    pending_job_cancellation_reason: [],
     knockback_reason: [],
     callback_reason: [],
     pending_cancellation_reason: [],

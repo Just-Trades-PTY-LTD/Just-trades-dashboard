@@ -31,8 +31,8 @@ export default function CallsReport() {
     ['Booking rate', `${kpis.bookingRate}%`],
     ['Quotes approved', kpis.quotesApproved],
     ['Call back requests', kpis.callBackRequests],
-    ['New job cancellations', kpis.newJobCancellations],
-    ['Pending job cancellations', kpis.pendingJobCancellations],
+    ['New Job Cancellations', kpis.newJobCancellations],
+    ['Pending Cancellations', kpis.pendingCancellations],
   ];
 
   return (
@@ -75,8 +75,8 @@ export default function CallsReport() {
             </ResponsiveContainer>
           </ChartPanel>
           <BarCard title="Why leads aren't booking" data={notBookedReasons} color="#a15c17" />
-          <BarCard title="New job cancellation reasons" data={newCancelReasons} color="#a3323a" />
-          <BarCard title="Pending job cancellation reasons" data={pendingCancelReasons} color="#8a4fbf" />
+          <BarCard title="New Job Cancellation reasons" data={newCancelReasons} color="#a3323a" />
+          <BarCard title="Pending Cancellation reasons" data={pendingCancelReasons} color="#8a4fbf" />
           <ChartPanel title="Calls over time" span2>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={trend}>
