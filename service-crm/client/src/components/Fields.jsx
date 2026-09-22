@@ -96,7 +96,7 @@ export function FilterSelect({ label, value, onChange, options }) {
 }
 
 export function YesNoField({ label, value, onChange }) {
-  return <SelectField label={label} value={value} onChange={onChange} options={['Yes', 'No']} />;
+  return <SelectField label={label} value={value} onChange={onChange} options={['Yes', 'No', 'N/A']} />;
 }
 
 export function Checkbox({ label, checked, onChange }) {

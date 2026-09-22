@@ -35,15 +35,17 @@ export default function TechReport() {
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend } = data;
 
   const kpiRows = [
+    // Headline figures first, in the order requested — everything else
+    // follows in its previous relative order.
     ['Jobs attended', company.jobsAttended],
-    ['Qualified leads', company.qualifiedLeads],
-    ['Knock backs', company.knockbacks],
-    ['Knock-back rate', `${company.knockbackRate}%`],
-    ['Converted later', company.convertedLaterCount],
-    ['Conversion rate', `${company.conversionRate}%`],
-    ['Sales (invoices)', company.sales],
     ['Total sale value (ex GST)', money(company.totalSaleExGst)],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst)],
+    ['Knock backs', company.knockbacks],
+    ['Conversion rate', `${company.conversionRate}%`],
+    ['Qualified leads', company.qualifiedLeads],
+    ['Knock-back rate', `${company.knockbackRate}%`],
+    ['Converted later', company.convertedLaterCount],
+    ['Sales (invoices)', company.sales],
     ['Call backs', company.callBacks],
     ['Pending cancellations', company.pendingCancellations],
     ['Inspection sheet completion', `${company.inspectionRate}%`],
