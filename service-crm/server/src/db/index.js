@@ -52,6 +52,30 @@ function runMigrations(database) {
  * fresh one hasn't been explicitly allowed — see openDb() below. */
 export class DatabaseMissingError extends Error {}
 
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const MOUNT_WAIT_TIMEOUT_MS = 10_000;
+const MOUNT_WAIT_POLL_MS = 200;
+
+/** Some hosts start the app before a mounted volume has actually finished
+ * attaching (observed on Railway: its own "mounting volume" log line lands
+ * right as the container starts, with nothing confirming it's done before
+ * the app's entrypoint runs) — so the very first look at a path that's about
+ * to exist can race and see nothing there yet. Give the parent directory a
+ * bounded chance to show up before treating it as genuinely missing. Blocks
+ * the process for at most MOUNT_WAIT_TIMEOUT_MS, and only when the directory
+ * isn't already there — the normal case (mount already present) never waits
+ * at all. */
+export function waitForParentDirectory(dir) {
+  const deadline = Date.now() + MOUNT_WAIT_TIMEOUT_MS;
+  while (!fs.existsSync(dir) && Date.now() < deadline) {
+    sleepSync(MOUNT_WAIT_POLL_MS);
+  }
+  return fs.existsSync(dir);
+}
+
 /** (Re)opens the database at the given path, applying the schema.
  *
  * By default this REFUSES to create a brand-new database when none exists at
@@ -61,7 +85,11 @@ export class DatabaseMissingError extends Error {}
  * storage/volume problem into total data loss before. Missing file + not
  * allowed => throw, so the caller can stop and warn instead of proceeding. */
 export function openDb(dbPath, { allowFreshInit = false } = {}) {
-  const foundExistingFile = fs.existsSync(dbPath);
+  let foundExistingFile = fs.existsSync(dbPath);
+  if (!foundExistingFile) {
+    waitForParentDirectory(path.dirname(dbPath));
+    foundExistingFile = fs.existsSync(dbPath);
+  }
   if (!foundExistingFile && !allowFreshInit) {
     // Deliberately don't touch the existing `db` handle (if any) here — this
     // is a refusal to proceed, not a switch to a new database, so whatever

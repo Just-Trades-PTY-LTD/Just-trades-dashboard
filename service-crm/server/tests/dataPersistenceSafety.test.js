@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { createApp } from '../src/app.js';
 import { writeAutomaticBackup, listAutomaticBackups, readAutomaticBackup, buildBackupPayload } from '../src/db/backup.js';
-import { openDb, DatabaseMissingError } from '../src/db/index.js';
+import { openDb, waitForParentDirectory, DatabaseMissingError } from '../src/db/index.js';
 
 function tempDbPath() {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'crm-persist-test-')), 'test.sqlite');
@@ -57,6 +58,32 @@ test('createApp starts normally and serves the real API once a database file alr
   } finally {
     server.close();
   }
+});
+
+test('openDb survives a volume that finishes mounting just after boot, instead of racing it', () => {
+  // Simulates what was actually observed on Railway: the mount for the
+  // parent directory lands a moment after the process starts, not before.
+  // Use a real child process to create it mid-wait — our wait loop blocks
+  // this thread synchronously, so nothing in-process could do it concurrently.
+  const parentDir = path.join(os.tmpdir(), `crm-race-test-${Date.now()}`);
+  assert.equal(fs.existsSync(parentDir), false);
+  const child = spawn(process.execPath, ['-e', `setTimeout(() => require('node:fs').mkdirSync(${JSON.stringify(parentDir)}), 300)`]);
+
+  try {
+    const appeared = waitForParentDirectory(parentDir);
+    assert.equal(appeared, true, 'the directory should be picked up once the "mount" finishes, not raced past');
+    assert.equal(fs.existsSync(parentDir), true);
+  } finally {
+    child.kill();
+    fs.rmSync(parentDir, { recursive: true, force: true });
+  }
+});
+
+test('openDb opens normally, without any wait, when the parent directory already exists', () => {
+  const dbPath = tempDbPath(); // mkdtempSync already created the parent dir
+  const start = Date.now();
+  openDb(dbPath, { allowFreshInit: true });
+  assert.ok(Date.now() - start < 1000, 'should not wait at all when the directory is already there');
 });
 
 test('automatic backups are written to disk, rotated, and can be read back', async () => {
