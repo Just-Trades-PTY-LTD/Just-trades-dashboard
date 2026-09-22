@@ -91,5 +91,7 @@ export const api = {
     restore: (backup) => request('POST', '/export/restore', backup),
     clearCalls: () => request('POST', '/export/clear-calls'),
     clearTechData: () => request('POST', '/export/clear-tech-data'),
+    autoBackups: () => request('GET', '/export/auto-backups'),
+    autoBackupUrl: (filename) => `/api/export/auto-backups/${encodeURIComponent(filename)}`,
   },
 };

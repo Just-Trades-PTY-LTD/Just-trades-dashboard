@@ -6,7 +6,7 @@ import { config } from '../src/config.js';
 
 export async function startTestServer() {
   const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'crm-test-')), 'test.sqlite');
-  const app = createApp({ dbPath });
+  const app = createApp({ dbPath, allowFreshInit: true });
   const server = app.listen(0);
   const port = server.address().port;
   const baseUrl = `http://localhost:${port}/api`;

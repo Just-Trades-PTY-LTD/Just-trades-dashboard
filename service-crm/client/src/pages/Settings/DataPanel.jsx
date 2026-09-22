@@ -1,9 +1,14 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 
 export default function DataPanel() {
   const fileInputRef = useRef(null);
   const [message, setMessage] = useState('');
+  const [autoBackups, setAutoBackups] = useState([]);
+
+  useEffect(() => {
+    api.export.autoBackups().then(setAutoBackups).catch(() => {});
+  }, []);
 
   function handleRestoreFile(e) {
     const file = e.target.files && e.target.files[0];
@@ -64,6 +69,25 @@ export default function DataPanel() {
           Restore from backup…
         </button>
         <input ref={fileInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={handleRestoreFile} />
+      </div>
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Automatic backups</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
+          The server saves a full backup on its own every few hours — this list is for emergencies only, if data needs to be restored
+          and nobody has a more recent manual export. These still live on the same server as the CRM, so also use "Export full backup"
+          above every so often and save that copy somewhere else (e.g. Google Drive or email) for real safekeeping.
+        </div>
+        {autoBackups.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No automatic backups yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
+            {autoBackups.map((b) => (
+              <a key={b.filename} className="btn btn-sm" href={api.export.autoBackupUrl(b.filename)} style={{ alignSelf: 'flex-start' }}>
+                {new Date(b.createdAt).toLocaleString()} ({Math.round(b.sizeBytes / 1024)} KB)
+              </a>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Reset test data</div>

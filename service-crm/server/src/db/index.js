@@ -48,11 +48,32 @@ function runMigrations(database) {
   for (const migration of MIGRATIONS) migration.run(database);
 }
 
-/** (Re)opens the database at the given path, applying the schema. Tests use
- * this to point the whole app at a fresh, isolated file per run. */
-export function openDb(dbPath) {
-  if (db) db.close();
+/** Thrown when no database file exists at the configured path and creating a
+ * fresh one hasn't been explicitly allowed — see openDb() below. */
+export class DatabaseMissingError extends Error {}
+
+/** (Re)opens the database at the given path, applying the schema.
+ *
+ * By default this REFUSES to create a brand-new database when none exists at
+ * `dbPath` — pass `allowFreshInit: true` only for a genuine first-ever setup
+ * (tests do this for every run, since each gets its own throwaway file). This
+ * is deliberate: silently creating an empty database is exactly what turned a
+ * storage/volume problem into total data loss before. Missing file + not
+ * allowed => throw, so the caller can stop and warn instead of proceeding. */
+export function openDb(dbPath, { allowFreshInit = false } = {}) {
   const foundExistingFile = fs.existsSync(dbPath);
+  if (!foundExistingFile && !allowFreshInit) {
+    // Deliberately don't touch the existing `db` handle (if any) here — this
+    // is a refusal to proceed, not a switch to a new database, so whatever
+    // was already open should stay open and usable.
+    throw new DatabaseMissingError(
+      `No database file found at ${dbPath}, and creating a new one automatically is disabled. ` +
+        `If this is a genuine first-time setup, set ALLOW_FRESH_DB_INIT=true once, redeploy, then unset it. ` +
+        `If this location previously held real data, this means the storage it lives on isn't being found — ` +
+        `do not proceed without checking that first.`
+    );
+  }
+  if (db) db.close();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   // Prints on every boot so a deploy's logs show, unambiguously, whether the
   // database path actually resolved onto persistent storage: a fresh install

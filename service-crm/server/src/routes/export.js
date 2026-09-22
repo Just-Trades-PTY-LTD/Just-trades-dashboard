@@ -1,7 +1,9 @@
 import { Router } from 'express';
-import { all, prepare, run, transaction } from '../db/index.js';
+import { prepare, run, transaction } from '../db/index.js';
+import { BACKUP_TABLES, buildBackupPayload, listAutomaticBackups, readAutomaticBackup } from '../db/backup.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { toCSV } from '../lib/csv.js';
+import { config } from '../config.js';
 
 const CALL_COLUMNS = [
   { key: 'archived', label: 'Archived' },
@@ -44,20 +46,6 @@ const TECH_COLUMNS = [
   { key: 'comments', label: 'Comments' },
 ];
 
-const TABLES_TO_BACKUP = [
-  'trades',
-  'job_types',
-  'technicians',
-  'list_items',
-  'suburbs',
-  'calls',
-  'jobs',
-  'sales',
-  'call_backs',
-  'pending_cancellations',
-  'audit_log',
-];
-
 export function createExportRouter({ getCallRows, getTechEntryRows }) {
   const router = Router();
   router.use(requireAuth);
@@ -82,13 +70,24 @@ export function createExportRouter({ getCallRows, getTechEntryRows }) {
   });
 
   router.get('/backup.json', requireAdmin, (req, res) => {
-    const backup = { exportedAt: new Date().toISOString(), tables: {} };
-    TABLES_TO_BACKUP.forEach((t) => {
-      backup.tables[t] = all(`SELECT * FROM ${t}`);
-    });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="crm-backup-${new Date().toISOString().slice(0, 10)}.json"`);
-    res.send(JSON.stringify(backup, null, 2));
+    res.send(JSON.stringify(buildBackupPayload(), null, 2));
+  });
+
+  // Automatic, server-generated snapshots (see db/backup.js) — a safety net
+  // for application-level mistakes, on top of whatever the Export full
+  // backup button above has been used to save elsewhere.
+  router.get('/auto-backups', requireAdmin, (req, res) => {
+    res.json(listAutomaticBackups(config.dbPath));
+  });
+
+  router.get('/auto-backups/:filename', requireAdmin, (req, res) => {
+    const content = readAutomaticBackup(config.dbPath, req.params.filename);
+    if (!content) return res.status(404).json({ error: 'Backup not found.' });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.filename}"`);
+    res.send(content);
   });
 
   router.post('/restore', requireAdmin, (req, res) => {
@@ -97,8 +96,8 @@ export function createExportRouter({ getCallRows, getTechEntryRows }) {
     try {
       transaction(() => {
         // Delete in reverse dependency order, then reinsert in forward order.
-        [...TABLES_TO_BACKUP].reverse().forEach((t) => run(`DELETE FROM ${t}`));
-        TABLES_TO_BACKUP.forEach((t) => {
+        [...BACKUP_TABLES].reverse().forEach((t) => run(`DELETE FROM ${t}`));
+        BACKUP_TABLES.forEach((t) => {
           const rows = Array.isArray(tables[t]) ? tables[t] : [];
           if (!rows.length) return;
           const columns = Object.keys(rows[0]);
