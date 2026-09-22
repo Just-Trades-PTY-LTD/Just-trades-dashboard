@@ -66,8 +66,25 @@ export function openDb(dbPath, { allowFreshInit = false } = {}) {
     // Deliberately don't touch the existing `db` handle (if any) here — this
     // is a refusal to proceed, not a switch to a new database, so whatever
     // was already open should stay open and usable.
+    //
+    // Also report what the *parent* directory looks like — this is the
+    // difference between "the mount point doesn't exist at all" (nothing is
+    // being mounted there) and "it exists but is empty" (something mounted a
+    // blank volume in its place), which matters a great deal when this turns
+    // into a hosting-provider support ticket.
+    const parentDir = path.dirname(dbPath);
+    let parentDetail;
+    try {
+      const parentExists = fs.existsSync(parentDir);
+      parentDetail = parentExists
+        ? `${parentDir} exists and contains: ${JSON.stringify(fs.readdirSync(parentDir))}`
+        : `${parentDir} does not exist at all.`;
+    } catch (err) {
+      parentDetail = `could not inspect ${parentDir}: ${err.message}`;
+    }
     throw new DatabaseMissingError(
       `No database file found at ${dbPath}, and creating a new one automatically is disabled. ` +
+        `${parentDetail} ` +
         `If this is a genuine first-time setup, set ALLOW_FRESH_DB_INIT=true once, redeploy, then unset it. ` +
         `If this location previously held real data, this means the storage it lives on isn't being found — ` +
         `do not proceed without checking that first.`
