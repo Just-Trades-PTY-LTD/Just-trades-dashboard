@@ -39,7 +39,10 @@ function emptyForm(kind) {
     installTechnicianId: '',
     installDate: '',
     invoiceNumber: '',
-    invoiceDate: '',
+    // Defaults to today, same as visitDate/dateLogged above — still a normal
+    // editable field, in case the invoice was actually created on a
+    // different day.
+    invoiceDate: todayLocalDate(),
     saleValueExGst: '',
     callBackReasonId: '',
     pendingCancellationReasonId: '',

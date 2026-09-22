@@ -213,7 +213,10 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels) {
     conversionRate: pct(conversionCount, jobs.length),
     sales: sales.length,
     totalSaleExGst,
-    avgSaleExGst: sales.length ? Math.round(totalSaleExGst / sales.length) : 0,
+    // Total sale value divided by every job attended (including knockbacks),
+    // not just the jobs that resulted in a sale — this is a per-technician/
+    // per-trade productivity figure, not an average invoice size.
+    avgSaleExGst: jobs.length ? totalSaleExGst / jobs.length : 0,
     callBacks: callbacks.length,
     pendingCancellations: pendingCancels.length,
     inspectionRate: pct(jobs.filter((j) => j.inspection_sheet === 'Yes').length, jobs.length),
