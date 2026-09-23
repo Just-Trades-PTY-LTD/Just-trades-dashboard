@@ -13,6 +13,7 @@ test('calls report Excel export produces a workbook with Summary, By staff and B
 
     await server.request('POST', '/calls', {
       callAt: '2026-05-01T09:00:00',
+      direction: 'Inbound',
       callType: 'Lead',
       tradeId: plumbing.id,
       leadSourceId: leadSource?.id,
@@ -20,6 +21,7 @@ test('calls report Excel export produces a workbook with Summary, By staff and B
     });
     await server.request('POST', '/calls', {
       callAt: '2026-05-02T10:00:00',
+      direction: 'Outbound',
       callType: 'Lead',
       tradeId: plumbing.id,
       leadSourceId: leadSource?.id,
@@ -42,6 +44,13 @@ test('calls report Excel export produces a workbook with Summary, By staff and B
     assert.match(summaryText, /Period: 2026-05-01/);
     assert.match(summaryText, /Total calls/);
     assert.ok(summaryText.includes(2), 'total calls value (2) should appear in the summary sheet');
+    assert.match(summaryText, /Inbound calls/);
+    assert.match(summaryText, /Outbound calls/);
+
+    const byStaff = wb.getWorksheet('By staff');
+    const byStaffText = byStaff.getSheetValues().flat().filter(Boolean).join(' | ');
+    assert.match(byStaffText, /Inbound/);
+    assert.match(byStaffText, /Outbound/);
 
     const breakdowns = wb.getWorksheet('Breakdowns');
     const breakdownsText = breakdowns.getSheetValues().flat().filter(Boolean).join(' | ');

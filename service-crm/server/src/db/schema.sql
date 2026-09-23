@@ -191,6 +191,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
   changed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Per-user layout preferences for the Reports page (each section's size and
+-- collapsed state). Pure UI preference: never read by any report calculation
+-- and never touches any CRM record. One row per (user, report); saving
+-- upserts in place, so adding this table can't alter existing data.
+CREATE TABLE IF NOT EXISTS user_report_layouts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  report_key TEXT NOT NULL,
+  layout_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (user_id, report_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_calls_job_number ON calls (job_number);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_number ON jobs (job_number);
 CREATE INDEX IF NOT EXISTS idx_sales_job_number ON sales (job_number);

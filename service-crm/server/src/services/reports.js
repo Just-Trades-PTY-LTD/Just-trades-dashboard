@@ -61,8 +61,24 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
 
+  // `direction` is NOT NULL at the DB level and the only place it's ever
+  // written is a two-option dropdown (Inbound/Outbound) that always submits
+  // one of those two values, with the server itself defaulting a missing
+  // value to 'Inbound' on create — so every call row should already be one
+  // or the other. Rather than assume that and just split reportCalls in two
+  // (which would silently misreport if some other value ever got in, e.g.
+  // via a direct DB restore), inbound/outbound are each counted by exact
+  // match and total is left as reportCalls.length regardless of direction —
+  // if a call ever had neither value, inbound + outbound would come up short
+  // of total instead of quietly matching it, which is the visible signal
+  // that something needs investigating.
+  const inboundCalls = reportCalls.filter((c) => c.direction === 'Inbound');
+  const outboundCalls = reportCalls.filter((c) => c.direction === 'Outbound');
+
   const kpis = {
     total: reportCalls.length,
+    inboundCount: inboundCalls.length,
+    outboundCount: outboundCalls.length,
     leadsCount: leads.length,
     bookedCount: booked.length,
     bookingRate: pct(booked.length, leads.length),
@@ -105,8 +121,10 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const staffMap = {};
   reportCalls.forEach((c) => {
     const k = c.handled_by_name || 'Unassigned';
-    if (!staffMap[k]) staffMap[k] = { name: k, total: 0, leads: 0, booked: 0 };
+    if (!staffMap[k]) staffMap[k] = { name: k, total: 0, inbound: 0, outbound: 0, leads: 0, booked: 0 };
     staffMap[k].total += 1;
+    if (c.direction === 'Inbound') staffMap[k].inbound += 1;
+    else if (c.direction === 'Outbound') staffMap[k].outbound += 1;
     if (c.call_type === 'Lead') {
       staffMap[k].leads += 1;
       if (c.booked === 'Yes') staffMap[k].booked += 1;

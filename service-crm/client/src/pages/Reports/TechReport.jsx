@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
+import { useReportLayout } from '../../lib/reportLayout.js';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
-import { ChartPanel, PieCard, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import AdjustableSection from '../../components/AdjustableSection.jsx';
 
 function emptyFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '' };
@@ -22,6 +24,7 @@ export default function TechReport() {
   const [filters, setFilters] = useState(emptyFilters());
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
+  const layout = useReportLayout('tech');
 
   useEffect(() => {
     api.reports.tech({ ...filters, granularity }).then(setData);
@@ -31,7 +34,7 @@ export default function TechReport() {
     setFilters((f) => ({ ...f, ...p }));
   }
 
-  if (!data) return <div className="empty-state">Loading…</div>;
+  if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend } = data;
 
   const kpiRows = [
@@ -73,36 +76,50 @@ export default function TechReport() {
         report for a past period can show different numbers than when it was first generated.
       </div>
 
-      <div className="grid-cards" style={{ marginBottom: 20 }}>
-        {kpiRows.map(([label, val]) => (
-          <div key={label} className="panel" style={{ padding: '14px 16px' }}>
-            <div className="kpi-val" style={{ fontSize: 21 }}>
-              {val}
+      <div style={{ marginBottom: 20 }}>
+        <AdjustableSection id="kpis" title="Summary figures" defaultSize="md" layout={layout}>
+          {(cfg) => (
+            <div className="grid-cards" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${cfg.kpiMinCardWidth}px, 1fr))` }}>
+              {kpiRows.map(([label, val]) => (
+                <div key={label} className="panel" style={{ padding: '14px 16px' }}>
+                  <div className="kpi-val" style={{ fontSize: 21 }}>
+                    {val}
+                  </div>
+                  <div className="kpi-label">{label}</div>
+                </div>
+              ))}
             </div>
-            <div className="kpi-label">{label}</div>
-          </div>
-        ))}
+          )}
+        </AdjustableSection>
       </div>
 
       <div className="grid-charts">
-        <PieCard title="Sale value by trade (ex GST)" data={salesByTradePie} formatValue={money} />
-        <ChartPanel title="Jobs, qualified leads & sales by trade">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={jobsOppSalesByTrade}>
-              <CartesianGrid stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} />
-              <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="Jobs" fill="#1b75ba" />
-              <Bar dataKey="Qualified leads" fill="#c9a227" />
-              <Bar dataKey="Sales" fill="#1f7a52" />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartPanel>
-        <ChartPanel
+        <AdjustableSection id="salesByTradePie" title="Sale value by trade (ex GST)" defaultSize="md" layout={layout}>
+          {(cfg) => <PieCardBody data={salesByTradePie} formatValue={money} height={cfg.chartHeight} />}
+        </AdjustableSection>
+
+        <AdjustableSection id="jobsOppSalesByTrade" title="Jobs, qualified leads & sales by trade" defaultSize="md" layout={layout}>
+          {(cfg) => (
+            <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+              <BarChart data={jobsOppSalesByTrade}>
+                <CartesianGrid stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} />
+                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="Jobs" fill="#1b75ba" />
+                <Bar dataKey="Qualified leads" fill="#c9a227" />
+                <Bar dataKey="Sales" fill="#1f7a52" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </AdjustableSection>
+
+        <AdjustableSection
+          id="trend"
           title="Sales over time (ex GST)"
-          span2
+          defaultSize="lg"
+          layout={layout}
           headerRight={
             <select className="btn" style={{ padding: '4px 10px' }} value={granularity} onChange={(e) => setGranularity(e.target.value)}>
               <option value="day">Daily</option>
@@ -111,106 +128,108 @@ export default function TechReport() {
             </select>
           }
         >
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={trend}>
-              <CartesianGrid stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="period" stroke="var(--ink-muted)" fontSize={11} />
-              <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} tickFormatter={(v) => `$${v}`} />
-              <Tooltip formatter={(v) => money(v)} />
-              <Line type="monotone" dataKey="value" stroke="#1b75ba" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartPanel>
+          {(cfg) => (
+            <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+              <LineChart data={trend}>
+                <CartesianGrid stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="period" stroke="var(--ink-muted)" fontSize={11} />
+                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} tickFormatter={(v) => `$${v}`} />
+                <Tooltip formatter={(v) => money(v)} />
+                <Line type="monotone" dataKey="value" stroke="#1b75ba" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </AdjustableSection>
 
-        <ChartPanel title="By trade" span2>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  {/* Headline figures first, in the order requested — everything
-                      else follows in its previous relative order. */}
-                  <th>Trade</th>
-                  <th>Jobs</th>
-                  <th>Value (ex GST)</th>
-                  <th>Avg sale</th>
-                  <th>Knock backs</th>
-                  <th>Converted later</th>
-                  <th>Conversion %</th>
-                  <th>Qual. leads</th>
-                  <th>Knock-back %</th>
-                  <th>Sales</th>
-                  <th>Call backs</th>
-                  <th>Pending cancel.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byTrade.map((r) => (
-                  <tr key={r.trade}>
-                    <td>{r.trade}</td>
-                    <td>{r.jobsAttended}</td>
-                    <td>{money(r.totalSaleExGst)}</td>
-                    <td>{money(r.avgSaleExGst)}</td>
-                    <td>{r.knockbacks}</td>
-                    <td>{r.convertedLaterCount}</td>
-                    <td>{r.conversionRate}%</td>
-                    <td>{r.qualifiedLeads}</td>
-                    <td>{r.knockbackRate}%</td>
-                    <td>{r.sales}</td>
-                    <td>{r.callBacks}</td>
-                    <td>{r.pendingCancellations}</td>
+        <AdjustableSection id="byTrade" title="By trade" defaultSize="lg" layout={layout}>
+          {(cfg) => (
+            <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Trade</th>
+                    <th>Jobs</th>
+                    <th>Value (ex GST)</th>
+                    <th>Avg sale</th>
+                    <th>Knock backs</th>
+                    <th>Converted later</th>
+                    <th>Conversion %</th>
+                    <th>Qual. leads</th>
+                    <th>Knock-back %</th>
+                    <th>Sales</th>
+                    <th>Call backs</th>
+                    <th>Pending cancel.</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ChartPanel>
+                </thead>
+                <tbody>
+                  {byTrade.map((r) => (
+                    <tr key={r.trade}>
+                      <td>{r.trade}</td>
+                      <td>{r.jobsAttended}</td>
+                      <td>{money(r.totalSaleExGst)}</td>
+                      <td>{money(r.avgSaleExGst)}</td>
+                      <td>{r.knockbacks}</td>
+                      <td>{r.convertedLaterCount}</td>
+                      <td>{r.conversionRate}%</td>
+                      <td>{r.qualifiedLeads}</td>
+                      <td>{r.knockbackRate}%</td>
+                      <td>{r.sales}</td>
+                      <td>{r.callBacks}</td>
+                      <td>{r.pendingCancellations}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </AdjustableSection>
 
-        <ChartPanel title="By technician" span2>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  {/* Headline figures first, in the order requested — everything
-                      else follows in its previous relative order. */}
-                  <th>Technician</th>
-                  <th>Jobs</th>
-                  <th>Value (ex GST)</th>
-                  <th>Avg sale</th>
-                  <th>Knock backs</th>
-                  <th>Converted later</th>
-                  <th>Conversion %</th>
-                  <th>Qual. leads</th>
-                  <th>Knock-back %</th>
-                  <th>Sales</th>
-                  <th>Call backs</th>
-                  <th>Pending cancel.</th>
-                  <th>Insp. sheet</th>
-                  <th>Option sheet</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byTechnician.map((r) => (
-                  <tr key={r.name}>
-                    <td>{r.name}</td>
-                    <td>{r.jobsAttended}</td>
-                    <td>{money(r.totalSaleExGst)}</td>
-                    <td>{money(r.avgSaleExGst)}</td>
-                    <td>{r.knockbacks}</td>
-                    <td>{r.convertedLaterCount}</td>
-                    <td>{r.conversionRate}%</td>
-                    <td>{r.qualifiedLeads}</td>
-                    <td>{r.knockbackRate}%</td>
-                    <td>{r.sales}</td>
-                    <td>{r.callBacks}</td>
-                    <td>{r.pendingCancellations}</td>
-                    <td>{r.inspectionRate}%</td>
-                    <td>{r.optionRate}%</td>
+        <AdjustableSection id="byTechnician" title="By technician" defaultSize="lg" layout={layout}>
+          {(cfg) => (
+            <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Technician</th>
+                    <th>Jobs</th>
+                    <th>Value (ex GST)</th>
+                    <th>Avg sale</th>
+                    <th>Knock backs</th>
+                    <th>Converted later</th>
+                    <th>Conversion %</th>
+                    <th>Qual. leads</th>
+                    <th>Knock-back %</th>
+                    <th>Sales</th>
+                    <th>Call backs</th>
+                    <th>Pending cancel.</th>
+                    <th>Insp. sheet</th>
+                    <th>Option sheet</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ChartPanel>
+                </thead>
+                <tbody>
+                  {byTechnician.map((r) => (
+                    <tr key={r.name}>
+                      <td>{r.name}</td>
+                      <td>{r.jobsAttended}</td>
+                      <td>{money(r.totalSaleExGst)}</td>
+                      <td>{money(r.avgSaleExGst)}</td>
+                      <td>{r.knockbacks}</td>
+                      <td>{r.convertedLaterCount}</td>
+                      <td>{r.conversionRate}%</td>
+                      <td>{r.qualifiedLeads}</td>
+                      <td>{r.knockbackRate}%</td>
+                      <td>{r.sales}</td>
+                      <td>{r.callBacks}</td>
+                      <td>{r.pendingCancellations}</td>
+                      <td>{r.inspectionRate}%</td>
+                      <td>{r.optionRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </AdjustableSection>
       </div>
     </div>
   );

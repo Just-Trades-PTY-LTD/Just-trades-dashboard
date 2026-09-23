@@ -31,6 +31,8 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
   addTitleBlock(summary, 'Calls Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra: [`Staff: ${staffName}`] }));
   addKpiTable(summary, [
     ['Total calls', data.kpis.total],
+    ['Inbound calls', data.kpis.inboundCount],
+    ['Outbound calls', data.kpis.outboundCount],
     ['Leads', data.kpis.leadsCount],
     ['Booked leads', data.kpis.bookedCount],
     ['Booking rate', `${data.kpis.bookingRate}%`],
@@ -47,6 +49,8 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
     [
       { key: 'name', label: 'Staff', width: 24 },
       { key: 'total', label: 'Total calls' },
+      { key: 'inbound', label: 'Inbound' },
+      { key: 'outbound', label: 'Outbound' },
       { key: 'leads', label: 'Leads' },
       { key: 'booked', label: 'Booked' },
       { key: 'rate', label: 'Booking rate', value: (r) => `${r.rate}%` },

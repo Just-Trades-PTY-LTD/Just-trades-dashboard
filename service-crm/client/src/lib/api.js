@@ -87,6 +87,8 @@ export const api = {
     tech: (params) => request('GET', `/reports/tech${qs(params)}`),
     callsXlsxUrl: (params) => `/api/reports/calls.xlsx${qs(params)}`,
     techXlsxUrl: (params) => `/api/reports/tech.xlsx${qs(params)}`,
+    getLayouts: () => request('GET', '/reports/layouts'),
+    saveLayout: (reportKey, layout) => request('PUT', `/reports/layouts/${reportKey}`, { layout }),
   },
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),

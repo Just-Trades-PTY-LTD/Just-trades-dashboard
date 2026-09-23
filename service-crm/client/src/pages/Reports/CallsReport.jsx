@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
+import { useReportLayout } from '../../lib/reportLayout.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
-import { ChartPanel, PieCard, BarCard, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import AdjustableSection from '../../components/AdjustableSection.jsx';
 
 function emptyFilters() {
   return { from: '', to: '', handledByUserId: '' };
@@ -12,6 +14,7 @@ export default function CallsReport() {
   const settings = useSettings();
   const [filters, setFilters] = useState(emptyFilters());
   const [data, setData] = useState(null);
+  const layout = useReportLayout('calls');
 
   useEffect(() => {
     api.reports.calls(filters).then(setData);
@@ -21,11 +24,13 @@ export default function CallsReport() {
     setFilters((f) => ({ ...f, ...p }));
   }
 
-  if (!data) return <div className="empty-state">Loading…</div>;
+  if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, staffPerf } = data;
 
   const kpiRows = [
     ['Total calls', kpis.total],
+    ['Inbound calls', kpis.inboundCount],
+    ['Outbound calls', kpis.outboundCount],
     ['Leads', kpis.leadsCount],
     ['Booked leads', kpis.bookedCount],
     ['Booking rate', `${kpis.bookingRate}%`],
@@ -49,72 +54,107 @@ export default function CallsReport() {
         </a>
       </div>
 
-      <div className="grid-cards" style={{ marginBottom: 20 }}>
-        {kpiRows.map(([label, val]) => (
-          <div key={label} className="panel" style={{ padding: '16px 18px' }}>
-            <div className="kpi-val">{val}</div>
-            <div className="kpi-label">{label}</div>
-          </div>
-        ))}
+      <div style={{ marginBottom: 20 }}>
+        <AdjustableSection id="kpis" title="Summary figures" defaultSize="md" layout={layout}>
+          {(cfg) => (
+            <div className="grid-cards" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${cfg.kpiMinCardWidth}px, 1fr))` }}>
+              {kpiRows.map(([label, val]) => (
+                <div key={label} className="panel" style={{ padding: '16px 18px' }}>
+                  <div className="kpi-val">{val}</div>
+                  <div className="kpi-label">{label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </AdjustableSection>
       </div>
 
       {kpis.total === 0 ? (
         <div className="panel empty-state">No calls logged in this range yet.</div>
       ) : (
         <div className="grid-charts">
-          <PieCard title="Calls by trade" data={byTrade} />
-          <PieCard title="Leads by referral source" data={bySourcePie} />
-          <ChartPanel title="Leads by source — booked vs not">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={bySourceStack}>
-                <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} interval={0} angle={-20} textAnchor="end" height={60} />
-                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="Booked" stackId="a" fill="#1f7a52" />
-                <Bar dataKey="Not booked" stackId="a" fill="#a15c17" />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartPanel>
-          <BarCard title="Why leads aren't booking" data={notBookedReasons} color="#a15c17" />
-          <BarCard title="New Job Cancellation reasons" data={newCancelReasons} color="#a3323a" />
-          <BarCard title="Pending Cancellation reasons" data={pendingCancelReasons} color="#8a4fbf" />
-          <ChartPanel title="Calls over time" span2>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={trend}>
-                <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" stroke="var(--ink-muted)" fontSize={11} />
-                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-                <Tooltip />
-                <Line type="monotone" dataKey="count" stroke="#1b75ba" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartPanel>
-          <ChartPanel title="By staff" span2>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Staff</th>
-                  <th>Total calls</th>
-                  <th>Leads</th>
-                  <th>Booked</th>
-                  <th>Booking rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffPerf.map((s) => (
-                  <tr key={s.name}>
-                    <td>{s.name}</td>
-                    <td>{s.total}</td>
-                    <td>{s.leads}</td>
-                    <td>{s.booked}</td>
-                    <td>{s.rate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ChartPanel>
+          <AdjustableSection id="byTrade" title="Calls by trade" defaultSize="md" layout={layout}>
+            {(cfg) => <PieCardBody data={byTrade} height={cfg.chartHeight} />}
+          </AdjustableSection>
+
+          <AdjustableSection id="bySourcePie" title="Leads by referral source" defaultSize="md" layout={layout}>
+            {(cfg) => <PieCardBody data={bySourcePie} height={cfg.chartHeight} />}
+          </AdjustableSection>
+
+          <AdjustableSection id="bySourceStack" title="Leads by source — booked vs not" defaultSize="md" layout={layout}>
+            {(cfg) => (
+              <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+                <BarChart data={bySourceStack}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Booked" stackId="a" fill="#1f7a52" />
+                  <Bar dataKey="Not booked" stackId="a" fill="#a15c17" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </AdjustableSection>
+
+          <AdjustableSection id="notBookedReasons" title="Why leads aren't booking" defaultSize="md" layout={layout}>
+            {(cfg) => <BarCardBody data={notBookedReasons} color="#a15c17" height={cfg.chartHeight} />}
+          </AdjustableSection>
+
+          <AdjustableSection id="newCancelReasons" title="New Job Cancellation reasons" defaultSize="md" layout={layout}>
+            {(cfg) => <BarCardBody data={newCancelReasons} color="#a3323a" height={cfg.chartHeight} />}
+          </AdjustableSection>
+
+          <AdjustableSection id="pendingCancelReasons" title="Pending Cancellation reasons" defaultSize="md" layout={layout}>
+            {(cfg) => <BarCardBody data={pendingCancelReasons} color="#8a4fbf" height={cfg.chartHeight} />}
+          </AdjustableSection>
+
+          <AdjustableSection id="trend" title="Calls over time" defaultSize="lg" layout={layout}>
+            {(cfg) => (
+              <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+                <LineChart data={trend}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="date" stroke="var(--ink-muted)" fontSize={11} />
+                  <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="#1b75ba" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </AdjustableSection>
+
+          <AdjustableSection id="byStaff" title="By staff" defaultSize="lg" layout={layout}>
+            {(cfg) => (
+              <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Staff</th>
+                      <th>Total calls</th>
+                      <th>Inbound</th>
+                      <th>Outbound</th>
+                      <th>Leads</th>
+                      <th>Booked</th>
+                      <th>Booking rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffPerf.map((s) => (
+                      <tr key={s.name}>
+                        <td>{s.name}</td>
+                        <td>{s.total}</td>
+                        <td>{s.inbound}</td>
+                        <td>{s.outbound}</td>
+                        <td>{s.leads}</td>
+                        <td>{s.booked}</td>
+                        <td>{s.rate}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </AdjustableSection>
         </div>
       )}
     </div>
