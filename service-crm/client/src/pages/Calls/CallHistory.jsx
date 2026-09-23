@@ -4,6 +4,13 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
+const NOTES_PREVIEW_LENGTH = 60;
+
+function notesPreview(notes) {
+  if (!notes) return null;
+  const trimmed = notes.trim();
+  return trimmed.length > NOTES_PREVIEW_LENGTH ? `${trimmed.slice(0, NOTES_PREVIEW_LENGTH)}…` : trimmed;
+}
 
 function emptyFilters() {
   return { from: '', to: '', handledByUserId: '', callType: '', jobNumber: '', includeArchived: false };
@@ -88,6 +95,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                 <th>Suburb</th>
                 <th>Outcome</th>
                 <th>JN</th>
+                <th>Comments</th>
                 <th></th>
               </tr>
             </thead>
@@ -131,6 +139,9 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                         </div>
                       )}
                     </td>
+                    <td style={{ maxWidth: 220, color: 'var(--ink-muted)', fontSize: 12.5 }} title={c.notes || undefined}>
+                      {notesPreview(c.notes) || '—'}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button className="btn btn-sm" onClick={() => onEdit(c)} type="button">
@@ -158,7 +169,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                   </tr>
                   {expandedId === c.id && (
                     <tr>
-                      <td colSpan={9} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                      <td colSpan={10} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                         {history.map((h) => (
                           <div key={h.id} style={{ padding: '6px 4px' }}>
                             <strong>{h.at}</strong> — {h.by}:{' '}
