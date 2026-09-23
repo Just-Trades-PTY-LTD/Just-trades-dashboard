@@ -13,6 +13,16 @@ const ENTRY_TYPES = [
   { id: 'pending_cancellation', name: 'Pending Cancellation' },
 ];
 
+// Same preview length/behaviour as Call History's comments preview — full
+// text is always still available via title (hover) and the Edit form.
+const NOTES_PREVIEW_LENGTH = 60;
+
+function notesPreview(notes) {
+  if (!notes) return null;
+  const trimmed = notes.trim();
+  return trimmed.length > NOTES_PREVIEW_LENGTH ? `${trimmed.slice(0, NOTES_PREVIEW_LENGTH)}…` : trimmed;
+}
+
 function emptyFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false };
 }
@@ -165,6 +175,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                 <th>JN</th>
                 <th>Trade / job type</th>
                 <th>Outcome</th>
+                <th>Comments</th>
                 <th></th>
               </tr>
             </thead>
@@ -212,6 +223,9 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                         {e.kind === 'call_back' && <span className="badge badge-info">{e.reasonName || 'Call back'}</span>}
                         {e.kind === 'pending_cancellation' && <span className="badge badge-alert">{e.reasonName || 'Pending cancellation'}</span>}
                       </td>
+                      <td style={{ maxWidth: 220, color: 'var(--ink-muted)', fontSize: 12.5 }} title={e.comments || undefined}>
+                        {notesPreview(e.comments) || '—'}
+                      </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button className="btn btn-sm" onClick={() => onEdit(e)} type="button">
@@ -245,7 +259,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                     </tr>
                     {expandedId === key && (
                       <tr>
-                        <td colSpan={8} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                        <td colSpan={9} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
                               <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}
