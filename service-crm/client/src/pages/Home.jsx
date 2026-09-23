@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
-export default function Home({ setModule }) {
+export default function Home({ setModule, isAdmin }) {
   const [counts, setCounts] = useState({ calls: null, jobs: null });
 
   useEffect(() => {
@@ -33,12 +33,16 @@ export default function Home({ setModule }) {
       desc: 'Company, trade and technician performance — leads, sales, conversion and knock-backs.',
       stat: 'Calls and technician reports in one place',
     },
-    {
-      id: 'settings',
-      title: 'Settings',
-      desc: 'Categories, staff, trades, suburbs, and data export / backup.',
-      stat: 'Everything here is editable',
-    },
+    ...(isAdmin
+      ? [
+          {
+            id: 'settings',
+            title: 'Settings',
+            desc: 'Categories, staff, trades, suburbs, and data export / backup.',
+            stat: 'Everything here is editable',
+          },
+        ]
+      : []),
   ];
 
   return (

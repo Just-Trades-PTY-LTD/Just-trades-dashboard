@@ -10,12 +10,11 @@ import ReportsPage from './pages/Reports/index.jsx';
 import SettingsPage from './pages/Settings/index.jsx';
 import logo from './assets/logo.png';
 
-const TABS = [
+const BASE_TABS = [
   ['home', 'Home'],
   ['calls', 'Calls'],
   ['tech', 'Technician & sales'],
   ['reports', 'Reports'],
-  ['settings', 'Settings'],
 ];
 
 export default function App() {
@@ -25,6 +24,15 @@ export default function App() {
 
   if (loading) return null;
   if (!user) return <Login />;
+
+  const isAdmin = user.role === 'admin';
+  // Settings holds only admin-only tools (staff accounts, lists/config,
+  // backup/restore, activity history) — never shown to a staff user, and the
+  // backend enforces the same boundary independently of this tab existing.
+  const tabs = isAdmin ? [...BASE_TABS, ['settings', 'Settings']] : BASE_TABS;
+  // A staff session that still has 'settings' recorded from an earlier admin
+  // session on this browser (or a role downgrade) should land somewhere real.
+  const activeModule = tabs.some(([id]) => id === module) ? module : 'home';
 
   function jumpToJN(target, jn) {
     setModule(target);
@@ -50,18 +58,18 @@ export default function App() {
         </div>
 
         <div className="app-tabs">
-          {TABS.map(([id, label]) => (
-            <button key={id} className={`tab ${module === id ? 'active' : ''}`} onClick={() => setModule(id)} type="button">
+          {tabs.map(([id, label]) => (
+            <button key={id} className={`tab ${activeModule === id ? 'active' : ''}`} onClick={() => setModule(id)} type="button">
               {label}
             </button>
           ))}
         </div>
 
-        {module === 'home' && <Home setModule={setModule} />}
-        {module === 'calls' && <CallsPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
-        {module === 'tech' && <TechSalesPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
-        {module === 'reports' && <ReportsPage />}
-        {module === 'settings' && <SettingsPage isAdmin={user.role === 'admin'} />}
+        {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} />}
+        {activeModule === 'calls' && <CallsPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
+        {activeModule === 'tech' && <TechSalesPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
+        {activeModule === 'reports' && <ReportsPage />}
+        {activeModule === 'settings' && isAdmin && <SettingsPage isAdmin={isAdmin} />}
       </div>
     </SettingsProvider>
   );
