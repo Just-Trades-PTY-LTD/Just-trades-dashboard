@@ -17,15 +17,22 @@ function emptyFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false };
 }
 
-export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber }) {
+export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice }) {
   const settings = useSettings();
   const [filters, setFilters] = useState(emptyFilters());
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
 
   useEffect(() => {
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
   }, [initialJobNumber]);
+
+  // Clear the selection whenever the filters change, so a selection never
+  // silently carries over onto a different set of rows than what was picked.
+  useEffect(() => {
+    setSelectedKeys(new Set());
+  }, [filters]);
 
   function patch(p) {
     setFilters((f) => ({ ...f, ...p }));
@@ -41,6 +48,46 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
     if (filters.jobNumber && (e.jobNumber || '').trim().toLowerCase() !== filters.jobNumber.trim().toLowerCase()) return false;
     return true;
   });
+
+  // Entries come from four different underlying tables (job/sale/call_back/
+  // pending_cancellation) whose own ids aren't unique across kinds, so
+  // selection is tracked by the same "kind:id" composite key already used
+  // for the history expansion below. Only currently-visible, not-yet-
+  // archived rows can be selected.
+  function entryKey(e) {
+    return `${e.kind}:${e.id}`;
+  }
+  const selectableRows = filtered.filter((e) => !e.archived);
+  const allSelected = selectableRows.length > 0 && selectableRows.every((e) => selectedKeys.has(entryKey(e)));
+
+  function toggleSelectAll() {
+    setSelectedKeys(allSelected ? new Set() : new Set(selectableRows.map(entryKey)));
+  }
+
+  function toggleSelected(key) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function archiveSelected() {
+    const keys = [...selectedKeys];
+    if (!keys.length) return;
+    const n = keys.length;
+    if (!window.confirm(`Archive ${n} entr${n === 1 ? 'y' : 'ies'}? This can be undone later with Unarchive.`)) return;
+    await Promise.all(
+      keys.map((key) => {
+        const [kind, id] = key.split(':');
+        return api.tech.archive(kind, id, true);
+      })
+    );
+    setSelectedKeys(new Set());
+    setNotice(`${n} entr${n === 1 ? 'y' : 'ies'} archived.`);
+    onChanged();
+  }
 
   async function toggleArchive(entry, archived) {
     await api.tech.archive(entry.kind, entry.id, archived);
@@ -79,6 +126,11 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters
         </button>
+        {selectedKeys.size > 0 && (
+          <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+            Archive selected ({selectedKeys.size})
+          </button>
+        )}
         <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} entries</div>
       </div>
 
@@ -91,6 +143,15 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
           <table className="data-table">
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    disabled={selectableRows.length === 0}
+                    title="Select all"
+                  />
+                </th>
                 <th>Date</th>
                 <th>Entry type</th>
                 <th>Technician</th>
@@ -106,6 +167,11 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                 return (
                   <Fragment key={key}>
                     <tr style={e.archived ? { opacity: 0.55 } : undefined}>
+                      <td>
+                        {!e.archived && (
+                          <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleSelected(key)} />
+                        )}
+                      </td>
                       <td className="mono">{e.dateShown}</td>
                       <td>
                         {e.entryLabel}
@@ -166,7 +232,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                     </tr>
                     {expandedId === key && (
                       <tr>
-                        <td colSpan={7} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                        <td colSpan={8} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
                               <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}

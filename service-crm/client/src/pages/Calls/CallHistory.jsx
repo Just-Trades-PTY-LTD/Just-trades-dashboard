@@ -22,10 +22,17 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
   const [filters, setFilters] = useState(emptyFilters());
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   useEffect(() => {
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
   }, [initialJobNumber]);
+
+  // Clear the selection whenever the filters change, so a selection never
+  // silently carries over onto a different set of rows than what was picked.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filters]);
 
   function patch(p) {
     setFilters((f) => ({ ...f, ...p }));
@@ -40,6 +47,36 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
     if (filters.jobNumber && c.jobNumber.trim().toLowerCase() !== filters.jobNumber.trim().toLowerCase()) return false;
     return true;
   });
+
+  // Only currently-visible, not-yet-archived rows can be selected — Select
+  // All only ever selects what's on screen under the active filters, and
+  // there's nothing useful to "archive" on a row that's already archived.
+  const selectableRows = filtered.filter((c) => !c.archived);
+  const allSelected = selectableRows.length > 0 && selectableRows.every((c) => selectedIds.has(c.id));
+
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(selectableRows.map((c) => c.id)));
+  }
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function archiveSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const n = ids.length;
+    if (!window.confirm(`Archive ${n} call${n === 1 ? '' : 's'}? This can be undone later with Unarchive.`)) return;
+    await Promise.all(ids.map((id) => api.calls.archive(id, true)));
+    setSelectedIds(new Set());
+    setNotice(`${n} call${n === 1 ? '' : 's'} archived.`);
+    onChanged();
+  }
 
   async function toggleArchive(id, archived) {
     await api.calls.archive(id, archived);
@@ -76,6 +113,11 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters
         </button>
+        {selectedIds.size > 0 && (
+          <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+            Archive selected ({selectedIds.size})
+          </button>
+        )}
         <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
       </div>
 
@@ -88,6 +130,15 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
           <table className="data-table">
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    disabled={selectableRows.length === 0}
+                    title="Select all"
+                  />
+                </th>
                 <th>Date / time</th>
                 <th>Direction</th>
                 <th>Staff</th>
@@ -104,6 +155,11 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
               {filtered.map((c) => (
                 <Fragment key={c.id}>
                   <tr style={c.archived ? { opacity: 0.55 } : undefined}>
+                    <td>
+                      {!c.archived && (
+                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)} />
+                      )}
+                    </td>
                     <td className="mono">{(c.callAt || '').replace('T', ' ')}</td>
                     <td>{c.direction}</td>
                     <td>{c.handledByName || '—'}</td>
@@ -170,7 +226,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                   </tr>
                   {expandedId === c.id && (
                     <tr>
-                      <td colSpan={10} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                      <td colSpan={11} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                         {history.map((h) => (
                           <div key={h.id} style={{ padding: '6px 4px' }}>
                             <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from './auth/AuthContext.jsx';
+import { useSessionState } from './lib/useSessionState.js';
 import { SettingsProvider } from './lib/SettingsContext.jsx';
 import Login from './pages/Login.jsx';
 import Home from './pages/Home.jsx';
@@ -19,7 +20,7 @@ const TABS = [
 
 export default function App() {
   const { user, loading, logout } = useAuth();
-  const [module, setModule] = useState('home');
+  const [module, setModule] = useSessionState('crm.module', 'home');
   const [pendingJump, setPendingJump] = useState(null);
 
   if (loading) return null;

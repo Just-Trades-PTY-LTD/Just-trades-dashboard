@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { useSessionState } from '../../lib/useSessionState.js';
 import { SubTabs } from '../../components/Fields.jsx';
 import LogCall from './LogCall.jsx';
 import CallHistory from './CallHistory.jsx';
 
 export default function CallsPage({ pendingJump, clearJump, jumpToJN }) {
-  const [sub, setSub] = useState('log');
+  const [sub, setSub] = useSessionState('crm.calls.sub', 'log');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);

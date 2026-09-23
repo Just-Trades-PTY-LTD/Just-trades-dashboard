@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { useSessionState } from '../../lib/useSessionState.js';
 import { SubTabs } from '../../components/Fields.jsx';
 import LogEntry from './LogEntry.jsx';
 import JobHistory from './JobHistory.jsx';
 
 export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
-  const [sub, setSub] = useState('log');
+  const [sub, setSub] = useSessionState('crm.tech.sub', 'log');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
@@ -67,7 +68,15 @@ export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
         />
       )}
       {sub === 'history' && (
-        <JobHistory rows={rows} loading={loading} onEdit={startEdit} onChanged={load} jumpToJN={jumpToJN} initialJobNumber={initialJobNumber} />
+        <JobHistory
+          rows={rows}
+          loading={loading}
+          onEdit={startEdit}
+          onChanged={load}
+          jumpToJN={jumpToJN}
+          initialJobNumber={initialJobNumber}
+          setNotice={setNotice}
+        />
       )}
     </div>
   );
