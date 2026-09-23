@@ -253,12 +253,24 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
   Object.entries(idsByType).forEach(([t, ids]) => {
     countsByType[t] = getHistoryCounts(t, ids);
   });
+  // A job row can't be deleted while a sales row still references it by
+  // job_id (always true for "New Job — Sale Made", and also true for a
+  // knock-back job once a later "Quote Approved Later" sale converts it) —
+  // and a "Quote Approved Later" sale can't be deleted while it's the sale a
+  // job's converted_by_sale_id points back to. Neither Delete button should
+  // be offered in those cases; Archive is always safe regardless.
+  const jobIdsWithSales = new Set(all("SELECT DISTINCT job_id AS id FROM sales WHERE job_id IS NOT NULL").map((r) => r.id));
+  const saleIdsConvertedFrom = new Set(all("SELECT DISTINCT converted_by_sale_id AS id FROM jobs WHERE converted_by_sale_id IS NOT NULL").map((r) => r.id));
+
   entries.forEach((e) => {
     const t = ENTITY_TYPE_BY_KIND[e.kind];
     e.historyCount = countsByType[t]?.[e.id] || 0;
     e.relatedCallsCount = e.jobNumber
       ? get('SELECT COUNT(*) AS n FROM calls WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
       : 0;
+    if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
+    else if (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') e.canDelete = !jobIdsWithSales.has(e.id);
+    else e.canDelete = true;
   });
 
   return entries;
@@ -645,8 +657,23 @@ export function createTechSalesRouter() {
   router.delete('/entries/:kind/:id', (req, res) => {
     const table = TABLE_BY_KIND[req.params.kind];
     if (!table) return res.status(404).json({ error: 'Unknown entry kind.' });
-    run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
-    res.json({ ok: true });
+    try {
+      run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (err) {
+      // A job/sale that's still linked to another record (a job's own sale,
+      // or the sale that converted a knock-back) can't be deleted without
+      // also deleting or unlinking that other record — which Delete here has
+      // never done, so this always failed. listTechEntries() now computes
+      // canDelete so the UI never offers Delete on these; this catch is the
+      // backend backstop for a direct API call bypassing that, or any entry
+      // whose links changed between page load and this click — either way it
+      // must never delete the linked record itself, just refuse cleanly.
+      if (String(err.message).includes('FOREIGN KEY constraint failed')) {
+        return res.status(409).json({ error: 'This entry has linked sales or job information and cannot be permanently deleted. Please archive it instead.' });
+      }
+      throw err;
+    }
   });
 
   return router;

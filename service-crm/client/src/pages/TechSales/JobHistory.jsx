@@ -96,8 +96,12 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
 
   async function remove(entry) {
     if (!window.confirm('Delete this entry permanently?')) return;
-    await api.tech.remove(entry.kind, entry.id);
-    onChanged();
+    try {
+      await api.tech.remove(entry.kind, entry.id);
+      onChanged();
+    } catch (err) {
+      setNotice(err.message, true);
+    }
   }
 
   async function toggleHistory(entry) {
@@ -222,7 +226,13 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                               Archive
                             </button>
                           )}
-                          <button className="btn btn-sm btn-danger" onClick={() => remove(e)} type="button">
+                          <button
+                            className="btn btn-sm btn-danger"
+                            onClick={() => remove(e)}
+                            type="button"
+                            disabled={e.canDelete === false}
+                            title={e.canDelete === false ? 'This entry has linked sales or job information and cannot be permanently deleted. Please archive it instead.' : undefined}
+                          >
                             Delete
                           </button>
                           {e.historyCount > 0 && (
