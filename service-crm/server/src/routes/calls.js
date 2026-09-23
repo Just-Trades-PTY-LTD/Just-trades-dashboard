@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
 import { findLatestSale, findOriginalJob } from '../services/lookup.js';
+import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
 
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
 
@@ -177,6 +178,16 @@ export function createCallsRouter() {
 
   router.get('/', (req, res) => {
     res.json(listCalls(req.query));
+  });
+
+  router.get('/export.xlsx', async (req, res) => {
+    const rows = listCalls(req.query);
+    const staffLookup = new Map(all('SELECT id, name FROM users').map((u) => [String(u.id), u.name]));
+    const wb = buildCallHistoryWorkbook(rows, req.query, staffLookup);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="call-history-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   });
 
   router.get('/:id/history', (req, res) => {

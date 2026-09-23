@@ -118,7 +118,10 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
             Archive selected ({selectedIds.size})
           </button>
         )}
-        <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
+        <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.calls.exportXlsxUrl(filters)}>
+          Export to Excel
+        </a>
+        <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
       </div>
 
       <div className="panel table-scroll">

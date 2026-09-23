@@ -4,47 +4,7 @@ import { BACKUP_TABLES, buildBackupPayload, listAutomaticBackups, readAutomaticB
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { toCSV } from '../lib/csv.js';
 import { config } from '../config.js';
-
-const CALL_COLUMNS = [
-  { key: 'archived', label: 'Archived' },
-  { key: 'callAt', label: 'Date/time' },
-  { key: 'direction', label: 'Direction' },
-  { key: 'handledByName', label: 'Handled by' },
-  { key: 'callType', label: 'Call type' },
-  { key: 'tradeName', label: 'Trade' },
-  { key: 'jobTypeName', label: 'Job type' },
-  { key: 'leadSourceName', label: 'Lead source' },
-  { key: 'booked', label: 'Booked' },
-  { key: 'notBookedReasonName', label: 'Not booked reason' },
-  { key: 'cancellationType', label: 'Cancellation type' },
-  { key: 'cancellationReasonName', label: 'Cancellation reason' },
-  { key: 'callBackReasonName', label: 'Call back reason' },
-  { key: 'jobNumber', label: 'Job number' },
-  { key: 'suburb', label: 'Suburb' },
-  { key: 'notes', label: 'Notes' },
-];
-
-const TECH_COLUMNS = [
-  { key: 'archived', label: 'Archived' },
-  { key: 'entryLabel', label: 'Entry type' },
-  { key: 'dateShown', label: 'Date' },
-  { key: 'technicianName', label: 'Technician' },
-  { key: 'creditedTechnicianName', label: 'Credited technician' },
-  { key: 'jobNumber', label: 'Job number' },
-  { key: 'tradeName', label: 'Trade' },
-  { key: 'jobTypeName', label: 'Job type' },
-  { key: 'lead', label: 'Lead' },
-  { key: 'inspectionSheet', label: 'Inspection sheet' },
-  { key: 'optionSheet', label: 'Option sheet' },
-  { key: 'knockback', label: 'Knock back' },
-  { key: 'knockbackReasonName', label: 'Knock back reason' },
-  { key: 'convertedLater', label: 'Converted later' },
-  { key: 'invoiceNumber', label: 'Invoice number' },
-  { key: 'invoiceDate', label: 'Invoice date' },
-  { key: 'saleValueExGst', label: 'Sale value (ex GST)' },
-  { key: 'reasonName', label: 'Call back / cancellation reason' },
-  { key: 'comments', label: 'Comments' },
-];
+import { CALL_COLUMNS, TECH_COLUMNS } from '../lib/historyColumns.js';
 
 export function createExportRouter({ getCallRows, getTechEntryRows }) {
   const router = Router();

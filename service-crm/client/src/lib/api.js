@@ -61,9 +61,11 @@ export const api = {
     update: (id, body) => request('PATCH', `/calls/${id}`, body),
     archive: (id, archived) => request('PATCH', `/calls/${id}/archive`, { archived }),
     remove: (id) => request('DELETE', `/calls/${id}`),
+    exportXlsxUrl: (params) => `/api/calls/export.xlsx${qs(params)}`,
   },
   tech: {
     entries: (params) => request('GET', `/tech/entries${qs(params)}`),
+    entriesXlsxUrl: (params) => `/api/tech/entries/export.xlsx${qs(params)}`,
     history: (kind, id) => request('GET', `/tech/entries/${kind}/${id}/history`),
     createNewJob: (body) => request('POST', '/tech/new-job', body),
     updateNewJob: (id, body) => request('PATCH', `/tech/new-job/${id}`, body),

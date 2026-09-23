@@ -131,7 +131,10 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
             Archive selected ({selectedKeys.size})
           </button>
         )}
-        <div style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} entries</div>
+        <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.tech.entriesXlsxUrl(filters)}>
+          Export to Excel
+        </a>
+        <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} entries</div>
       </div>
 
       <div className="panel table-scroll">

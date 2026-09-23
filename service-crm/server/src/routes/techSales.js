@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
 import { findConvertibleKnockback, findDuplicateInvoice, findOriginalJob, findLatestSale, normKey } from '../services/lookup.js';
+import { buildJobHistoryWorkbook } from '../lib/xlsxHistory.js';
 
 const JOB_TRACKED_FIELDS = [
   'technician_id',
@@ -270,6 +271,19 @@ export function createTechSalesRouter() {
   // ---- Unified job history feed ----
   router.get('/entries', (req, res) => {
     res.json(listTechEntries(req.query));
+  });
+
+  router.get('/entries/export.xlsx', async (req, res) => {
+    const rows = listTechEntries(req.query);
+    const lookups = {
+      technicians: new Map(all('SELECT id, name FROM technicians').map((t) => [String(t.id), t.name])),
+      trades: new Map(all('SELECT id, name FROM trades').map((t) => [String(t.id), t.name])),
+    };
+    const wb = buildJobHistoryWorkbook(rows, req.query, lookups);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="technician-sales-history-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   });
 
   router.get('/entries/:kind/:id/history', (req, res) => {
