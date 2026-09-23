@@ -62,6 +62,9 @@ export default function TechReport() {
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters
         </button>
+        <a className="btn btn-primary" href={api.reports.techXlsxUrl(filters)} style={{ marginLeft: 'auto' }}>
+          Export to Excel
+        </a>
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>

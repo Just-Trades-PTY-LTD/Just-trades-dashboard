@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import SettingsList from './SettingsList.jsx';
+import CollapsibleSection from '../../components/CollapsibleSection.jsx';
 
 const LIST_CATEGORIES = [
   ['lead_source', 'Lead sources'],
@@ -17,8 +18,7 @@ function JobTypesEditor({ trades, refresh }) {
   const trade = trades.find((t) => t.id === Number(tradeId));
 
   return (
-    <div className="panel" style={{ padding: 18 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>Job types by trade</div>
+    <CollapsibleSection title="Job types by trade">
       <div className="field" style={{ marginBottom: 10 }}>
         <label>For trade</label>
         <select value={tradeId} onChange={(e) => setTradeId(e.target.value)}>
@@ -45,7 +45,7 @@ function JobTypesEditor({ trades, refresh }) {
       <button className="btn" style={{ marginTop: 6 }} onClick={() => api.settings.addJobType(tradeId, 'New job type').then(refresh)} type="button" disabled={!tradeId}>
         Add job type
       </button>
-    </div>
+    </CollapsibleSection>
   );
 }
 

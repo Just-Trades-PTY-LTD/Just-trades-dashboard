@@ -83,6 +83,8 @@ export const api = {
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),
     tech: (params) => request('GET', `/reports/tech${qs(params)}`),
+    callsXlsxUrl: (params) => `/api/reports/calls.xlsx${qs(params)}`,
+    techXlsxUrl: (params) => `/api/reports/tech.xlsx${qs(params)}`,
   },
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),

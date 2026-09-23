@@ -44,6 +44,9 @@ export default function CallsReport() {
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters
         </button>
+        <a className="btn btn-primary" href={api.reports.callsXlsxUrl(filters)} style={{ marginLeft: 'auto' }}>
+          Export to Excel
+        </a>
       </div>
 
       <div className="grid-cards" style={{ marginBottom: 20 }}>

@@ -34,9 +34,17 @@ export async function startTestServer() {
     return res.data.user;
   }
 
+  async function rawGet(path) {
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: cookie ? { Cookie: cookie } : {},
+    });
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { status: res.status, headers: res.headers, buffer };
+  }
+
   function close() {
     server.close();
   }
 
-  return { request, login, close, dbPath };
+  return { request, login, close, rawGet, dbPath };
 }

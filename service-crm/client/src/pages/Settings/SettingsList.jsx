@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import CollapsibleSection from '../../components/CollapsibleSection.jsx';
 
 function EditableRow({ item, onChange, onRemove, extra }) {
   const [value, setValue] = useState(item.name);
@@ -20,14 +21,13 @@ function EditableRow({ item, onChange, onRemove, extra }) {
 
 export default function SettingsList({ title, items, onAdd, onChange, onRemove, extra }) {
   return (
-    <div className="panel" style={{ padding: 18 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>{title}</div>
+    <CollapsibleSection title={title}>
       {items.map((item) => (
         <EditableRow key={item.id} item={item} onChange={onChange} onRemove={onRemove} extra={extra} />
       ))}
       <button className="btn" style={{ marginTop: 6 }} onClick={onAdd} type="button">
         Add item
       </button>
-    </div>
+    </CollapsibleSection>
   );
 }
