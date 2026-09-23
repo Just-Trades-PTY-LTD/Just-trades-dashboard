@@ -165,16 +165,18 @@ export default function TechReport() {
             <table className="data-table">
               <thead>
                 <tr>
+                  {/* Headline figures first, in the order requested — everything
+                      else follows in its previous relative order. */}
                   <th>Technician</th>
                   <th>Jobs</th>
-                  <th>Qual. leads</th>
-                  <th>Knock backs</th>
-                  <th>Knock-back %</th>
-                  <th>Converted later</th>
-                  <th>Conversion %</th>
-                  <th>Sales</th>
                   <th>Value (ex GST)</th>
                   <th>Avg sale</th>
+                  <th>Knock backs</th>
+                  <th>Converted later</th>
+                  <th>Conversion %</th>
+                  <th>Qual. leads</th>
+                  <th>Knock-back %</th>
+                  <th>Sales</th>
                   <th>Call backs</th>
                   <th>Pending cancel.</th>
                   <th>Insp. sheet</th>
@@ -186,14 +188,14 @@ export default function TechReport() {
                   <tr key={r.name}>
                     <td>{r.name}</td>
                     <td>{r.jobsAttended}</td>
-                    <td>{r.qualifiedLeads}</td>
-                    <td>{r.knockbacks}</td>
-                    <td>{r.knockbackRate}%</td>
-                    <td>{r.convertedLaterCount}</td>
-                    <td>{r.conversionRate}%</td>
-                    <td>{r.sales}</td>
                     <td>{money(r.totalSaleExGst)}</td>
                     <td>{money(r.avgSaleExGst)}</td>
+                    <td>{r.knockbacks}</td>
+                    <td>{r.convertedLaterCount}</td>
+                    <td>{r.conversionRate}%</td>
+                    <td>{r.qualifiedLeads}</td>
+                    <td>{r.knockbackRate}%</td>
+                    <td>{r.sales}</td>
                     <td>{r.callBacks}</td>
                     <td>{r.pendingCancellations}</td>
                     <td>{r.inspectionRate}%</td>
