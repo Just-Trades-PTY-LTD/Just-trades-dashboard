@@ -308,6 +308,14 @@ export function createTechSalesRouter() {
   router.post('/new-job', (req, res) => {
     const b = req.body || {};
     const isSaleMade = b.kind === 'new_job_sale_made';
+    // Backend backstop for the same "Lead is required on a new entry" rule
+    // the client enforces — Knock-back %, Conversion Rate and Average Sale
+    // all depend on this being Qualified or Not Qualified, never blank, on
+    // every entry created from here on. Editing an existing entry is never
+    // blocked by this, only creating a new one.
+    if (b.lead !== 'Qualified' && b.lead !== 'Not Qualified') {
+      return res.status(400).json({ error: 'Please select whether this was a Qualified or Not Qualified lead before saving.' });
+    }
     let notice = null;
 
     if (isSaleMade && b.invoiceNumber) {

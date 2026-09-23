@@ -34,6 +34,7 @@ test('staff can do the normal operational work: create/edit calls, view history,
       visitDate: '2026-05-01',
       jobNumber: 'JN-STAFF-1',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     assert.equal(job.status, 201, 'staff can create a tech/job entry');

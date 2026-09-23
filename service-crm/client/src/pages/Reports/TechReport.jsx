@@ -38,17 +38,20 @@ export default function TechReport() {
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend } = data;
 
   const kpiRows = [
-    // Headline figures first, in the order requested — everything else
-    // follows in its previous relative order.
-    ['Jobs attended', company.jobsAttended],
+    // Total Jobs and Qualified Jobs lead the row, immediately next to each
+    // other; Unqualified Jobs appears later with the remaining figures.
+    // Knock-back rate, conversion rate and average sale are all scoped to
+    // qualified jobs only — an unqualified job is never a knock-back.
+    ['Total Jobs', company.jobsAttended],
+    ['Qualified Jobs', company.qualifiedJobs],
     ['Total sale value (ex GST)', money(company.totalSaleExGst)],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst)],
     ['Knock backs', company.knockbacks],
     ['Conversion rate', `${company.conversionRate}%`],
-    ['Qualified leads', company.qualifiedLeads],
     ['Knock-back rate', `${company.knockbackRate}%`],
     ['Converted later', company.convertedLaterCount],
     ['Sales (invoices)', company.sales],
+    ['Unqualified Jobs', company.unqualifiedJobs],
     ['Call backs', company.callBacks],
     ['Pending cancellations', company.pendingCancellations],
     ['Inspection sheet completion', `${company.inspectionRate}%`],
@@ -171,7 +174,7 @@ export default function TechReport() {
                       <td>{r.knockbacks}</td>
                       <td>{r.convertedLaterCount}</td>
                       <td>{r.conversionRate}%</td>
-                      <td>{r.qualifiedLeads}</td>
+                      <td>{r.qualifiedJobs}</td>
                       <td>{r.knockbackRate}%</td>
                       <td>{r.sales}</td>
                       <td>{r.callBacks}</td>
@@ -191,15 +194,16 @@ export default function TechReport() {
                 <thead>
                   <tr>
                     <th>Technician</th>
-                    <th>Jobs</th>
+                    <th>Total Jobs</th>
+                    <th>Qualified Jobs</th>
                     <th>Value (ex GST)</th>
                     <th>Avg sale</th>
                     <th>Knock backs</th>
                     <th>Converted later</th>
                     <th>Conversion %</th>
-                    <th>Qual. leads</th>
                     <th>Knock-back %</th>
                     <th>Sales</th>
+                    <th>Unqualified Jobs</th>
                     <th>Call backs</th>
                     <th>Pending cancel.</th>
                     <th>Insp. sheet</th>
@@ -211,14 +215,15 @@ export default function TechReport() {
                     <tr key={r.name}>
                       <td>{r.name}</td>
                       <td>{r.jobsAttended}</td>
+                      <td>{r.qualifiedJobs}</td>
                       <td>{money(r.totalSaleExGst)}</td>
                       <td>{money(r.avgSaleExGst)}</td>
                       <td>{r.knockbacks}</td>
                       <td>{r.convertedLaterCount}</td>
                       <td>{r.conversionRate}%</td>
-                      <td>{r.qualifiedLeads}</td>
                       <td>{r.knockbackRate}%</td>
                       <td>{r.sales}</td>
+                      <td>{r.unqualifiedJobs}</td>
                       <td>{r.callBacks}</td>
                       <td>{r.pendingCancellations}</td>
                       <td>{r.inspectionRate}%</td>

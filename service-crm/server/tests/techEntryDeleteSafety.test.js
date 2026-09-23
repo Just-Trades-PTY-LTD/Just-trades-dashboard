@@ -14,6 +14,7 @@ test('a "New Job — Sale Made" entry cannot be permanently deleted (linked sale
         visitDate: '2026-05-01',
         jobNumber: 'JN-DELSAFE-1',
         tradeId: plumbing.id,
+        lead: 'Qualified',
         invoiceNumber: 'INV-DELSAFE-1',
         invoiceDate: '2026-05-01',
         saleValueExGst: 500,
@@ -48,6 +49,7 @@ test('a knock-back job that was later converted by a Quote Approved Later sale c
         visitDate: '2026-05-02',
         jobNumber: 'JN-DELSAFE-2',
         tradeId: plumbing.id,
+        lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       })
     ).data.entry;
@@ -94,6 +96,7 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
         visitDate: '2026-05-03',
         jobNumber: 'JN-DELSAFE-3',
         tradeId: plumbing.id,
+        lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       })
     ).data.entry;

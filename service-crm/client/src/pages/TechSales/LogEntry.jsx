@@ -119,6 +119,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
   async function handleSubmit(e) {
     e.preventDefault();
+    // Lead (Qualified/Not Qualified) drives the Knock-back %, Conversion
+    // Rate and Average Sale figures in Reports, so it's required on every
+    // new "New Job" entry — checked here only for a brand-new entry, not
+    // when editing one, so an older record missing this value can still be
+    // edited without being forced to guess an answer it never recorded.
+    if (isNewJob && !editing && !form.lead) {
+      setNotice('Please select whether this was a Qualified or Not Qualified lead before saving.', true);
+      return;
+    }
     try {
       let res;
       if (isNewJob) {
@@ -271,7 +280,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             disabled={!form.tradeId}
             placeholder={form.tradeId ? '—' : 'Choose a trade first'}
           />
-          <SelectField label="Lead" value={form.lead} onChange={(v) => patch({ lead: v })} options={LEAD_OPTIONS} />
+          <SelectField label={editing ? 'Lead' : 'Lead *'} value={form.lead} onChange={(v) => patch({ lead: v })} options={LEAD_OPTIONS} />
         </div>
       )}
 

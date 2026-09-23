@@ -216,25 +216,39 @@ function fetchPendingCancelsAll({ from, to, technicianId, tradeId }) {
 }
 
 function computeMetrics(jobs, sales, callbacks, pendingCancels) {
-  const noSale = jobs.filter((j) => !j.had_sale_at_visit);
-  const saleMade = jobs.filter((j) => j.had_sale_at_visit);
+  const qualifiedJobs = jobs.filter((j) => j.lead === 'Qualified');
+  const unqualifiedJobs = jobs.filter((j) => j.lead === 'Not Qualified');
+  // A job with neither value recorded is a legacy record only — Lead is now
+  // a required field on every new "New Job" entry — and is deliberately left
+  // out of both buckets above (and everything below that's scoped to
+  // qualified jobs) rather than guessed into one, so Qualified + Unqualified
+  // can come up short of Total Jobs as a visible sign that a record needs
+  // its Lead value filled in.
+
+  // Knock-back/converted-later/conversion and average sale are all scoped to
+  // qualified jobs only — an unqualified job is never a knock-back, never
+  // counted as "converted later", and never affects these rates or average
+  // sale, since it was never a genuine sales opportunity in the first place.
+  const noSale = qualifiedJobs.filter((j) => !j.had_sale_at_visit);
+  const saleMade = qualifiedJobs.filter((j) => j.had_sale_at_visit);
   const knockbacks = noSale.filter((j) => !j.converted_later);
   const convertedLater = noSale.filter((j) => j.converted_later);
   const conversionCount = saleMade.length + convertedLater.length;
   const totalSaleExGst = sales.reduce((s, x) => s + num(x.sale_value_ex_gst), 0);
   return {
     jobsAttended: jobs.length,
-    qualifiedLeads: jobs.filter((j) => j.lead === 'Qualified').length,
+    qualifiedJobs: qualifiedJobs.length,
+    unqualifiedJobs: unqualifiedJobs.length,
     knockbacks: knockbacks.length,
-    knockbackRate: pct(knockbacks.length, jobs.length),
+    knockbackRate: pct(knockbacks.length, qualifiedJobs.length),
     convertedLaterCount: convertedLater.length,
-    conversionRate: pct(conversionCount, jobs.length),
+    conversionRate: pct(conversionCount, qualifiedJobs.length),
     sales: sales.length,
     totalSaleExGst,
-    // Total sale value divided by every job attended (including knockbacks),
-    // not just the jobs that resulted in a sale — this is a per-technician/
-    // per-trade productivity figure, not an average invoice size.
-    avgSaleExGst: jobs.length ? totalSaleExGst / jobs.length : 0,
+    // Total sale value divided by qualified jobs only (not total jobs, and
+    // not just the jobs that resulted in a sale) — a per-technician/
+    // per-trade productivity figure scoped to genuine sales opportunities.
+    avgSaleExGst: qualifiedJobs.length ? totalSaleExGst / qualifiedJobs.length : 0,
     callBacks: callbacks.length,
     pendingCancellations: pendingCancels.length,
     inspectionRate: pct(jobs.filter((j) => j.inspection_sheet === 'Yes').length, jobs.length),

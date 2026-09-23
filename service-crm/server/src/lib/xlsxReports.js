@@ -116,6 +116,9 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
 // ---------------------------------------------------------------------------
 // Technician & sales report workbook
 // ---------------------------------------------------------------------------
+// By trade keeps its existing column layout (unaffected by the
+// qualified/unqualified reordering, which only applies to the Summary and
+// By technician sheets, matching the on-screen report).
 const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'label', label: nameLabel, width: 22 },
   { key: 'jobsAttended', label: 'Jobs' },
@@ -124,9 +127,28 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'knockbacks', label: 'Knock backs' },
   { key: 'convertedLaterCount', label: 'Converted later' },
   { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
-  { key: 'qualifiedLeads', label: 'Qual. leads' },
+  { key: 'qualifiedJobs', label: 'Qual. leads' },
   { key: 'knockbackRate', label: 'Knock-back %', value: (r) => `${r.knockbackRate}%` },
   { key: 'sales', label: 'Sales' },
+  { key: 'callBacks', label: 'Call backs' },
+  { key: 'pendingCancellations', label: 'Pending cancel.' },
+];
+
+// By technician: Total Jobs and Qualified Jobs lead, immediately adjacent;
+// Unqualified Jobs appears later with the remaining figures — matching the
+// on-screen "By technician" table's column order.
+const TECH_BY_TECHNICIAN_COLUMNS = [
+  { key: 'label', label: 'Technician', width: 22 },
+  { key: 'jobsAttended', label: 'Total Jobs' },
+  { key: 'qualifiedJobs', label: 'Qualified Jobs' },
+  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
+  { key: 'avgSaleExGst', label: 'Avg sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
+  { key: 'knockbacks', label: 'Knock backs' },
+  { key: 'convertedLaterCount', label: 'Converted later' },
+  { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
+  { key: 'knockbackRate', label: 'Knock-back %', value: (r) => `${r.knockbackRate}%` },
+  { key: 'sales', label: 'Sales' },
+  { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
   { key: 'callBacks', label: 'Call backs' },
   { key: 'pendingCancellations', label: 'Pending cancel.' },
 ];
@@ -144,15 +166,16 @@ export function buildTechWorkbook(data, filters, lookups) {
   addTitleBlock(summary, 'Technician & Sales Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   const c = data.company;
   addKpiTable(summary, [
-    ['Jobs attended', c.jobsAttended],
+    ['Total Jobs', c.jobsAttended],
+    ['Qualified Jobs', c.qualifiedJobs],
     ['Total sale value (ex GST)', money(c.totalSaleExGst)],
     ['Average sale (ex GST)', Number((c.avgSaleExGst || 0).toFixed(2))],
     ['Knock backs', c.knockbacks],
     ['Conversion rate', `${c.conversionRate}%`],
-    ['Qualified leads', c.qualifiedLeads],
     ['Knock-back rate', `${c.knockbackRate}%`],
     ['Converted later', c.convertedLaterCount],
     ['Sales (invoices)', c.sales],
+    ['Unqualified Jobs', c.unqualifiedJobs],
     ['Call backs', c.callBacks],
     ['Pending cancellations', c.pendingCancellations],
     ['Inspection sheet completion', `${c.inspectionRate}%`],
@@ -169,7 +192,11 @@ export function buildTechWorkbook(data, filters, lookups) {
 
   const byTechnician = wb.addWorksheet('By technician');
   addTitleBlock(byTechnician, 'Technician & Sales Report — By Technician', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
-  const techCols = [...TECH_TABLE_COLUMNS('Technician'), { key: 'inspectionRate', label: 'Insp. sheet', value: (r) => `${r.inspectionRate}%` }, { key: 'optionRate', label: 'Option sheet', value: (r) => `${r.optionRate}%` }];
+  const techCols = [
+    ...TECH_BY_TECHNICIAN_COLUMNS,
+    { key: 'inspectionRate', label: 'Insp. sheet', value: (r) => `${r.inspectionRate}%` },
+    { key: 'optionRate', label: 'Option sheet', value: (r) => `${r.optionRate}%` },
+  ];
   addDataTable(
     byTechnician,
     techCols,

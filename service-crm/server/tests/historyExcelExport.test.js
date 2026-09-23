@@ -115,6 +115,7 @@ test('Job History Excel export respects active filters and includes full comment
       technicianId: tech.id,
       jobNumber: 'JN-HX-1',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       invoiceNumber: 'INV-HX-1',
       invoiceDate: '2026-05-05',
       saleValueExGst: 750,
@@ -127,6 +128,7 @@ test('Job History Excel export respects active filters and includes full comment
       technicianId: tech.id,
       jobNumber: 'JN-HX-2',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     // Different technician.
@@ -137,6 +139,7 @@ test('Job History Excel export respects active filters and includes full comment
       technicianId: otherTech.id,
       jobNumber: 'JN-HX-3',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 
@@ -187,6 +190,7 @@ test('Job History Excel export filters by entry type and trade', async () => {
       technicianId: tech.id,
       jobNumber: 'JN-EL-1',
       tradeId: electrical.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 

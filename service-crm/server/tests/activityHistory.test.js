@@ -83,6 +83,7 @@ test('a New Job — Sale Made entry logs the job and the sale as two separate cr
       technicianId: tech.id,
       jobNumber: 'JN-ACT-2',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       invoiceNumber: 'INV-ACT-2',
       invoiceDate: '2026-09-05',
       saleValueExGst: 500,
@@ -110,6 +111,7 @@ test('activity feed can be filtered by entity type', async () => {
       visitDate: '2026-09-06',
       technicianId: tech.id,
       jobNumber: 'JN-ACT-3',
+      lead: 'Qualified',
     });
 
     const callsOnly = (await server.request('GET', '/audit/activity?entityType=call')).data;

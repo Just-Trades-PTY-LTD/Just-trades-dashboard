@@ -50,6 +50,7 @@ test('editing a Tech & Sales job entry with cleared optional fields no longer 50
       technicianId: tech.id,
       jobNumber: 'JN-EDIT-1',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     assert.equal(created.status, 201);
@@ -83,6 +84,7 @@ test('Pending Cancellation is logged through Calls, links to the existing sale, 
       technicianId: tech.id,
       jobNumber: 'JN-PC-1',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       invoiceNumber: 'INV-PC-1',
       invoiceDate: '2026-02-01',
       saleValueExGst: 500,
@@ -138,6 +140,7 @@ test('deleting a Pending Cancellation call removes its linked pending_cancellati
       technicianId: tech.id,
       jobNumber: 'JN-PC-2',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       invoiceNumber: 'INV-PC-2',
       invoiceDate: '2026-03-01',
       saleValueExGst: 300,

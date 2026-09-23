@@ -75,6 +75,7 @@ test('technician & sales report Excel export produces a workbook with Summary, B
       technicianId: tech.id,
       jobNumber: 'JN-XL-1',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       invoiceNumber: 'INV-XL-1',
       invoiceDate: '2026-07-01',
       saleValueExGst: 900,
@@ -85,6 +86,7 @@ test('technician & sales report Excel export produces a workbook with Summary, B
       technicianId: tech.id,
       jobNumber: 'JN-XL-2',
       tradeId: plumbing.id,
+      lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 
@@ -100,12 +102,15 @@ test('technician & sales report Excel export produces a workbook with Summary, B
     const summary = wb.getWorksheet('Summary');
     const summaryText = summary.getSheetValues().flat().filter(Boolean).join(' | ');
     assert.match(summaryText, /Technician: Riley/);
-    assert.match(summaryText, /Jobs attended/);
+    assert.match(summaryText, /Total Jobs/);
+    assert.match(summaryText, /Qualified Jobs/);
 
     const byTechnician = wb.getWorksheet('By technician');
     const byTechnicianText = byTechnician.getSheetValues().flat().filter(Boolean).join(' | ');
     assert.match(byTechnicianText, /Riley/);
     assert.match(byTechnicianText, /Insp\. sheet/);
+    assert.match(byTechnicianText, /Qualified Jobs/);
+    assert.match(byTechnicianText, /Unqualified Jobs/);
 
     const charts = wb.getWorksheet('Charts data');
     const chartsText = charts.getSheetValues().flat().filter(Boolean).join(' | ');
