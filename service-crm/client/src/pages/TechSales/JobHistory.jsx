@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
+import { formatAuditChanges } from '../../lib/audit.js';
 
 const ENTRY_TYPES = [
   { id: 'new_job_no_sale', name: 'New Job — No Sale' },
@@ -168,10 +169,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                         <td colSpan={7} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
-                              <strong>{h.at}</strong> — {h.by}:{' '}
-                              {Object.entries(h.changes)
-                                .map(([f, ch]) => `${f} (${ch.from || '—'} → ${ch.to || '—'})`)
-                                .join(', ')}
+                              <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}
                             </div>
                           ))}
                         </td>

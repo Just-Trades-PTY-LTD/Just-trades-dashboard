@@ -84,6 +84,9 @@ export const api = {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),
     tech: (params) => request('GET', `/reports/tech${qs(params)}`),
   },
+  audit: {
+    activity: (params) => request('GET', `/audit/activity${qs(params)}`),
+  },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',
     techCsvUrl: () => '/api/export/tech-entries.csv',

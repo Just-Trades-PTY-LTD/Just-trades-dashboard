@@ -290,49 +290,74 @@ export function createTechSalesRouter() {
     }
 
     const result = transaction(() => {
+      const jobValues = {
+        technician_id: b.technicianId || null,
+        job_number: b.jobNumber || '',
+        trade_id: b.tradeId || null,
+        job_type_id: b.jobTypeId || null,
+        lead: b.lead || '',
+        inspection_sheet: b.inspectionSheet || '',
+        option_sheet: b.optionSheet || '',
+        knockback: isSaleMade ? 0 : 1,
+        knockback_reason_id: isSaleMade ? null : b.knockbackReasonId || null,
+        work_completion: isSaleMade ? b.workCompletion || '' : '',
+        install_technician_id: isSaleMade ? b.installTechnicianId || null : null,
+        install_date: isSaleMade ? b.installDate || '' : '',
+        comments: b.comments || '',
+      };
       const { lastInsertRowid: jobId } = run(
         `INSERT INTO jobs (job_number, visit_date, technician_id, trade_id, job_type_id, lead, inspection_sheet,
           option_sheet, had_sale_at_visit, knockback, knockback_reason_id, work_completion, install_technician_id,
           install_date, comments, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          b.jobNumber || '',
+          jobValues.job_number,
           b.visitDate,
-          b.technicianId || null,
-          b.tradeId || null,
-          b.jobTypeId || null,
-          b.lead || '',
-          b.inspectionSheet || '',
-          b.optionSheet || '',
+          jobValues.technician_id,
+          jobValues.trade_id,
+          jobValues.job_type_id,
+          jobValues.lead,
+          jobValues.inspection_sheet,
+          jobValues.option_sheet,
           isSaleMade ? 1 : 0,
-          isSaleMade ? 0 : 1,
-          isSaleMade ? null : b.knockbackReasonId || null,
-          isSaleMade ? b.workCompletion || '' : '',
-          isSaleMade ? b.installTechnicianId || null : null,
-          isSaleMade ? b.installDate || '' : '',
-          b.comments || '',
+          jobValues.knockback,
+          jobValues.knockback_reason_id,
+          jobValues.work_completion,
+          jobValues.install_technician_id,
+          jobValues.install_date,
+          jobValues.comments,
           req.user.id,
         ]
       );
+      recordAudit({ entityType: 'job', entityId: jobId, before: null, after: jobValues, fields: JOB_TRACKED_FIELDS, userId: req.user.id });
       if (isSaleMade) {
-        run(
+        const saleValues = {
+          job_number: b.jobNumber || '',
+          credited_technician_id: b.technicianId || null,
+          invoice_number: b.invoiceNumber || '',
+          invoice_date: b.invoiceDate || '',
+          sale_value_ex_gst: Number(b.saleValueExGst) || 0,
+          comments: b.comments || '',
+        };
+        const { lastInsertRowid: saleId } = run(
           `INSERT INTO sales (job_id, job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
             invoice_number, invoice_date, sale_value_ex_gst, comments, created_by_user_id)
            VALUES (?, ?, 'sale_made_at_visit', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             jobId,
-            b.jobNumber || '',
+            saleValues.job_number,
             b.visitDate,
-            b.technicianId || null,
-            b.tradeId || null,
-            b.jobTypeId || null,
-            b.invoiceNumber || '',
-            b.invoiceDate || '',
-            Number(b.saleValueExGst) || 0,
-            b.comments || '',
+            saleValues.credited_technician_id,
+            jobValues.trade_id,
+            jobValues.job_type_id,
+            saleValues.invoice_number,
+            saleValues.invoice_date,
+            saleValues.sale_value_ex_gst,
+            saleValues.comments,
             req.user.id,
           ]
         );
+        recordAudit({ entityType: 'sale', entityId: saleId, before: null, after: saleValues, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
       }
       return jobId;
     });
@@ -415,24 +440,33 @@ export function createTechSalesRouter() {
 
     const matchedJob = findOriginalJob(b.jobNumber);
     const saleId = transaction(() => {
+      const saleValues = {
+        job_number: b.jobNumber || '',
+        credited_technician_id: b.creditedTechnicianId || null,
+        invoice_number: b.invoiceNumber || '',
+        invoice_date: b.invoiceDate || '',
+        sale_value_ex_gst: Number(b.saleValueExGst) || 0,
+        comments: b.comments || '',
+      };
       const { lastInsertRowid } = run(
         `INSERT INTO sales (job_id, job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
           invoice_number, invoice_date, sale_value_ex_gst, comments, created_by_user_id)
          VALUES (?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           matchedJob?.id || null,
-          b.jobNumber || '',
+          saleValues.job_number,
           b.dateLogged,
-          b.creditedTechnicianId || null,
+          saleValues.credited_technician_id,
           matchedJob?.trade_id || null,
           matchedJob?.job_type_id || null,
-          b.invoiceNumber || '',
-          b.invoiceDate || '',
-          Number(b.saleValueExGst) || 0,
-          b.comments || '',
+          saleValues.invoice_number,
+          saleValues.invoice_date,
+          saleValues.sale_value_ex_gst,
+          saleValues.comments,
           req.user.id,
         ]
       );
+      recordAudit({ entityType: 'sale', entityId: lastInsertRowid, before: null, after: saleValues, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
 
       const flip = findConvertibleKnockback(b.jobNumber);
       if (flip) {
@@ -480,23 +514,31 @@ export function createTechSalesRouter() {
   router.post('/call-backs', (req, res) => {
     const b = req.body || {};
     const matchedJob = findOriginalJob(b.jobNumber);
+    const values = {
+      job_number: b.jobNumber || '',
+      attending_technician_id: b.technicianId || null,
+      credited_technician_id: b.creditedTechnicianId || null,
+      reason_id: b.reasonId || null,
+      comments: b.comments || '',
+    };
     const { lastInsertRowid } = run(
       `INSERT INTO call_backs (job_id, job_number, visit_date, attending_technician_id, credited_technician_id,
         trade_id, job_type_id, reason_id, comments, created_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         matchedJob?.id || null,
-        b.jobNumber || '',
+        values.job_number,
         b.visitDate,
-        b.technicianId || null,
-        b.creditedTechnicianId || null,
+        values.attending_technician_id,
+        values.credited_technician_id,
         matchedJob?.trade_id || null,
         matchedJob?.job_type_id || null,
-        b.reasonId || null,
-        b.comments || '',
+        values.reason_id,
+        values.comments,
         req.user.id,
       ]
     );
+    recordAudit({ entityType: 'call_back', entityId: lastInsertRowid, before: null, after: values, fields: CALL_BACK_TRACKED_FIELDS, userId: req.user.id });
     res.status(201).json({ entry: callBackToEntry(callBackRow(lastInsertRowid)) });
   });
 
@@ -525,21 +567,28 @@ export function createTechSalesRouter() {
   router.post('/pending-cancellations', (req, res) => {
     const b = req.body || {};
     const matchedSale = findLatestSale(b.jobNumber);
+    const values = {
+      job_number: b.jobNumber || '',
+      credited_technician_id: b.creditedTechnicianId || null,
+      reason_id: b.reasonId || null,
+      comments: b.comments || '',
+    };
     const { lastInsertRowid } = run(
       `INSERT INTO pending_cancellations (sale_id, job_number, date_logged, credited_technician_id, trade_id,
         reason_id, comments, created_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         matchedSale?.id || null,
-        b.jobNumber || '',
+        values.job_number,
         b.dateLogged,
-        b.creditedTechnicianId || null,
+        values.credited_technician_id,
         matchedSale?.trade_id || null,
-        b.reasonId || null,
-        b.comments || '',
+        values.reason_id,
+        values.comments,
         req.user.id,
       ]
     );
+    recordAudit({ entityType: 'pending_cancellation', entityId: lastInsertRowid, before: null, after: values, fields: PENDING_CANCELLATION_TRACKED_FIELDS, userId: req.user.id });
     res.status(201).json({ entry: pendingCancellationToEntry(pendingCancellationRow(lastInsertRowid)) });
   });
 

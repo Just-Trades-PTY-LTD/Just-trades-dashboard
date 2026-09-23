@@ -59,6 +59,14 @@ function syncPendingCancellation({ existingPendingCancellationId, callType, canc
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [fields.sale_id, fields.job_number, fields.date_logged, fields.credited_technician_id, fields.trade_id, fields.reason_id, fields.comments, userId]
   );
+  recordAudit({
+    entityType: 'pending_cancellation',
+    entityId: lastInsertRowid,
+    before: null,
+    after: fields,
+    fields: PENDING_CANCELLATION_TRACKED_FIELDS,
+    userId,
+  });
   return lastInsertRowid;
 }
 
@@ -189,32 +197,51 @@ export function createCallsRouter() {
         callAt: b.callAt,
         userId: req.user.id,
       });
-      return run(
+      const values = {
+        call_at: b.callAt,
+        direction: b.direction || 'Inbound',
+        handled_by_user_id: b.handledByUserId || null,
+        call_type: b.callType || 'Lead',
+        trade_id: b.tradeId || null,
+        job_type_id: b.jobTypeId || null,
+        lead_source_id: b.leadSourceId || null,
+        booked: b.booked || '',
+        not_booked_reason_id: b.notBookedReasonId || null,
+        cancellation_type: b.cancellationType || '',
+        cancellation_reason_id: b.cancellationReasonId || null,
+        call_back_reason_id: b.callBackReasonId || null,
+        job_number: b.jobNumber || '',
+        suburb: b.suburb || '',
+        notes: b.notes || '',
+      };
+      const { lastInsertRowid: id } = run(
         `INSERT INTO calls (call_at, direction, handled_by_user_id, call_type, trade_id, job_type_id, lead_source_id,
           booked, not_booked_reason_id, cancellation_type, cancellation_reason_id, call_back_reason_id, job_number,
           pending_cancellation_id, suburb, notes, follow_up, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          b.callAt,
-          b.direction || 'Inbound',
-          b.handledByUserId || null,
-          b.callType || 'Lead',
-          b.tradeId || null,
-          b.jobTypeId || null,
-          b.leadSourceId || null,
-          b.booked || '',
-          b.notBookedReasonId || null,
-          b.cancellationType || '',
-          b.cancellationReasonId || null,
-          b.callBackReasonId || null,
-          b.jobNumber || '',
+          values.call_at,
+          values.direction,
+          values.handled_by_user_id,
+          values.call_type,
+          values.trade_id,
+          values.job_type_id,
+          values.lead_source_id,
+          values.booked,
+          values.not_booked_reason_id,
+          values.cancellation_type,
+          values.cancellation_reason_id,
+          values.call_back_reason_id,
+          values.job_number,
           pendingCancellationId,
-          b.suburb || '',
-          b.notes || '',
+          values.suburb,
+          values.notes,
           b.followUp ? 1 : 0,
           req.user.id,
         ]
-      ).lastInsertRowid;
+      );
+      recordAudit({ entityType: 'call', entityId: id, before: null, after: values, fields: TRACKED_FIELDS, userId: req.user.id });
+      return id;
     });
     res.status(201).json(toRow(get(`${SELECT_SQL} WHERE c.id = ?`, [lastInsertRowid])));
   });

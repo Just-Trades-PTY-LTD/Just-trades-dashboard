@@ -5,6 +5,7 @@ import Lists from './Lists.jsx';
 import Suburbs from './Suburbs.jsx';
 import Users from './Users.jsx';
 import DataPanel from './DataPanel.jsx';
+import Activity from './Activity.jsx';
 
 export default function SettingsPage({ isAdmin }) {
   const { refresh } = useSettings();
@@ -24,12 +25,14 @@ export default function SettingsPage({ isAdmin }) {
           ['suburbs', 'Suburbs'],
           ['users', 'Staff accounts'],
           ['data', 'Data'],
+          ['activity', 'Activity history'],
         ]}
       />
       {sub === 'lists' && <Lists />}
       {sub === 'suburbs' && <Suburbs refreshCount={refresh} />}
       {sub === 'users' && <Users />}
       {sub === 'data' && <DataPanel />}
+      {sub === 'activity' && <Activity />}
     </div>
   );
 }

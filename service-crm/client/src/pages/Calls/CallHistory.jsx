@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
+import { formatAuditChanges } from '../../lib/audit.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const NOTES_PREVIEW_LENGTH = 60;
@@ -172,10 +173,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                       <td colSpan={10} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                         {history.map((h) => (
                           <div key={h.id} style={{ padding: '6px 4px' }}>
-                            <strong>{h.at}</strong> — {h.by}:{' '}
-                            {Object.entries(h.changes)
-                              .map(([f, ch]) => `${f} (${ch.from || '—'} → ${ch.to || '—'})`)
-                              .join(', ')}
+                            <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}
                           </div>
                         ))}
                       </td>

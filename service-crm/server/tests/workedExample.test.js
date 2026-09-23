@@ -63,8 +63,14 @@ test('§6 worked example: knock-back flips to converted, job counted once', asyn
     assert.ok(job);
     assert.equal(job.convertedLater, true);
     const history = (await server.request('GET', `/tech/entries/new_job_no_sale/${job.id}/history`)).data;
-    assert.equal(history.length, 1);
-    assert.deepEqual(history[0].changes.knockback, { from: 'Yes', to: 'Converted (quote approved later)' });
+    // Two entries now: the job's own creation (logged the moment it was
+    // saved) and the later knock-back → converted flip.
+    assert.equal(history.length, 2);
+    const flipEntry = history.find((h) => h.changes.knockback?.to === 'Converted (quote approved later)');
+    assert.ok(flipEntry, 'the conversion flip should be recorded');
+    assert.deepEqual(flipEntry.changes.knockback, { from: 'Yes', to: 'Converted (quote approved later)' });
+    const createdEntry = history.find((h) => h.changes.knockback?.to === 1);
+    assert.ok(createdEntry, 'the original creation should also be recorded');
 
     // Knock-back/conversion figures reflect each job's *current* status, not
     // a historical snapshot — filtering the visit-date range to before the
