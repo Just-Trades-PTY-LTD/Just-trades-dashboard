@@ -11,6 +11,7 @@ test('editing a call with cleared optional fields no longer 500s', async () => {
 
     const created = await server.request('POST', '/calls', {
       callAt: '2026-01-01T09:00',
+      direction: 'Inbound',
       callType: 'Lead',
       tradeId: plumbing.id,
       leadSourceId: bundle.lists.lead_source[0].id,
@@ -97,6 +98,7 @@ test('Pending Cancellation is logged through Calls, links to the existing sale, 
     // Customer cancels before the return visit — logged via Calls.
     const call = await server.request('POST', '/calls', {
       callAt: '2026-02-05T09:00',
+      direction: 'Inbound',
       callType: 'Cancellation',
       cancellationType: 'Pending Cancellation',
       cancellationReasonId: bundle.lists.pending_cancellation_reason[0].id,
@@ -148,6 +150,7 @@ test('deleting a Pending Cancellation call removes its linked pending_cancellati
 
     const call = await server.request('POST', '/calls', {
       callAt: '2026-03-05T09:00',
+      direction: 'Inbound',
       callType: 'Cancellation',
       cancellationType: 'Pending Cancellation',
       jobNumber: 'JN-PC-2',
@@ -171,6 +174,7 @@ test('New Job Cancellation never creates a pending_cancellations record', async 
     await server.login();
     const call = await server.request('POST', '/calls', {
       callAt: '2026-04-01T09:00',
+      direction: 'Inbound',
       callType: 'Cancellation',
       cancellationType: 'New Job Cancellation',
       jobNumber: 'JN-NEVER-ATTENDED',

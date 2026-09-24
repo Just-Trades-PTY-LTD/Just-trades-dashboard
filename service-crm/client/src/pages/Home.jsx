@@ -17,9 +17,9 @@ export default function Home({ setModule, isAdmin }) {
   const cards = [
     {
       id: 'calls',
-      title: 'Calls',
-      desc: 'Log inbound and outbound calls — leads, quote approvals, call backs and cancellations.',
-      stat: counts.calls === null ? 'Loading…' : `${counts.calls} active calls logged`,
+      title: 'Calls & Contacts',
+      desc: 'Log calls, texts, emails and other contacts — leads, quote approvals, call backs and cancellations.',
+      stat: counts.calls === null ? 'Loading…' : `${counts.calls} active contacts logged`,
     },
     {
       id: 'tech',

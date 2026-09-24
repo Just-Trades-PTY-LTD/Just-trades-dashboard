@@ -42,15 +42,19 @@ test('calls report Excel export produces a workbook with Summary, By staff and B
     const summaryText = summary.getSheetValues().flat().filter(Boolean).join(' | ');
     assert.match(summaryText, /Calls Report — Summary/);
     assert.match(summaryText, /Period: 2026-05-01/);
-    assert.match(summaryText, /Total calls/);
+    assert.match(summaryText, /Total Contacts/);
     assert.ok(summaryText.includes(2), 'total calls value (2) should appear in the summary sheet');
-    assert.match(summaryText, /Inbound calls/);
-    assert.match(summaryText, /Outbound calls/);
+    assert.match(summaryText, /Inbound Calls/);
+    assert.match(summaryText, /Outbound Calls/);
+    assert.match(summaryText, /Text Messages/);
+    assert.match(summaryText, /Emails/);
+    assert.match(summaryText, /Other \/ N\/A/);
 
     const byStaff = wb.getWorksheet('By staff');
     const byStaffText = byStaff.getSheetValues().flat().filter(Boolean).join(' | ');
-    assert.match(byStaffText, /Inbound/);
-    assert.match(byStaffText, /Outbound/);
+    assert.match(byStaffText, /Inbound Calls/);
+    assert.match(byStaffText, /Outbound Calls/);
+    assert.match(byStaffText, /Text Messages/);
 
     const breakdowns = wb.getWorksheet('Breakdowns');
     const breakdownsText = breakdowns.getSheetValues().flat().filter(Boolean).join(' | ');

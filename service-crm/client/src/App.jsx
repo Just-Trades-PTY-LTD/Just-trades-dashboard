@@ -12,7 +12,7 @@ import logo from './assets/logo.png';
 
 const BASE_TABS = [
   ['home', 'Home'],
-  ['calls', 'Calls'],
+  ['calls', 'Calls & Contacts'],
   ['tech', 'Technician & sales'],
   ['reports', 'Reports'],
 ];

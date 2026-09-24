@@ -28,6 +28,7 @@ test('creating a call records a "created" activity entry with the record identif
 
     const call = await server.request('POST', '/calls', {
       callAt: '2026-09-01T09:00',
+      direction: 'Inbound',
       callType: 'Lead',
       tradeId: plumbing.id,
       jobNumber: 'JN-ACT-1',
@@ -52,7 +53,7 @@ test('editing a call records a separate "edited" activity entry showing what cha
   const server = await startTestServer();
   try {
     await server.login();
-    const call = await server.request('POST', '/calls', { callAt: '2026-09-02T09:00', callType: 'Not lead' });
+    const call = await server.request('POST', '/calls', { callAt: '2026-09-02T09:00', direction: 'Inbound', callType: 'Not lead' });
 
     await server.request('PATCH', `/calls/${call.data.id}`, { suburb: 'Adelaide' });
 
@@ -104,7 +105,7 @@ test('activity feed can be filtered by entity type', async () => {
   const server = await startTestServer();
   try {
     await server.login();
-    await server.request('POST', '/calls', { callAt: '2026-09-06T09:00', callType: 'Not lead' });
+    await server.request('POST', '/calls', { callAt: '2026-09-06T09:00', direction: 'Inbound', callType: 'Not lead' });
     const tech = (await server.request('POST', '/settings/technicians', { name: 'Tylor' })).data;
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
@@ -130,7 +131,7 @@ test('deleting a record leaves its activity trail intact with a fallback label',
   const server = await startTestServer();
   try {
     await server.login();
-    const call = await server.request('POST', '/calls', { callAt: '2026-09-07T09:00', callType: 'Not lead', jobNumber: 'JN-ACT-4' });
+    const call = await server.request('POST', '/calls', { callAt: '2026-09-07T09:00', direction: 'Inbound', callType: 'Not lead', jobNumber: 'JN-ACT-4' });
     await server.request('DELETE', `/calls/${call.data.id}`);
 
     const activity = (await server.request('GET', '/audit/activity')).data;

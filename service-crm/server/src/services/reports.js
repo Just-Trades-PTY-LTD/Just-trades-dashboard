@@ -61,24 +61,29 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
 
-  // `direction` is NOT NULL at the DB level and the only place it's ever
-  // written is a two-option dropdown (Inbound/Outbound) that always submits
-  // one of those two values, with the server itself defaulting a missing
-  // value to 'Inbound' on create — so every call row should already be one
-  // or the other. Rather than assume that and just split reportCalls in two
-  // (which would silently misreport if some other value ever got in, e.g.
-  // via a direct DB restore), inbound/outbound are each counted by exact
+  // `direction` (the Contact Method) is NOT NULL at the DB level, and every
+  // new call now requires picking one of the five options below before it
+  // can be saved — so every call row should already carry one of these five
+  // exact values. Rather than assume that, each method is counted by exact
   // match and total is left as reportCalls.length regardless of direction —
-  // if a call ever had neither value, inbound + outbound would come up short
-  // of total instead of quietly matching it, which is the visible signal
-  // that something needs investigating.
+  // if a call ever had none of these five values (e.g. a pre-existing
+  // record saved before Contact Method existed, or a future value this
+  // report doesn't know about yet), the five counts would come up short of
+  // total instead of quietly matching it, which is the visible signal that
+  // something needs investigating rather than a silent miscount.
   const inboundCalls = reportCalls.filter((c) => c.direction === 'Inbound');
   const outboundCalls = reportCalls.filter((c) => c.direction === 'Outbound');
+  const textMessages = reportCalls.filter((c) => c.direction === 'Text Message');
+  const emails = reportCalls.filter((c) => c.direction === 'Email');
+  const otherContacts = reportCalls.filter((c) => c.direction === 'Other / N/A');
 
   const kpis = {
     total: reportCalls.length,
     inboundCount: inboundCalls.length,
     outboundCount: outboundCalls.length,
+    textMessageCount: textMessages.length,
+    emailCount: emails.length,
+    otherContactCount: otherContacts.length,
     leadsCount: leads.length,
     bookedCount: booked.length,
     bookingRate: pct(booked.length, leads.length),
@@ -121,10 +126,15 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const staffMap = {};
   reportCalls.forEach((c) => {
     const k = c.handled_by_name || 'Unassigned';
-    if (!staffMap[k]) staffMap[k] = { name: k, total: 0, inbound: 0, outbound: 0, leads: 0, booked: 0 };
+    if (!staffMap[k]) {
+      staffMap[k] = { name: k, total: 0, inbound: 0, outbound: 0, textMessage: 0, email: 0, otherContact: 0, leads: 0, booked: 0 };
+    }
     staffMap[k].total += 1;
     if (c.direction === 'Inbound') staffMap[k].inbound += 1;
     else if (c.direction === 'Outbound') staffMap[k].outbound += 1;
+    else if (c.direction === 'Text Message') staffMap[k].textMessage += 1;
+    else if (c.direction === 'Email') staffMap[k].email += 1;
+    else if (c.direction === 'Other / N/A') staffMap[k].otherContact += 1;
     if (c.call_type === 'Lead') {
       staffMap[k].leads += 1;
       if (c.booked === 'Yes') staffMap[k].booked += 1;

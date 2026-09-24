@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
+import { contactMethodLabel } from '../../lib/contactMethods.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const NOTES_PREVIEW_LENGTH = 60;
@@ -143,7 +144,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                   />
                 </th>
                 <th>Date / time</th>
-                <th>Direction</th>
+                <th>Contact Method</th>
                 <th>Staff</th>
                 <th>Call type</th>
                 <th>Trade / job type</th>
@@ -164,7 +165,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                       )}
                     </td>
                     <td className="mono">{(c.callAt || '').replace('T', ' ')}</td>
-                    <td>{c.direction}</td>
+                    <td>{contactMethodLabel(c.direction)}</td>
                     <td>{c.handledByName || '—'}</td>
                     <td>
                       {c.callType}

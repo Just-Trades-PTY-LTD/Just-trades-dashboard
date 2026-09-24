@@ -1,7 +1,7 @@
 export const CALL_COLUMNS = [
   { key: 'archived', label: 'Archived' },
   { key: 'callAt', label: 'Date/time' },
-  { key: 'direction', label: 'Direction' },
+  { key: 'direction', label: 'Contact Method' },
   { key: 'handledByName', label: 'Handled by' },
   { key: 'callType', label: 'Call type' },
   { key: 'tradeName', label: 'Trade' },

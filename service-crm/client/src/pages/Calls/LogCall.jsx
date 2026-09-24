@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { nowLocalDateTime } from '../../lib/dates.js';
+import { CONTACT_METHOD_OPTIONS } from '../../lib/contactMethods.js';
 import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../components/Fields.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
@@ -10,14 +11,16 @@ import { useJobLookup } from '../../lib/useLookup.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
-const DIRECTIONS = ['Inbound', 'Outbound'];
 
 function emptyForm(defaultHandledByUserId) {
   return {
     callAt: nowLocalDateTime(),
-    direction: 'Inbound',
+    // Contact Method and Call Type both start blank ("—") and must be
+    // chosen before saving — see the mandatory-field check in
+    // handleSubmit(). Handled by/Date & time keep auto-populating below.
+    direction: '',
     handledByUserId: defaultHandledByUserId || '',
-    callType: 'Lead',
+    callType: '',
     tradeId: '',
     jobTypeId: '',
     leadSourceId: '',
@@ -75,6 +78,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    // Contact Method and Call Type are required on every new record — only
+    // checked here for a brand-new call, not when editing one, since every
+    // existing call already has both set from before this was enforced.
+    if (!editing && !form.direction) {
+      setNotice('Please select a Contact Method before saving.', true);
+      return;
+    }
+    if (!editing && !form.callType) {
+      setNotice('Please select a Call Type before saving.', true);
+      return;
+    }
     try {
       if (editing) {
         await api.calls.update(editing.id, form);
@@ -133,20 +147,19 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       </div>
 
       <div className="grid-form">
-        <SelectField label="Direction" value={form.direction} onChange={(v) => patch({ direction: v })} options={DIRECTIONS} placeholder="" />
-        <SelectField label="Handled by" value={form.handledByUserId} onChange={(v) => patch({ handledByUserId: v })} options={settings.staff} />
-        <DateTimeField label="Date & time" value={form.callAt} onChange={(v) => patch({ callAt: v })} />
+        <SelectField label="Contact Method *" value={form.direction} onChange={(v) => patch({ direction: v })} options={CONTACT_METHOD_OPTIONS} />
+        <SelectField label="Handled by *" value={form.handledByUserId} onChange={(v) => patch({ handledByUserId: v })} options={settings.staff} />
+        <DateTimeField label="Date & time *" value={form.callAt} onChange={(v) => patch({ callAt: v })} />
       </div>
 
       <div className="grid-form" style={{ marginTop: 14 }}>
         <SelectField
-          label="Call type"
+          label="Call type *"
           value={form.callType}
           onChange={(v) =>
             patch({ callType: v, booked: '', notBookedReasonId: '', cancellationType: '', cancellationReasonId: '', callBackReasonId: '' })
           }
           options={CALL_TYPES}
-          placeholder=""
         />
         {showBooked && <SelectField label="Booked?" value={form.booked} onChange={(v) => patch({ booked: v })} options={['Yes', 'No']} />}
         {showCancellationType && (

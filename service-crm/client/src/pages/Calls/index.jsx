@@ -51,8 +51,8 @@ export default function CallsPage({ pendingJump, clearJump, jumpToJN }) {
         value={sub}
         onChange={setSub}
         tabs={[
-          ['log', 'Log a call'],
-          ['history', 'Call history'],
+          ['log', 'Log a contact'],
+          ['history', 'Contact history'],
         ]}
       />
       {notice && <div className={`notice panel ${notice.isError ? 'error' : ''}`}>{notice.message}</div>}

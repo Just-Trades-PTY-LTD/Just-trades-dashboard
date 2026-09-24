@@ -28,9 +28,12 @@ export default function CallsReport() {
   const { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, staffPerf } = data;
 
   const kpiRows = [
-    ['Total calls', kpis.total],
-    ['Inbound calls', kpis.inboundCount],
-    ['Outbound calls', kpis.outboundCount],
+    ['Total Contacts', kpis.total],
+    ['Inbound Calls', kpis.inboundCount],
+    ['Outbound Calls', kpis.outboundCount],
+    ['Text Messages', kpis.textMessageCount],
+    ['Emails', kpis.emailCount],
+    ['Other / N/A', kpis.otherContactCount],
     ['Leads', kpis.leadsCount],
     ['Booked leads', kpis.bookedCount],
     ['Booking rate', `${kpis.bookingRate}%`],
@@ -130,9 +133,12 @@ export default function CallsReport() {
                   <thead>
                     <tr>
                       <th>Staff</th>
-                      <th>Total calls</th>
-                      <th>Inbound</th>
-                      <th>Outbound</th>
+                      <th>Total Contacts</th>
+                      <th>Inbound Calls</th>
+                      <th>Outbound Calls</th>
+                      <th>Text Messages</th>
+                      <th>Emails</th>
+                      <th>Other / N/A</th>
                       <th>Leads</th>
                       <th>Booked</th>
                       <th>Booking rate</th>
@@ -145,6 +151,9 @@ export default function CallsReport() {
                         <td>{s.total}</td>
                         <td>{s.inbound}</td>
                         <td>{s.outbound}</td>
+                        <td>{s.textMessage}</td>
+                        <td>{s.email}</td>
+                        <td>{s.otherContact}</td>
                         <td>{s.leads}</td>
                         <td>{s.booked}</td>
                         <td>{s.rate}%</td>

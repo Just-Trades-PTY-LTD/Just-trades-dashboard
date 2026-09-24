@@ -14,6 +14,7 @@ test('Call History Excel export respects active filters and includes full notes 
     const inRange = (
       await server.request('POST', '/calls', {
         callAt: '2026-05-10T09:00:00',
+        direction: 'Inbound',
         callType: 'Lead',
         tradeId: plumbing.id,
         booked: 'Yes',
@@ -23,6 +24,7 @@ test('Call History Excel export respects active filters and includes full notes 
     // Outside the date range — must be excluded from the filtered export.
     await server.request('POST', '/calls', {
       callAt: '2026-01-01T09:00:00',
+      direction: 'Inbound',
       callType: 'Lead',
       tradeId: plumbing.id,
       booked: 'No',
@@ -30,6 +32,7 @@ test('Call History Excel export respects active filters and includes full notes 
     // A different call type — must be excluded when filtering by call type.
     await server.request('POST', '/calls', {
       callAt: '2026-05-11T09:00:00',
+      direction: 'Inbound',
       callType: 'Call back',
       tradeId: plumbing.id,
     });
@@ -37,6 +40,7 @@ test('Call History Excel export respects active filters and includes full notes 
     const archivedCall = (
       await server.request('POST', '/calls', {
         callAt: '2026-05-12T09:00:00',
+        direction: 'Inbound',
         callType: 'Lead',
         tradeId: plumbing.id,
         booked: 'Yes',
@@ -81,6 +85,7 @@ test('Call History Excel export can include archived calls when requested', asyn
     const call = (
       await server.request('POST', '/calls', {
         callAt: '2026-06-01T09:00:00',
+        direction: 'Inbound',
         callType: 'Lead',
         tradeId: plumbing.id,
         booked: 'Yes',

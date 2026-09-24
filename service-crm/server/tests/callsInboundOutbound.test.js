@@ -56,25 +56,68 @@ test('Calls report inbound/outbound breakdown respects the staff filter the same
   }
 });
 
-// `direction` is written by the app in exactly two ways: the calls table
-// column is NOT NULL, and the only client UI for it is a two-option dropdown
-// (Inbound/Outbound); the create route also defaults a missing value to
-// 'Inbound'. So no call created through the app can ever end up with a third
-// direction value — this test locks that invariant in so a future change
-// can't quietly introduce one without a test failing.
-test('every call created through the API always ends up with a direction of Inbound or Outbound', async () => {
+// Contact Method (the `direction` column) now starts blank in the UI and is
+// required before a call can be saved — omitting it must be rejected, not
+// silently defaulted, so a caller always knows exactly what was recorded.
+test('creating a call without a Contact Method is rejected rather than silently defaulted', async () => {
   const server = await startTestServer();
   try {
     await server.login();
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
-    const withoutDirection = (await server.request('POST', '/calls', { callAt: '2026-07-01T09:00:00', callType: 'Lead', tradeId: plumbing.id })).data;
-    assert.equal(withoutDirection.direction, 'Inbound', 'omitting direction on create defaults to Inbound, never blank/null');
+    const res = await server.request('POST', '/calls', { callAt: '2026-07-01T09:00:00', callType: 'Lead', tradeId: plumbing.id });
+    assert.equal(res.status, 400);
+    assert.equal(res.data.error, 'Please select a Contact Method before saving.');
+  } finally {
+    server.close();
+  }
+});
 
-    const report = (await server.request('GET', '/reports/calls?from=2026-07-01&to=2026-07-31')).data;
-    assert.equal(report.kpis.total, 1);
-    assert.equal(report.kpis.inboundCount + report.kpis.outboundCount, report.kpis.total);
+test('creating a call without a Call Type is rejected rather than silently defaulted', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
+
+    const res = await server.request('POST', '/calls', { callAt: '2026-07-01T09:00:00', direction: 'Inbound', tradeId: plumbing.id });
+    assert.equal(res.status, 400);
+    assert.equal(res.data.error, 'Please select a Call Type before saving.');
+  } finally {
+    server.close();
+  }
+});
+
+test('the new Contact Methods (Text Message, Email, Other / N/A) are each counted correctly in the report totals and breakdowns', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
+    const staffDirectory = (await server.request('GET', '/users/directory')).data;
+    const admin = staffDirectory[0];
+
+    await server.request('POST', '/calls', { callAt: '2026-08-01T09:00:00', direction: 'Text Message', callType: 'Lead', tradeId: plumbing.id, handledByUserId: admin.id });
+    await server.request('POST', '/calls', { callAt: '2026-08-02T09:00:00', direction: 'Email', callType: 'Lead', tradeId: plumbing.id, handledByUserId: admin.id });
+    await server.request('POST', '/calls', { callAt: '2026-08-03T09:00:00', direction: 'Other / N/A', callType: 'Not lead', tradeId: plumbing.id, handledByUserId: admin.id });
+
+    const report = (await server.request('GET', '/reports/calls?from=2026-08-01&to=2026-08-31')).data;
+    assert.equal(report.kpis.total, 3);
+    assert.equal(report.kpis.textMessageCount, 1);
+    assert.equal(report.kpis.emailCount, 1);
+    assert.equal(report.kpis.otherContactCount, 1);
+    assert.equal(report.kpis.inboundCount, 0);
+    assert.equal(report.kpis.outboundCount, 0);
+    assert.equal(
+      report.kpis.inboundCount + report.kpis.outboundCount + report.kpis.textMessageCount + report.kpis.emailCount + report.kpis.otherContactCount,
+      report.kpis.total
+    );
+
+    const staffRow = report.staffPerf.find((s) => s.name === admin.name);
+    assert.equal(staffRow.textMessage, 1);
+    assert.equal(staffRow.email, 1);
+    assert.equal(staffRow.otherContact, 1);
   } finally {
     server.close();
   }

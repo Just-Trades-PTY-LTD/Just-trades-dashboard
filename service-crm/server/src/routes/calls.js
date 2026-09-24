@@ -196,10 +196,15 @@ export function createCallsRouter() {
 
   router.post('/', (req, res) => {
     const b = req.body || {};
+    // Contact Method and Call Type both start blank in the UI now and must
+    // be chosen before saving — this is the backend backstop for that same
+    // rule. Editing an existing call is never blocked by this.
+    if (!b.direction) return res.status(400).json({ error: 'Please select a Contact Method before saving.' });
+    if (!b.callType) return res.status(400).json({ error: 'Please select a Call Type before saving.' });
     const lastInsertRowid = transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
         existingPendingCancellationId: null,
-        callType: b.callType || 'Lead',
+        callType: b.callType,
         cancellationType: b.cancellationType || '',
         jobNumber: b.jobNumber || '',
         tradeId: b.tradeId || null,
@@ -210,9 +215,9 @@ export function createCallsRouter() {
       });
       const values = {
         call_at: b.callAt,
-        direction: b.direction || 'Inbound',
+        direction: b.direction,
         handled_by_user_id: b.handledByUserId || null,
-        call_type: b.callType || 'Lead',
+        call_type: b.callType,
         trade_id: b.tradeId || null,
         job_type_id: b.jobTypeId || null,
         lead_source_id: b.leadSourceId || null,
