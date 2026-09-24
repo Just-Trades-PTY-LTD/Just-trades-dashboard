@@ -16,6 +16,23 @@ function nextSortOrder(table, whereSql = '1=1', params = []) {
   return row.m + 1;
 }
 
+// Every column across jobs/sales/call_backs/pending_cancellations that can
+// reference a technician — a technician referenced by any of these (active
+// or archived) can never be permanently deleted, only deactivated, since the
+// FOREIGN KEY on each of these columns would refuse the delete outright.
+function technicianIdsWithLinkedRecords() {
+  const ids = new Set();
+  [
+    'SELECT DISTINCT technician_id AS id FROM jobs WHERE technician_id IS NOT NULL',
+    'SELECT DISTINCT install_technician_id AS id FROM jobs WHERE install_technician_id IS NOT NULL',
+    'SELECT DISTINCT credited_technician_id AS id FROM sales WHERE credited_technician_id IS NOT NULL',
+    'SELECT DISTINCT attending_technician_id AS id FROM call_backs WHERE attending_technician_id IS NOT NULL',
+    'SELECT DISTINCT credited_technician_id AS id FROM call_backs WHERE credited_technician_id IS NOT NULL',
+    'SELECT DISTINCT credited_technician_id AS id FROM pending_cancellations WHERE credited_technician_id IS NOT NULL',
+  ].forEach((sql) => all(sql).forEach((r) => ids.add(r.id)));
+  return ids;
+}
+
 export function createSettingsRouter() {
   const router = Router();
   router.use(requireAuth);
@@ -27,7 +44,12 @@ export function createSettingsRouter() {
       name: t.name,
       jobTypes: all('SELECT id, name FROM job_types WHERE trade_id = ? ORDER BY sort_order', [t.id]),
     }));
-    const technicians = all('SELECT id, name, active FROM technicians ORDER BY sort_order');
+    const linkedTechnicianIds = technicianIdsWithLinkedRecords();
+    const technicians = all('SELECT id, name, active FROM technicians ORDER BY sort_order').map((t) => ({
+      ...t,
+      active: !!t.active,
+      canDelete: !linkedTechnicianIds.has(t.id),
+    }));
     const lists = {};
     LIST_CATEGORIES.forEach((cat) => {
       lists[cat] = all('SELECT id, name FROM list_items WHERE category = ? ORDER BY sort_order', [cat]);
@@ -98,8 +120,21 @@ export function createSettingsRouter() {
   });
 
   router.delete('/technicians/:id', adminOnly, (req, res) => {
-    run('DELETE FROM technicians WHERE id = ?', [req.params.id]);
-    res.json({ ok: true });
+    try {
+      run('DELETE FROM technicians WHERE id = ?', [req.params.id]);
+      res.json({ ok: true });
+    } catch (err) {
+      // Mirrors the same FK-constraint backstop used for job/sale/call-back
+      // entries — a technician referenced by any existing job, sale, call
+      // back or pending cancellation can never be deleted (SQLite's FK check
+      // refuses it), only deactivated. This is the client's backstop for a
+      // direct API call bypassing the disabled Delete button; the bundle's
+      // per-technician canDelete flag is what disables that button in the UI.
+      if (String(err.message).includes('FOREIGN KEY constraint failed')) {
+        return res.status(409).json({ error: 'This technician has linked records and cannot be permanently deleted. Please deactivate them instead.' });
+      }
+      throw err;
+    }
   });
 
   // ---- Generic reason/source lists ----

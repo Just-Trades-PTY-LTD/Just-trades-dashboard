@@ -6,6 +6,7 @@ import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function emptyFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '' };
@@ -63,7 +64,12 @@ export default function TechReport() {
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
         <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect label="Technician" value={filters.technicianId} onChange={(v) => patch({ technicianId: v })} options={settings.technicians} />
+        <FilterSelect
+          label="Technician"
+          value={filters.technicianId}
+          onChange={(v) => patch({ technicianId: v })}
+          options={withInactiveLabel(settings.technicians)}
+        />
         <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters

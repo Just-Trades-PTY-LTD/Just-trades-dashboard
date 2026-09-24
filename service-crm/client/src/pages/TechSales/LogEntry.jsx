@@ -5,6 +5,7 @@ import { useJobLookup } from '../../lib/useLookup.js';
 import { todayLocalDate } from '../../lib/dates.js';
 import { DateField, NumberField, SelectField, TextAreaField, YesNoField } from '../../components/Fields.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
@@ -332,7 +333,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             label="Technician *"
             value={form.technicianId}
             onChange={(v) => patch({ technicianId: v })}
-            options={settings.technicians}
+            options={settings.activeTechniciansFor(form.technicianId)}
             invalid={invalidFields.has('technicianId')}
           />
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
@@ -356,14 +357,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             label="Attending technician *"
             value={form.technicianId}
             onChange={(v) => patch({ technicianId: v })}
-            options={settings.technicians}
+            options={settings.activeTechniciansFor(form.technicianId)}
             invalid={invalidFields.has('technicianId')}
           />
           <SelectField
             label="Credited technician (original work)"
             value={form.creditedTechnicianId}
             onChange={(v) => patch({ creditedTechnicianId: v })}
-            options={settings.technicians}
+            options={withInactiveLabel(settings.technicians)}
           />
         </div>
       )}
@@ -371,7 +372,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       {(isExistingJob || isPendingCancellation) && (
         <div className="grid-form" style={{ marginTop: 14 }}>
           <DateField label="Date entered" value={form.dateLogged} onChange={(v) => patch({ dateLogged: v })} />
-          <SelectField label="Credited technician" value={form.creditedTechnicianId} onChange={(v) => patch({ creditedTechnicianId: v })} options={settings.technicians} />
+          <SelectField
+            label="Credited technician"
+            value={form.creditedTechnicianId}
+            onChange={(v) => patch({ creditedTechnicianId: v })}
+            options={withInactiveLabel(settings.technicians)}
+          />
         </div>
       )}
 
@@ -453,7 +459,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           <div className="grid-form">
             <SelectField label="Work completion" value={form.workCompletion} onChange={(v) => patch({ workCompletion: v })} options={WORK_COMPLETION_OPTIONS} />
             {showInstallFields && (
-              <SelectField label="Install technician" value={form.installTechnicianId} onChange={(v) => patch({ installTechnicianId: v })} options={settings.technicians} />
+              <SelectField
+                label="Install technician"
+                value={form.installTechnicianId}
+                onChange={(v) => patch({ installTechnicianId: v })}
+                options={settings.activeTechniciansFor(form.installTechnicianId)}
+              />
             )}
             {showInstallFields && <DateField label="Install date" value={form.installDate} onChange={(v) => patch({ installDate: v })} />}
           </div>

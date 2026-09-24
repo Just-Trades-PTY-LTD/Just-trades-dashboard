@@ -59,3 +59,21 @@ export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
     [key, excludeSaleId || 0]
   );
 }
+
+// A deactivated technician/user must never be newly assigned to work — this
+// is the backend backstop for that rule, since the picker they'd normally be
+// chosen from already excludes them. It only applies to assigning NEW work
+// (checked at creation, never on an edit), and never to attribution fields
+// like "Credited technician" — a deactivated person can and should still be
+// credited for work they already did before leaving.
+export function isTechnicianActive(id) {
+  if (!id) return true;
+  const row = get('SELECT active FROM technicians WHERE id = ?', [id]);
+  return !row || !!row.active;
+}
+
+export function isUserActive(id) {
+  if (!id) return true;
+  const row = get('SELECT active FROM users WHERE id = ?', [id]);
+  return !row || !!row.active;
+}

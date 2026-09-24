@@ -3,7 +3,14 @@ import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
-import { findConvertibleKnockback, findDuplicateInvoice, findOriginalJob, findLatestSale, normKey } from '../services/lookup.js';
+import {
+  findConvertibleKnockback,
+  findDuplicateInvoice,
+  findOriginalJob,
+  findLatestSale,
+  isTechnicianActive,
+  normKey,
+} from '../services/lookup.js';
 import { buildJobHistoryWorkbook } from '../lib/xlsxHistory.js';
 
 const JOB_TRACKED_FIELDS = [
@@ -340,6 +347,12 @@ export function createTechSalesRouter() {
         error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
       });
     }
+    if (!isTechnicianActive(b.technicianId)) {
+      return res.status(400).json({ error: 'This technician has been deactivated and cannot be assigned to a new job.' });
+    }
+    if (isSaleMade && b.installTechnicianId && !isTechnicianActive(b.installTechnicianId)) {
+      return res.status(400).json({ error: 'The selected install technician has been deactivated and cannot be assigned to a new job.' });
+    }
 
     // A brand-new job with a Job Number that's already in use by another
     // active job is almost always a follow-up visit, not a genuinely new
@@ -633,6 +646,9 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     if (!b.jobNumber || !String(b.jobNumber).trim()) {
       return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    }
+    if (!isTechnicianActive(b.technicianId)) {
+      return res.status(400).json({ error: 'This technician has been deactivated and cannot be assigned to a new call back.' });
     }
     const matchedJob = findOriginalJob(b.jobNumber);
     // The original job's Trade and Job Type are auto-populated below where

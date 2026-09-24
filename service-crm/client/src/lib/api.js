@@ -29,6 +29,9 @@ export const api = {
   },
   users: {
     directory: () => request('GET', '/users/directory'),
+    // Includes deactivated accounts, for a historical filter (Call History,
+    // Reports, admin Activity) — never for a dropdown that assigns new work.
+    directoryAll: () => request('GET', '/users/directory?all=1'),
     list: () => request('GET', '/users'),
     create: (body) => request('POST', '/users', body),
     update: (id, body) => request('PATCH', `/users/${id}`, body),

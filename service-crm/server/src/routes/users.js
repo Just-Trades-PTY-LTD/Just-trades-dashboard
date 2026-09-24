@@ -11,9 +11,16 @@ export function createUsersRouter() {
   const router = Router();
 
   // Any signed-in user can see who to attribute a call to; only admins get
-  // emails/roles/full management.
+  // emails/roles/full management. Active-only by default — this is the list
+  // used to assign new work (e.g. "Handled by"), so a deactivated account
+  // must never appear here. Pass ?all=1 for the separate case of a
+  // historical filter (Call History, Reports, admin Activity), where a
+  // deactivated account's past work still needs to be findable by name.
   router.get('/directory', requireAuth, (req, res) => {
-    res.json(all("SELECT id, name FROM users WHERE active = 1 ORDER BY name COLLATE NOCASE"));
+    const sql = req.query.all
+      ? 'SELECT id, name, active FROM users ORDER BY active DESC, name COLLATE NOCASE'
+      : 'SELECT id, name FROM users WHERE active = 1 ORDER BY name COLLATE NOCASE';
+    res.json(all(sql));
   });
 
   router.use(requireAdmin);
@@ -48,6 +55,12 @@ export function createUsersRouter() {
     if (active !== undefined) {
       if (!active && user.id === req.user.id) {
         return res.status(400).json({ error: "You can't deactivate your own account." });
+      }
+      if (!active && user.role === 'admin' && user.active) {
+        const { n: activeAdmins } = get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1");
+        if (activeAdmins <= 1) {
+          return res.status(400).json({ error: "You can't deactivate the last active administrator account." });
+        }
       }
       run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, user.id]);
     }

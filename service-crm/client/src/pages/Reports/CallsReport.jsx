@@ -5,6 +5,7 @@ import { useReportLayout } from '../../lib/reportLayout.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function emptyFilters() {
   return { from: '', to: '', handledByUserId: '' };
@@ -48,7 +49,12 @@ export default function CallsReport() {
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
         <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect label="Staff" value={filters.handledByUserId} onChange={(v) => patch({ handledByUserId: v })} options={settings.staff} />
+        <FilterSelect
+          label="Staff"
+          value={filters.handledByUserId}
+          onChange={(v) => patch({ handledByUserId: v })}
+          options={withInactiveLabel(settings.staffAll)}
+        />
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters
         </button>

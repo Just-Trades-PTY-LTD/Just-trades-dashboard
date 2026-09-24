@@ -3,7 +3,7 @@ import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
-import { findLatestSale, findOriginalJob } from '../services/lookup.js';
+import { findLatestSale, findOriginalJob, isUserActive } from '../services/lookup.js';
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
 
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
@@ -201,6 +201,9 @@ export function createCallsRouter() {
     // rule. Editing an existing call is never blocked by this.
     if (!b.direction) return res.status(400).json({ error: 'Please select a Contact Method before saving.' });
     if (!b.callType) return res.status(400).json({ error: 'Please select a Call Type before saving.' });
+    if (b.handledByUserId && !isUserActive(b.handledByUserId)) {
+      return res.status(400).json({ error: 'This account has been deactivated and cannot be assigned to a new contact record.' });
+    }
     const lastInsertRowid = transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
         existingPendingCancellationId: null,

@@ -4,6 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
 import { contactMethodLabel } from '../../lib/contactMethods.js';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const NOTES_PREVIEW_LENGTH = 60;
@@ -105,7 +106,12 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
         <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect label="Staff" value={filters.handledByUserId} onChange={(v) => patch({ handledByUserId: v })} options={settings.staff} />
+        <FilterSelect
+          label="Staff"
+          value={filters.handledByUserId}
+          onChange={(v) => patch({ handledByUserId: v })}
+          options={withInactiveLabel(settings.staffAll)}
+        />
         <FilterSelect label="Call type" value={filters.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
         <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
         <div style={{ paddingBottom: 8 }}>

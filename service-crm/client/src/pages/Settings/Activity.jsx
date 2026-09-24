@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const ENTITY_TYPES = [
   { id: 'call', name: 'Call' },
@@ -40,7 +41,7 @@ export default function Activity() {
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
         <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect label="Staff" value={filters.userId} onChange={(v) => patch({ userId: v })} options={settings.staff} />
+        <FilterSelect label="Staff" value={filters.userId} onChange={(v) => patch({ userId: v })} options={withInactiveLabel(settings.staffAll)} />
         <FilterSelect label="Record type" value={filters.entityType} onChange={(v) => patch({ entityType: v })} options={ENTITY_TYPES} />
         <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
           Clear filters

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import SettingsList from './SettingsList.jsx';
+import Technicians from './Technicians.jsx';
 import CollapsibleSection from '../../components/CollapsibleSection.jsx';
 
 const LIST_CATEGORIES = [
@@ -63,13 +64,7 @@ export default function Lists() {
         onRemove={(id) => window.confirm('Remove this trade? Its job types go with it.') && api.settings.removeTrade(id).then(refresh)}
       />
       <JobTypesEditor trades={settings.trades} refresh={refresh} />
-      <SettingsList
-        title="Technicians"
-        items={settings.technicians}
-        onAdd={() => api.settings.addTechnician('New technician').then(refresh)}
-        onChange={(id, name) => api.settings.updateTechnician(id, { name }).then(refresh)}
-        onRemove={(id) => window.confirm('Remove this technician?') && api.settings.removeTechnician(id).then(refresh)}
-      />
+      <Technicians />
       {LIST_CATEGORIES.map(([category, title]) => (
         <SettingsList
           key={category}

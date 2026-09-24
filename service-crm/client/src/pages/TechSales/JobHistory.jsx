@@ -4,6 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const ENTRY_TYPES = [
   { id: 'new_job_no_sale', name: 'New Job — No Sale' },
@@ -130,7 +131,12 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
         <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect label="Technician" value={filters.technicianId} onChange={(v) => patch({ technicianId: v })} options={settings.technicians} />
+        <FilterSelect
+          label="Technician"
+          value={filters.technicianId}
+          onChange={(v) => patch({ technicianId: v })}
+          options={withInactiveLabel(settings.technicians)}
+        />
         <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
         <FilterSelect label="Entry type" value={filters.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
         <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />

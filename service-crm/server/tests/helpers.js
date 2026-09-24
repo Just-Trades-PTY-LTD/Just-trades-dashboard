@@ -24,7 +24,19 @@ export async function startTestServer() {
     const setCookie = res.headers.get('set-cookie');
     if (setCookie) cookie = setCookie.split(';')[0];
     const text = await res.text();
-    const data = text ? JSON.parse(text) : null;
+    // An unmatched route falls through to Express's own default handler,
+    // which responds with plain HTML, not JSON (there's no catch-all JSON
+    // 404 registered) — parsed defensively here instead of throwing, so a
+    // test asserting "this route doesn't exist" gets a clean status/body
+    // instead of a JSON.parse crash.
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text };
+      }
+    }
     return { status: res.status, data };
   }
 
@@ -46,5 +58,17 @@ export async function startTestServer() {
     server.close();
   }
 
-  return { request, login, close, rawGet, dbPath };
+  // Lets a test hold onto one session's cookie while switching the shared
+  // `request`/`login` helpers to another (e.g. an admin deactivating a
+  // second account, then confirming that account's still-live session is
+  // now rejected) — save the current cookie before switching, restore it
+  // with setCookie to resume acting as that first session.
+  function getCookie() {
+    return cookie;
+  }
+  function setCookie(value) {
+    cookie = value;
+  }
+
+  return { request, login, close, rawGet, dbPath, getCookie, setCookie };
 }
