@@ -11,7 +11,7 @@ export default function ReportsPage() {
         value={sub}
         onChange={setSub}
         tabs={[
-          ['calls', 'Calls'],
+          ['calls', 'Calls & Contacts'],
           ['tech', 'Technician & sales'],
         ]}
       />
