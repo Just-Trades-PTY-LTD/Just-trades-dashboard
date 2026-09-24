@@ -23,7 +23,9 @@ const WORK_COMPLETION_OPTIONS = ['Completed on this visit', 'Install scheduled �
 
 function emptyForm(kind) {
   return {
-    kind: kind || 'new_job_no_sale',
+    // Entry type starts blank ("—") and must be deliberately chosen before
+    // saving — see the mandatory check in handleSubmit().
+    kind: kind || '',
     visitDate: todayLocalDate(),
     dateLogged: todayLocalDate(),
     technicianId: '',
@@ -79,9 +81,11 @@ function fromEntry(entry) {
 export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
+  const [invalidFields, setInvalidFields] = useState(new Set());
 
   useEffect(() => {
     setForm(editing ? fromEntry(editing) : emptyForm());
+    setInvalidFields(new Set());
   }, [editing]);
 
   function patch(p) {
@@ -94,40 +98,118 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const isCallBack = form.kind === 'call_back';
   const isPendingCancellation = form.kind === 'pending_cancellation';
   const showInstallFields = form.workCompletion === 'Install scheduled — different day';
+  // A No Sale entry only counts as a genuine knock-back when the lead was
+  // Qualified — see the matching rule in reports.js/techSales.js. An
+  // Unqualified lead was never a real sales opportunity, so it's never
+  // flagged (or required to explain) a knock-back.
+  const isGenuineKnockback = form.kind === 'new_job_no_sale' && form.lead === 'Qualified';
+  const knockbackReason = settings.lists.knockback_reason.find((r) => String(r.id) === String(form.knockbackReasonId));
+  const knockbackReasonIsOther = knockbackReason?.name === 'Other';
 
   const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
   const showJobLookup = isExistingJob || isCallBack || isPendingCancellation;
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', jobLookupMode);
+  // A brand-new job entered under a Job Number that already belongs to
+  // another active job — surfaced as a warning as soon as it's typed, and
+  // blocked at submit (see validate() below) rather than silently creating a
+  // second, conflicting job on the same JN. Only relevant when creating —
+  // editing an existing job will always "match" its own record, which isn't
+  // a duplicate.
+  const newJobDuplicateCheck = useJobLookup(isNewJob && !editing ? form.jobNumber : '', 'job');
 
-  // Silently autofill the credited technician from the matched job/sale, the
-  // way the prototype's lookup effect did — the trade/job type autofill for
-  // these three entry types happens server-side at save time instead, since
-  // (like the prototype) there's no visible Trade field to show it in here.
+  // Silently autofill the credited technician, trade and job type from the
+  // matched job/sale, the way the prototype's lookup effect did — filled in
+  // automatically where possible, but always left editable in case the match
+  // needs correcting.
   useEffect(() => {
-    if (!lookupResult || !lookupResult.found || form.creditedTechnicianId) return;
+    if (!lookupResult || !lookupResult.found) return;
     if (isExistingJob || isCallBack) {
-      if (lookupResult.technicianId) patch({ creditedTechnicianId: lookupResult.technicianId });
+      const fill = {};
+      if (lookupResult.technicianId && !form.creditedTechnicianId) fill.creditedTechnicianId = lookupResult.technicianId;
+      if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
+      if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
+      if (Object.keys(fill).length) patch(fill);
     } else if (isPendingCancellation) {
-      if (lookupResult.creditedTechnicianId) patch({ creditedTechnicianId: lookupResult.creditedTechnicianId });
+      if (lookupResult.creditedTechnicianId && !form.creditedTechnicianId) patch({ creditedTechnicianId: lookupResult.creditedTechnicianId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult]);
 
   function changeEntryType(kind) {
     setForm(emptyForm(kind));
+    setInvalidFields(new Set());
+  }
+
+  // Returns { missing: string[], fields: Set<string> } — every required
+  // field that's still blank for the current entry type, named clearly
+  // enough to show the user exactly what to fix, plus the set of field keys
+  // to visually highlight.
+  function validate() {
+    const missing = [];
+    const fields = new Set();
+    if (!form.kind) {
+      return { missing: ['Entry type'], fields: new Set(['kind']) };
+    }
+    if (isNewJob) {
+      if (!form.visitDate) {
+        missing.push('Visit Date');
+        fields.add('visitDate');
+      }
+      if (!form.technicianId) {
+        missing.push('Technician');
+        fields.add('technicianId');
+      }
+      if (!form.jobNumber || !form.jobNumber.trim()) {
+        missing.push('Job Number');
+        fields.add('jobNumber');
+      }
+      if (!form.tradeId) {
+        missing.push('Trade');
+        fields.add('tradeId');
+      }
+      if (!form.jobTypeId) {
+        missing.push('Job Type');
+        fields.add('jobTypeId');
+      }
+      if (!form.lead) {
+        missing.push('Lead status (Qualified or Unqualified)');
+        fields.add('lead');
+      }
+      if (isGenuineKnockback) {
+        if (!form.knockbackReasonId) {
+          missing.push('Reason for Knockback');
+          fields.add('knockbackReasonId');
+        } else if (knockbackReasonIsOther && !form.comments.trim()) {
+          missing.push('Additional Comments (required when Reason for Knockback is "Other")');
+          fields.add('comments');
+        }
+      }
+      if (newJobDuplicateCheck?.found) {
+        missing.push(`a different Job Number — ${form.jobNumber} already exists`);
+        fields.add('jobNumber');
+      }
+    } else if (!form.jobNumber || !form.jobNumber.trim()) {
+      missing.push('Job Number');
+      fields.add('jobNumber');
+    }
+    return { missing, fields };
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    // Lead (Qualified/Not Qualified) drives the Knock-back %, Conversion
-    // Rate and Average Sale figures in Reports, so it's required on every
-    // new "New Job" entry — checked here only for a brand-new entry, not
-    // when editing one, so an older record missing this value can still be
-    // edited without being forced to guess an answer it never recorded.
-    if (isNewJob && !editing && !form.lead) {
-      setNotice('Please select whether this was a Qualified or Not Qualified lead before saving.', true);
-      return;
+    // Every check in validate() only applies to a brand-new entry — editing
+    // an existing one is never blocked by it, so an older record missing one
+    // of these values can still be edited without being forced to fill in
+    // something it never recorded.
+    if (!editing) {
+      const { missing, fields } = validate();
+      if (missing.length) {
+        setInvalidFields(fields);
+        setNotice(`Please complete the following before saving: ${missing.join(', ')}.`, true);
+        return;
+      }
     }
+    setInvalidFields(new Set());
     try {
       let res;
       if (isNewJob) {
@@ -156,6 +238,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           jobNumber: form.jobNumber,
           dateLogged: form.dateLogged,
           creditedTechnicianId: form.creditedTechnicianId || null,
+          tradeId: form.tradeId || null,
+          jobTypeId: form.jobTypeId || null,
           invoiceNumber: form.invoiceNumber,
           invoiceDate: form.invoiceDate,
           saleValueExGst: form.saleValueExGst,
@@ -168,6 +252,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           visitDate: form.visitDate,
           technicianId: form.technicianId || null,
           creditedTechnicianId: form.creditedTechnicianId || null,
+          tradeId: form.tradeId || null,
+          jobTypeId: form.jobTypeId || null,
           reasonId: form.callBackReasonId || null,
           comments: form.comments,
         };
@@ -201,14 +287,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       </div>
 
       <SelectField
-        label="Entry type"
+        label="Entry type *"
         value={form.kind}
         onChange={changeEntryType}
         options={ENTRY_TYPES.filter(([id]) => id !== 'pending_cancellation' || form.kind === 'pending_cancellation').map(([id, label]) => ({
           id,
           name: label,
         }))}
-        placeholder=""
+        placeholder="—"
+        invalid={invalidFields.has('kind')}
       />
 
       {isExistingJob && (
@@ -230,8 +317,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
       {showJobLookup && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <div className="field">
-            <label>Job number (JN)</label>
+          <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
+            <label>Job number (JN) *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
             <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
           </div>
@@ -240,19 +327,38 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
       {isNewJob && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <DateField label="Visit date" value={form.visitDate} onChange={(v) => patch({ visitDate: v })} />
-          <SelectField label="Technician" value={form.technicianId} onChange={(v) => patch({ technicianId: v })} options={settings.technicians} />
-          <div className="field">
-            <label>Job number (JN)</label>
+          <DateField label="Visit date *" value={form.visitDate} onChange={(v) => patch({ visitDate: v })} invalid={invalidFields.has('visitDate')} />
+          <SelectField
+            label="Technician *"
+            value={form.technicianId}
+            onChange={(v) => patch({ technicianId: v })}
+            options={settings.technicians}
+            invalid={invalidFields.has('technicianId')}
+          />
+          <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
+            <label>Job number (JN) *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            {newJobDuplicateCheck?.found && (
+              <div className="lookup-box lookup-missing">
+                Job Number {form.jobNumber} already exists (visit {newJobDuplicateCheck.visitDate}
+                {newJobDuplicateCheck.trade ? ` — ${newJobDuplicateCheck.trade}` : ''}). If this is a follow-up on that job, use "Existing
+                Job — Quote Approved Later" or "Call Back" instead.
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {isCallBack && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <DateField label="Visit date" value={form.visitDate} onChange={(v) => patch({ visitDate: v })} />
-          <SelectField label="Attending technician" value={form.technicianId} onChange={(v) => patch({ technicianId: v })} options={settings.technicians} />
+          <DateField label="Visit date *" value={form.visitDate} onChange={(v) => patch({ visitDate: v })} invalid={invalidFields.has('visitDate')} />
+          <SelectField
+            label="Attending technician *"
+            value={form.technicianId}
+            onChange={(v) => patch({ technicianId: v })}
+            options={settings.technicians}
+            invalid={invalidFields.has('technicianId')}
+          />
           <SelectField
             label="Credited technician (original work)"
             value={form.creditedTechnicianId}
@@ -269,18 +375,33 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         </div>
       )}
 
-      {isNewJob && (
+      {(isNewJob || isExistingJob || isCallBack) && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <SelectField label="Trade" value={form.tradeId} onChange={(v) => patch({ tradeId: v, jobTypeId: '' })} options={settings.trades} />
           <SelectField
-            label="Job type"
+            label={isNewJob ? 'Trade *' : 'Trade'}
+            value={form.tradeId}
+            onChange={(v) => patch({ tradeId: v, jobTypeId: '' })}
+            options={settings.trades}
+            invalid={invalidFields.has('tradeId')}
+          />
+          <SelectField
+            label={isNewJob ? 'Job type *' : 'Job type'}
             value={form.jobTypeId}
             onChange={(v) => patch({ jobTypeId: v })}
             options={settings.jobTypesFor(form.tradeId)}
             disabled={!form.tradeId}
             placeholder={form.tradeId ? '—' : 'Choose a trade first'}
+            invalid={invalidFields.has('jobTypeId')}
           />
-          <SelectField label={editing ? 'Lead' : 'Lead *'} value={form.lead} onChange={(v) => patch({ lead: v })} options={LEAD_OPTIONS} />
+          {isNewJob && (
+            <SelectField
+              label="Lead *"
+              value={form.lead}
+              onChange={(v) => patch({ lead: v })}
+              options={LEAD_OPTIONS}
+              invalid={invalidFields.has('lead')}
+            />
+          )}
         </div>
       )}
 
@@ -290,13 +411,21 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           <YesNoField label="Option sheet" value={form.optionSheet} onChange={(v) => patch({ optionSheet: v })} />
           <div className="field">
             <label>Knock back</label>
-            <select value={isSaleMade ? 'No' : 'Yes'} disabled>
-              <option>{isSaleMade ? 'No' : 'Yes'}</option>
+            <select value={isGenuineKnockback ? 'Yes' : 'No'} disabled>
+              <option>{isGenuineKnockback ? 'Yes' : 'No'}</option>
             </select>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>Set automatically from the entry type above.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              Set automatically — only a No Sale entry with a Qualified lead counts as a knock-back.
+            </div>
           </div>
           {!isSaleMade && (
-            <SelectField label="Reason for knock back" value={form.knockbackReasonId} onChange={(v) => patch({ knockbackReasonId: v })} options={settings.lists.knockback_reason} />
+            <SelectField
+              label={isGenuineKnockback ? 'Reason for knock back *' : 'Reason for knock back'}
+              value={form.knockbackReasonId}
+              onChange={(v) => patch({ knockbackReasonId: v })}
+              options={settings.lists.knockback_reason}
+              invalid={invalidFields.has('knockbackReasonId')}
+            />
           )}
         </div>
       )}
@@ -354,7 +483,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       )}
 
       <div style={{ marginTop: 14 }}>
-        <TextAreaField label="Additional comments" value={form.comments} onChange={(v) => patch({ comments: v })} />
+        <TextAreaField
+          label={isGenuineKnockback && knockbackReasonIsOther ? 'Additional comments *' : 'Additional comments'}
+          value={form.comments}
+          onChange={(v) => patch({ comments: v })}
+          invalid={invalidFields.has('comments')}
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

@@ -11,6 +11,8 @@ async function createStaff(server, email = 'staff@justtrades.au') {
 test('staff can do the normal operational work: create/edit calls, view history, archive, run reports, export to Excel', async () => {
   const server = await startTestServer();
   try {
+    await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Staff Test Tech' })).data;
     await createStaff(server);
 
     const bundle = (await server.request('GET', '/settings/bundle')).data;
@@ -32,8 +34,10 @@ test('staff can do the normal operational work: create/edit calls, view history,
     const job = await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-05-01',
+      technicianId: tech.id,
       jobNumber: 'JN-STAFF-1',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });

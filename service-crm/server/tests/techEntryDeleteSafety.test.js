@@ -6,14 +6,17 @@ test('a "New Job — Sale Made" entry cannot be permanently deleted (linked sale
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Delsafe Tech 1' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
     const job = (
       await server.request('POST', '/tech/new-job', {
         kind: 'new_job_sale_made',
         visitDate: '2026-05-01',
+        technicianId: tech.id,
         jobNumber: 'JN-DELSAFE-1',
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Qualified',
         invoiceNumber: 'INV-DELSAFE-1',
         invoiceDate: '2026-05-01',
@@ -40,6 +43,7 @@ test('a knock-back job that was later converted by a Quote Approved Later sale c
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Delsafe Tech 2' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
@@ -47,8 +51,10 @@ test('a knock-back job that was later converted by a Quote Approved Later sale c
       await server.request('POST', '/tech/new-job', {
         kind: 'new_job_no_sale',
         visitDate: '2026-05-02',
+        technicianId: tech.id,
         jobNumber: 'JN-DELSAFE-2',
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       })
@@ -87,6 +93,7 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Delsafe Tech 3' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
@@ -94,8 +101,10 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
       await server.request('POST', '/tech/new-job', {
         kind: 'new_job_no_sale',
         visitDate: '2026-05-03',
+        technicianId: tech.id,
         jobNumber: 'JN-DELSAFE-3',
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       })
@@ -105,6 +114,7 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
       await server.request('POST', '/tech/call-backs', {
         jobNumber: 'JN-DELSAFE-4',
         visitDate: '2026-05-04',
+        technicianId: tech.id,
         comments: 'test',
       })
     ).data.entry;

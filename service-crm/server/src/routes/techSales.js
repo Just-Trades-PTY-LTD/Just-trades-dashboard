@@ -24,12 +24,22 @@ const JOB_TRACKED_FIELDS = [
 const SALE_TRACKED_FIELDS = [
   'job_number',
   'credited_technician_id',
+  'trade_id',
+  'job_type_id',
   'invoice_number',
   'invoice_date',
   'sale_value_ex_gst',
   'comments',
 ];
-const CALL_BACK_TRACKED_FIELDS = ['job_number', 'attending_technician_id', 'credited_technician_id', 'reason_id', 'comments'];
+const CALL_BACK_TRACKED_FIELDS = [
+  'job_number',
+  'attending_technician_id',
+  'credited_technician_id',
+  'trade_id',
+  'job_type_id',
+  'reason_id',
+  'comments',
+];
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'reason_id', 'comments'];
 
 function jobRow(id) {
@@ -308,14 +318,58 @@ export function createTechSalesRouter() {
   router.post('/new-job', (req, res) => {
     const b = req.body || {};
     const isSaleMade = b.kind === 'new_job_sale_made';
-    // Backend backstop for the same "Lead is required on a new entry" rule
-    // the client enforces — Knock-back %, Conversion Rate and Average Sale
-    // all depend on this being Qualified or Not Qualified, never blank, on
-    // every entry created from here on. Editing an existing entry is never
-    // blocked by this, only creating a new one.
-    if (b.lead !== 'Qualified' && b.lead !== 'Not Qualified') {
-      return res.status(400).json({ error: 'Please select whether this was a Qualified or Not Qualified lead before saving.' });
+
+    // Visit Date, Technician, Job Number, Trade, Job Type and Lead status are
+    // mandatory on every brand-new "New Job" entry (No Sale or Sale Made) —
+    // backend backstop for the same check the client enforces, since Total
+    // Jobs/Qualified Jobs/Knock-back %/Conversion Rate/Average Sale and the
+    // job-number lookups used elsewhere all depend on these being filled in.
+    // Checked only here, on creation; editing an existing entry (PATCH
+    // below) is never blocked by this, so an older record missing one of
+    // these can still be edited without being forced to fill in a value it
+    // never recorded.
+    const missing = [];
+    if (!b.visitDate) missing.push('Visit Date');
+    if (!b.technicianId) missing.push('Technician');
+    if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Job Number');
+    if (!b.tradeId) missing.push('Trade');
+    if (!b.jobTypeId) missing.push('Job Type');
+    if (b.lead !== 'Qualified' && b.lead !== 'Not Qualified') missing.push('Lead status (Qualified or Unqualified)');
+    if (missing.length) {
+      return res.status(400).json({
+        error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
+      });
     }
+
+    // A brand-new job with a Job Number that's already in use by another
+    // active job is almost always a follow-up visit, not a genuinely new
+    // job — "Existing Job — Quote Approved Later" and "Call Back" both exist
+    // for that, so this is blocked rather than silently creating a second,
+    // conflicting job on the same JN.
+    const existingJobForJn = findOriginalJob(b.jobNumber);
+    if (existingJobForJn) {
+      return res.status(400).json({
+        error: `Job Number ${b.jobNumber} already exists (logged ${existingJobForJn.visit_date}${
+          existingJobForJn.trade_name ? ` — ${existingJobForJn.trade_name}` : ''
+        }). If this is a follow-up on that job, use "Existing Job — Quote Approved Later" or "Call Back" instead of creating a new job.`,
+      });
+    }
+
+    // A No Sale entry is only a genuine knock-back when the lead was
+    // Qualified — an Unqualified lead was never a real sales opportunity, so
+    // it must never be auto-flagged (or later auto-converted by a Quote
+    // Approved Later sale) as one.
+    const isGenuineKnockback = !isSaleMade && b.lead === 'Qualified';
+    if (isGenuineKnockback) {
+      if (!b.knockbackReasonId) {
+        return res.status(400).json({ error: 'Please select a Reason for Knockback before saving.' });
+      }
+      const reason = get('SELECT name FROM list_items WHERE id = ?', [b.knockbackReasonId]);
+      if (reason?.name === 'Other' && !(b.comments || '').trim()) {
+        return res.status(400).json({ error: 'Please add a brief explanation in Additional Comments when Reason for Knockback is "Other".' });
+      }
+    }
+
     let notice = null;
 
     if (isSaleMade && b.invoiceNumber) {
@@ -332,7 +386,7 @@ export function createTechSalesRouter() {
         lead: b.lead || '',
         inspection_sheet: b.inspectionSheet || '',
         option_sheet: b.optionSheet || '',
-        knockback: isSaleMade ? 0 : 1,
+        knockback: isGenuineKnockback ? 1 : 0,
         knockback_reason_id: isSaleMade ? null : b.knockbackReasonId || null,
         work_completion: isSaleMade ? b.workCompletion || '' : '',
         install_technician_id: isSaleMade ? b.installTechnicianId || null : null,
@@ -466,17 +520,36 @@ export function createTechSalesRouter() {
   // ---- Existing Job — Quote Approved Later ----
   router.post('/quote-approved-later', (req, res) => {
     const b = req.body || {};
+    if (!b.jobNumber || !String(b.jobNumber).trim()) {
+      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    }
+    // "Existing Job — Quote Approved Later" only ever makes sense against a
+    // job that's actually on record — it must match by exact Job Number
+    // (never a partial/fuzzy match, so it can never link to the wrong job),
+    // and is blocked entirely rather than saved half-linked if nothing
+    // matches.
+    const matchedJob = findOriginalJob(b.jobNumber);
+    if (!matchedJob) {
+      return res.status(400).json({
+        error: `No existing job found for JN ${b.jobNumber}. "Existing Job — Quote Approved Later" must reference a Job Number that was already logged as a New Job entry.`,
+      });
+    }
+
     let notice = null;
     if (b.invoiceNumber) {
       const dupe = findDuplicateInvoice(b.invoiceNumber);
       if (dupe) notice = `Heads up: invoice ${b.invoiceNumber} already exists on JN ${dupe.job_number}. If this is the same invoice, edit that entry instead — duplicate invoice numbers are only counted once in reports.`;
     }
 
-    const matchedJob = findOriginalJob(b.jobNumber);
     const saleId = transaction(() => {
+      // The original job's Technician, Trade and Job Type are auto-populated
+      // below where possible, but stay editable — an explicit value in the
+      // request always wins over the matched job's own value.
       const saleValues = {
         job_number: b.jobNumber || '',
         credited_technician_id: b.creditedTechnicianId || null,
+        trade_id: b.tradeId || matchedJob.trade_id || null,
+        job_type_id: b.jobTypeId || matchedJob.job_type_id || null,
         invoice_number: b.invoiceNumber || '',
         invoice_date: b.invoiceDate || '',
         sale_value_ex_gst: Number(b.saleValueExGst) || 0,
@@ -487,12 +560,12 @@ export function createTechSalesRouter() {
           invoice_number, invoice_date, sale_value_ex_gst, comments, created_by_user_id)
          VALUES (?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          matchedJob?.id || null,
+          matchedJob.id,
           saleValues.job_number,
           b.dateLogged,
           saleValues.credited_technician_id,
-          matchedJob?.trade_id || null,
-          matchedJob?.job_type_id || null,
+          saleValues.trade_id,
+          saleValues.job_type_id,
           saleValues.invoice_number,
           saleValues.invoice_date,
           saleValues.sale_value_ex_gst,
@@ -513,8 +586,6 @@ export function createTechSalesRouter() {
           fields: ['knockback'],
           userId: req.user.id,
         });
-      } else if (!matchedJob) {
-        notice = notice || 'Sale recorded — no matching original knock-back was found for that JN, so nothing else was updated.';
       }
       return lastInsertRowid;
     });
@@ -529,6 +600,8 @@ export function createTechSalesRouter() {
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
       credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      trade_id: mergeId(b.tradeId, existing.trade_id),
+      job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       invoice_number: b.invoiceNumber ?? existing.invoice_number,
       invoice_date: b.invoiceDate ?? existing.invoice_date,
       sale_value_ex_gst: b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : existing.sale_value_ex_gst,
@@ -536,9 +609,20 @@ export function createTechSalesRouter() {
     };
     const dateLogged = b.dateLogged ?? existing.date_logged;
     run(
-      `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, invoice_number=?, invoice_date=?,
+      `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
         sale_value_ex_gst=?, comments=?, updated_at=datetime('now') WHERE id=?`,
-      [next.job_number, dateLogged, next.credited_technician_id, next.invoice_number, next.invoice_date, next.sale_value_ex_gst, next.comments, req.params.id]
+      [
+        next.job_number,
+        dateLogged,
+        next.credited_technician_id,
+        next.trade_id,
+        next.job_type_id,
+        next.invoice_number,
+        next.invoice_date,
+        next.sale_value_ex_gst,
+        next.comments,
+        req.params.id,
+      ]
     );
     recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
     res.json(saleToEntry(saleRow(req.params.id)));
@@ -547,11 +631,21 @@ export function createTechSalesRouter() {
   // ---- Call Back ----
   router.post('/call-backs', (req, res) => {
     const b = req.body || {};
+    if (!b.jobNumber || !String(b.jobNumber).trim()) {
+      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    }
     const matchedJob = findOriginalJob(b.jobNumber);
+    // The original job's Trade and Job Type are auto-populated below where
+    // possible, but stay editable — an explicit value in the request always
+    // wins over the matched job's own value. A Call Back is never blocked
+    // for lack of a match, though — it isn't required to reference an
+    // existing job the way Quote Approved Later is.
     const values = {
       job_number: b.jobNumber || '',
       attending_technician_id: b.technicianId || null,
       credited_technician_id: b.creditedTechnicianId || null,
+      trade_id: b.tradeId || matchedJob?.trade_id || null,
+      job_type_id: b.jobTypeId || matchedJob?.job_type_id || null,
       reason_id: b.reasonId || null,
       comments: b.comments || '',
     };
@@ -565,8 +659,8 @@ export function createTechSalesRouter() {
         b.visitDate,
         values.attending_technician_id,
         values.credited_technician_id,
-        matchedJob?.trade_id || null,
-        matchedJob?.job_type_id || null,
+        values.trade_id,
+        values.job_type_id,
         values.reason_id,
         values.comments,
         req.user.id,
@@ -584,14 +678,26 @@ export function createTechSalesRouter() {
       job_number: b.jobNumber ?? existing.job_number,
       attending_technician_id: mergeId(b.technicianId, existing.attending_technician_id),
       credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      trade_id: mergeId(b.tradeId, existing.trade_id),
+      job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       reason_id: mergeId(b.reasonId, existing.reason_id),
       comments: b.comments ?? existing.comments,
     };
     const visitDate = b.visitDate ?? existing.visit_date;
     run(
       `UPDATE call_backs SET job_number=?, visit_date=?, attending_technician_id=?, credited_technician_id=?,
-        reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
-      [next.job_number, visitDate, next.attending_technician_id, next.credited_technician_id, next.reason_id, next.comments, req.params.id]
+        trade_id=?, job_type_id=?, reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
+      [
+        next.job_number,
+        visitDate,
+        next.attending_technician_id,
+        next.credited_technician_id,
+        next.trade_id,
+        next.job_type_id,
+        next.reason_id,
+        next.comments,
+        req.params.id,
+      ]
     );
     recordAudit({ entityType: 'call_back', entityId: Number(req.params.id), before: existing, after: next, fields: CALL_BACK_TRACKED_FIELDS, userId: req.user.id });
     res.json(callBackToEntry(callBackRow(req.params.id)));
@@ -600,6 +706,9 @@ export function createTechSalesRouter() {
   // ---- Pending Cancellation ----
   router.post('/pending-cancellations', (req, res) => {
     const b = req.body || {};
+    if (!b.jobNumber || !String(b.jobNumber).trim()) {
+      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    }
     const matchedSale = findLatestSale(b.jobNumber);
     const values = {
       job_number: b.jobNumber || '',

@@ -23,6 +23,7 @@ test('average sale divides Total Sales Value by Qualified Jobs only, and unquali
         technicianId: tech.id,
         jobNumber: `JN-AVG-KB-${i}`,
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       });
@@ -33,6 +34,7 @@ test('average sale divides Total Sales Value by Qualified Jobs only, and unquali
       technicianId: tech.id,
       jobNumber: 'JN-AVG-S1',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-AVG-1',
       invoiceDate: '2026-05-02',
@@ -44,6 +46,7 @@ test('average sale divides Total Sales Value by Qualified Jobs only, and unquali
       technicianId: tech.id,
       jobNumber: 'JN-AVG-S2',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-AVG-2',
       invoiceDate: '2026-05-03',
@@ -59,6 +62,7 @@ test('average sale divides Total Sales Value by Qualified Jobs only, and unquali
         technicianId: tech.id,
         jobNumber: `JN-AVG-UNQ-${i}`,
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Not Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       });
@@ -98,6 +102,7 @@ test('average sale keeps cents rather than rounding at the source (server return
         technicianId: tech.id,
         jobNumber: `JN-AVG2-KB-${i}`,
         tradeId: plumbing.id,
+        jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Qualified',
         knockbackReasonId: bundle.lists.knockback_reason[0].id,
       });
@@ -108,6 +113,7 @@ test('average sale keeps cents rather than rounding at the source (server return
       technicianId: tech.id,
       jobNumber: 'JN-AVG2-S1',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-AVG2-1',
       invoiceDate: '2026-06-02',
@@ -119,6 +125,7 @@ test('average sale keeps cents rather than rounding at the source (server return
       technicianId: tech.id,
       jobNumber: 'JN-AVG2-S2',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-AVG2-2',
       invoiceDate: '2026-06-03',
@@ -154,14 +161,17 @@ test('average sale is $0, not an error, when every job attended is unqualified (
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Robin' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_sale_made',
       visitDate: '2026-07-01',
+      technicianId: tech.id,
       jobNumber: 'JN-AVG3-UNQ-1',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
       invoiceNumber: 'INV-AVG3-1',
       invoiceDate: '2026-07-01',

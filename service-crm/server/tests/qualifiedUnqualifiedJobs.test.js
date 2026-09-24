@@ -7,30 +7,37 @@ test('Total Jobs includes qualified and unqualified jobs; Qualified/Unqualified 
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Qualified Tech 1' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-01',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-1',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-02',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-2',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-03',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-3',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
@@ -48,6 +55,7 @@ test('an unqualified no-sale job is never counted as a knock-back, and is exclud
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Qualified Tech 2' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
@@ -55,16 +63,20 @@ test('an unqualified no-sale job is never counted as a knock-back, and is exclud
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-10',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-4',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_sale_made',
       visitDate: '2026-08-11',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-5',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-QU-5',
       invoiceDate: '2026-08-11',
@@ -75,16 +87,20 @@ test('an unqualified no-sale job is never counted as a knock-back, and is exclud
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-12',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-6',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-08-13',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-7',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
@@ -112,14 +128,17 @@ test('a legacy job with no Lead classification at all is counted in Total Jobs b
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Qualified Tech 3' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_sale_made',
       visitDate: '2026-09-01',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-8',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-QU-8',
       invoiceDate: '2026-09-01',
@@ -154,19 +173,22 @@ test('creating a New Job entry without a Lead value is rejected by the API', asy
   const server = await startTestServer();
   try {
     await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'Qualified Tech 4' })).data;
     const bundle = (await server.request('GET', '/settings/bundle')).data;
     const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
 
     const res = await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-09-05',
+      technicianId: tech.id,
       jobNumber: 'JN-QU-10',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       knockbackReasonId: bundle.lists.knockback_reason[0].id,
       // lead intentionally omitted
     });
     assert.equal(res.status, 400);
-    assert.equal(res.data.error, 'Please select whether this was a Qualified or Not Qualified lead before saving.');
+    assert.equal(res.data.error, 'Please complete the following required field before saving: Lead status (Qualified or Unqualified).');
   } finally {
     server.close();
   }

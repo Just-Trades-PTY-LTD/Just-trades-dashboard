@@ -42,6 +42,46 @@ const MIGRATIONS = [
         .run();
     },
   },
+  {
+    // Purely additive: only ever INSERTs a new knockback_reason list_item
+    // when a row of that exact name isn't already there, keyed by name so
+    // it's a no-op on every later boot. Never touches, renames or removes
+    // any existing knockback_reason row (or any job that references one),
+    // so no existing record's Reason for Knockback can change.
+    //
+    // Skipped entirely when the category has no rows yet at all — that's a
+    // brand-new database, and this migration always runs before seedLists()
+    // populates the defaults (see seed.js), so acting here would make
+    // seedLists() see the category as already seeded and skip the original
+    // 5 reasons. A genuinely fresh install gets the full list straight from
+    // DEFAULT_LISTS in seed.js instead.
+    id: 'add_knockback_reason_options',
+    run(database) {
+      const NEW_REASONS = [
+        'Customer getting other quotes',
+        'Customer not ready to proceed',
+        'Customer declined',
+        'Unable to contact/customer unavailable',
+        'Finance/payment issue',
+        'Work not required',
+        'Competitor selected',
+        'Unknown/not provided',
+      ];
+      const { n: existingCount } = database.prepare("SELECT COUNT(*) AS n FROM list_items WHERE category = 'knockback_reason'").get();
+      if (existingCount === 0) return;
+      const existingNames = new Set(
+        database.prepare("SELECT name FROM list_items WHERE category = 'knockback_reason'").all().map((r) => r.name)
+      );
+      const { m: maxOrder } = database
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM list_items WHERE category = 'knockback_reason'")
+        .get();
+      let nextOrder = maxOrder + 1;
+      const insert = database.prepare("INSERT INTO list_items (category, name, sort_order) VALUES ('knockback_reason', ?, ?)");
+      for (const name of NEW_REASONS) {
+        if (!existingNames.has(name)) insert.run(name, nextOrder++);
+      }
+    },
+  },
 ];
 
 function runMigrations(database) {

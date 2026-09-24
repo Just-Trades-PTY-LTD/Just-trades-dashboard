@@ -252,6 +252,16 @@ a {
   outline-offset: 1px;
 }
 
+.field.invalid label {
+  color: var(--alert);
+}
+
+.field.invalid input,
+.field.invalid select,
+.field.invalid textarea {
+  border-color: var(--alert);
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

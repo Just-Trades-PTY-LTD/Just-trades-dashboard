@@ -22,6 +22,7 @@ test('§6 worked example: knock-back flips to converted, job counted once', asyn
       technicianId: tech.id,
       jobNumber: 'JN-10432',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       knockbackReasonId: bundle.lists.knockback_reason[0]?.id,
     });

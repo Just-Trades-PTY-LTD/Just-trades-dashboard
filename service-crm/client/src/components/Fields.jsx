@@ -21,9 +21,9 @@ export function NumberField({ label, value, onChange, style, maxWidth }) {
   );
 }
 
-export function DateField({ label, value, onChange, style, maxWidth = 170 }) {
+export function DateField({ label, value, onChange, style, maxWidth = 170, invalid }) {
   return (
-    <div className="field" style={{ maxWidth, ...style }}>
+    <div className={`field${invalid ? ' invalid' : ''}`} style={{ maxWidth, ...style }}>
       {label && <label>{label}</label>}
       <input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
     </div>
@@ -39,9 +39,9 @@ export function DateTimeField({ label, value, onChange, style }) {
   );
 }
 
-export function TextAreaField({ label, value, onChange, rows = 3, placeholder }) {
+export function TextAreaField({ label, value, onChange, rows = 3, placeholder, invalid }) {
   return (
-    <div className="field">
+    <div className={`field${invalid ? ' invalid' : ''}`}>
       {label && <label>{label}</label>}
       <textarea rows={rows} value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </div>
@@ -49,10 +49,10 @@ export function TextAreaField({ label, value, onChange, rows = 3, placeholder })
 }
 
 // options: array of {id,name} OR array of plain strings.
-export function SelectField({ label, value, onChange, options, placeholder = '—', disabled, style, maxWidth }) {
+export function SelectField({ label, value, onChange, options, placeholder = '—', disabled, style, maxWidth, invalid }) {
   const isObjectOptions = options.length > 0 && typeof options[0] === 'object';
   return (
-    <div className="field" style={{ maxWidth, ...style }}>
+    <div className={`field${invalid ? ' invalid' : ''}`} style={{ maxWidth, ...style }}>
       {label && <label>{label}</label>}
       <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
         <option value="">{disabled ? placeholder : placeholder}</option>

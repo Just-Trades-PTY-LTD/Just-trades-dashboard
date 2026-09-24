@@ -84,6 +84,7 @@ test('a New Job — Sale Made entry logs the job and the sale as two separate cr
       technicianId: tech.id,
       jobNumber: 'JN-ACT-2',
       tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
       invoiceNumber: 'INV-ACT-2',
       invoiceDate: '2026-09-05',
@@ -107,12 +108,17 @@ test('activity feed can be filtered by entity type', async () => {
     await server.login();
     await server.request('POST', '/calls', { callAt: '2026-09-06T09:00', direction: 'Inbound', callType: 'Not lead' });
     const tech = (await server.request('POST', '/settings/technicians', { name: 'Tylor' })).data;
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
       visitDate: '2026-09-06',
       technicianId: tech.id,
       jobNumber: 'JN-ACT-3',
+      tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Qualified',
+      knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 
     const callsOnly = (await server.request('GET', '/audit/activity?entityType=call')).data;
