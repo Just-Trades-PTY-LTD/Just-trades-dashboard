@@ -40,10 +40,20 @@ function bucketKey(dateStr, granularity) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// A category value that's blank/null is grouped and displayed as "Not
+// specified" everywhere in this file (KPI/chart breakdowns and drill-down
+// alike) — this normalizes a raw field to that same label so a drill-down
+// request for "Not specified" matches exactly what the chart/table showed.
+function catLabel(v) {
+  return v || 'Not specified';
+}
+
 // ---------------------------------------------------------------------------
-// Calls report
+// Calls report — one raw fetch, shared by the report's own KPIs/breakdowns
+// and by drilldownCalls() below, so a figure and its drill-down can never
+// drift apart from each other.
 // ---------------------------------------------------------------------------
-export function computeCallsReport({ from, to, handledByUserId } = {}) {
+function fetchCallsRaw({ from, to, handledByUserId } = {}) {
   const rows = all(
     `SELECT c.*, u.name AS handled_by_name, tr.name AS trade_name, ls.name AS lead_source_name,
       nbr.name AS not_booked_reason_name, cr.name AS cancellation_reason_name
@@ -55,8 +65,11 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
      LEFT JOIN list_items cr ON cr.id = c.cancellation_reason_id
      WHERE c.archived = 0`
   );
+  return rows.filter((c) => inRange(c.call_at, from, to) && (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)));
+}
 
-  const reportCalls = rows.filter((c) => inRange(c.call_at, from, to) && (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)));
+export function computeCallsReport({ from, to, handledByUserId } = {}) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId });
 
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
@@ -76,6 +89,10 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const textMessages = reportCalls.filter((c) => c.direction === 'Text Message');
   const emails = reportCalls.filter((c) => c.direction === 'Email');
   const otherContacts = reportCalls.filter((c) => c.direction === 'Other / N/A');
+  const quotesApproved = reportCalls.filter((c) => c.call_type === 'Quote approved');
+  const callBackRequests = reportCalls.filter((c) => c.call_type === 'Call back');
+  const newJobCancellations = reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation');
+  const pendingCancellations = reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation');
 
   const kpis = {
     total: reportCalls.length,
@@ -87,10 +104,10 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
     leadsCount: leads.length,
     bookedCount: booked.length,
     bookingRate: pct(booked.length, leads.length),
-    quotesApproved: reportCalls.filter((c) => c.call_type === 'Quote approved').length,
-    callBackRequests: reportCalls.filter((c) => c.call_type === 'Call back').length,
-    newJobCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation').length,
-    pendingCancellations: reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation').length,
+    quotesApproved: quotesApproved.length,
+    callBackRequests: callBackRequests.length,
+    newJobCancellations: newJobCancellations.length,
+    pendingCancellations: pendingCancellations.length,
   };
 
   const byTrade = countBy(reportCalls.filter((c) => c.trade_name), (c) => c.trade_name);
@@ -105,14 +122,8 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const bySourceStack = Object.values(stackMap);
 
   const notBookedReasons = countBy(leads.filter((c) => c.booked === 'No'), (c) => c.not_booked_reason_name);
-  const newCancelReasons = countBy(
-    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation'),
-    (c) => c.cancellation_reason_name
-  );
-  const pendingCancelReasons = countBy(
-    reportCalls.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation'),
-    (c) => c.cancellation_reason_name
-  );
+  const newCancelReasons = countBy(newJobCancellations, (c) => c.cancellation_reason_name);
+  const pendingCancelReasons = countBy(pendingCancellations, (c) => c.cancellation_reason_name);
 
   const trendMap = {};
   reportCalls.forEach((c) => {
@@ -143,6 +154,113 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   const staffPerf = Object.values(staffMap).map((s) => ({ ...s, rate: pct(s.booked, s.leads) }));
 
   return { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, staffPerf };
+}
+
+// Selects the subset of an (already date/staff-scoped) calls array for one
+// named figure — shared between the top-level KPI cards and the "By staff"
+// table's per-staff cells, which are the same figures further scoped to one
+// staff member. Returns null for an unrecognised field so the caller can
+// reject the request instead of silently returning nothing.
+function pickCallsSubset(base, field) {
+  const leads = base.filter((c) => c.call_type === 'Lead');
+  const booked = leads.filter((c) => c.booked === 'Yes');
+  switch (field) {
+    case 'total':
+      return { rows: base, label: 'Total Contacts' };
+    case 'inbound':
+      return { rows: base.filter((c) => c.direction === 'Inbound'), label: 'Inbound Calls' };
+    case 'outbound':
+      return { rows: base.filter((c) => c.direction === 'Outbound'), label: 'Outbound Calls' };
+    case 'textMessage':
+      return { rows: base.filter((c) => c.direction === 'Text Message'), label: 'Text Messages' };
+    case 'email':
+      return { rows: base.filter((c) => c.direction === 'Email'), label: 'Emails' };
+    case 'otherContact':
+      return { rows: base.filter((c) => c.direction === 'Other / N/A'), label: 'Other / N/A' };
+    case 'leads':
+      return { rows: leads, label: 'Leads' };
+    case 'booked':
+      return { rows: booked, label: 'Booked leads' };
+    case 'bookingRate':
+      return {
+        rows: leads,
+        label: 'Booking rate — Leads',
+        outcomes: [
+          { label: 'Booked', count: booked.length },
+          { label: 'Not booked', count: leads.length - booked.length },
+        ],
+      };
+    case 'quotesApproved':
+      return { rows: base.filter((c) => c.call_type === 'Quote approved'), label: 'Quotes approved' };
+    case 'callBackRequests':
+      return { rows: base.filter((c) => c.call_type === 'Call back'), label: 'Call back requests' };
+    case 'newJobCancellations':
+      return {
+        rows: base.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation'),
+        label: 'New Job Cancellations',
+      };
+    case 'pendingCancellations':
+      return {
+        rows: base.filter((c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation'),
+        label: 'Pending Cancellations',
+      };
+    default:
+      return null;
+  }
+}
+
+// Every clickable figure/chart section on the Calls & Contacts report,
+// resolved against the exact same filtered rows the report itself computed
+// its numbers from. Returns null for a metric this report has no accurate
+// record-level answer for.
+export function drilldownCalls({ from, to, handledByUserId, metric, category, segment, staffName, field }) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId });
+  const leads = reportCalls.filter((c) => c.call_type === 'Lead');
+
+  if (metric === 'staff') {
+    const base = reportCalls.filter((c) => (c.handled_by_name || 'Unassigned') === staffName);
+    const picked = pickCallsSubset(base, field);
+    if (!picked) return null;
+    return { ...picked, label: `${staffName} — ${picked.label}` };
+  }
+
+  if (metric === 'byTrade') {
+    return { rows: reportCalls.filter((c) => catLabel(c.trade_name) === category), label: `Calls by trade — ${category}` };
+  }
+  if (metric === 'bySource') {
+    return { rows: leads.filter((c) => catLabel(c.lead_source_name) === category), label: `Leads by referral source — ${category}` };
+  }
+  if (metric === 'bySourceStack') {
+    const wantBooked = segment === 'Booked';
+    return {
+      rows: leads.filter((c) => catLabel(c.lead_source_name) === category && (c.booked === 'Yes') === wantBooked),
+      label: `${category} — ${segment}`,
+    };
+  }
+  if (metric === 'notBookedReason') {
+    return {
+      rows: leads.filter((c) => c.booked === 'No' && catLabel(c.not_booked_reason_name) === category),
+      label: `Why leads aren't booking — ${category}`,
+    };
+  }
+  if (metric === 'newCancelReason') {
+    return {
+      rows: reportCalls.filter(
+        (c) => c.call_type === 'Cancellation' && c.cancellation_type === 'New Job Cancellation' && catLabel(c.cancellation_reason_name) === category
+      ),
+      label: `New Job Cancellation reasons — ${category}`,
+    };
+  }
+  if (metric === 'pendingCancelReason') {
+    return {
+      rows: reportCalls.filter(
+        (c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation' && catLabel(c.cancellation_reason_name) === category
+      ),
+      label: `Pending Cancellation reasons — ${category}`,
+    };
+  }
+
+  return pickCallsSubset(reportCalls, metric);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,24 +343,35 @@ function fetchPendingCancelsAll({ from, to, technicianId, tradeId }) {
   );
 }
 
-function computeMetrics(jobs, sales, callbacks, pendingCancels) {
+function fetchTechRaw(filters) {
+  return {
+    jobsAll: fetchJobsAll(filters),
+    salesAll: fetchSalesAll(filters),
+    callBacksAll: fetchCallBacksAll(filters),
+    pendingCancelsAll: fetchPendingCancelsAll(filters),
+  };
+}
+
+// Splits an (already scoped) jobs array into the buckets every job-based
+// figure and drill-down is built from — a job with neither Qualified nor Not
+// Qualified recorded (a legacy record only, since Lead is now required on
+// every new "New Job" entry) is deliberately left out of both buckets rather
+// than guessed into one.
+function splitJobs(jobs) {
   const qualifiedJobs = jobs.filter((j) => j.lead === 'Qualified');
   const unqualifiedJobs = jobs.filter((j) => j.lead === 'Not Qualified');
-  // A job with neither value recorded is a legacy record only — Lead is now
-  // a required field on every new "New Job" entry — and is deliberately left
-  // out of both buckets above (and everything below that's scoped to
-  // qualified jobs) rather than guessed into one, so Qualified + Unqualified
-  // can come up short of Total Jobs as a visible sign that a record needs
-  // its Lead value filled in.
-
-  // Knock-back/converted-later/conversion and average sale are all scoped to
-  // qualified jobs only — an unqualified job is never a knock-back, never
-  // counted as "converted later", and never affects these rates or average
-  // sale, since it was never a genuine sales opportunity in the first place.
+  // Knock-back/converted-later/conversion are all scoped to qualified jobs
+  // only — an unqualified job is never a knock-back and never counted as
+  // "converted later", since it was never a genuine sales opportunity.
   const noSale = qualifiedJobs.filter((j) => !j.had_sale_at_visit);
   const saleMade = qualifiedJobs.filter((j) => j.had_sale_at_visit);
   const knockbacks = noSale.filter((j) => !j.converted_later);
   const convertedLater = noSale.filter((j) => j.converted_later);
+  return { qualifiedJobs, unqualifiedJobs, noSale, saleMade, knockbacks, convertedLater };
+}
+
+function computeMetrics(jobs, sales, callbacks, pendingCancels) {
+  const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
   const conversionCount = saleMade.length + convertedLater.length;
   const totalSaleExGst = sales.reduce((s, x) => s + num(x.sale_value_ex_gst), 0);
   return {
@@ -268,10 +397,7 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels) {
 
 export function computeTechReport({ from, to, technicianId, tradeId, granularity = 'week' } = {}) {
   const filters = { from, to, technicianId, tradeId };
-  const jobsAll = fetchJobsAll(filters);
-  const salesAll = fetchSalesAll(filters);
-  const callBacksAll = fetchCallBacksAll(filters);
-  const pendingCancelsAll = fetchPendingCancelsAll(filters);
+  const { jobsAll, salesAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
 
@@ -328,4 +454,137 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
   const trend = Object.values(trendMap).sort((a, b) => a.period.localeCompare(b.period));
 
   return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend };
+}
+
+function tagRows(list, kind) {
+  return list.map((r) => ({ kind, id: r.id }));
+}
+
+// A "sale" is one row in the sales table, but it surfaces as two different
+// kinds of entry in the Job History log depending on how it was made: a sale
+// made at the original visit is folded into that visit's own Job entry
+// (kind 'new_job_sale_made', identified by the JOB's id, not the sale row's
+// own id) rather than listed separately, while a later "Quote Approved
+// Later" sale is its own entry (kind 'quote_approved_later', by its own id).
+function tagSales(list) {
+  return list.map((s) => (s.source === 'sale_made_at_visit' ? { kind: 'new_job_sale_made', id: s.job_id } : { kind: 'quote_approved_later', id: s.id }));
+}
+
+// Selects the subset of (already date/technician/trade/scope-restricted)
+// job/sale/callback/pending-cancellation arrays for one named figure —
+// shared between the top-level KPI cards and the "By trade"/"By technician"
+// table cells, which are the same figures further scoped to one row.
+// Returns { rows: [{kind,id}], label, outcomes? } tagged by source table
+// (jobs span two kinds depending on whether a sale was made at the visit),
+// or null for an unrecognised field.
+function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
+  const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
+  const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
+  const tagJobs = (list) => list.map((j) => ({ kind: jobKind(j), id: j.id }));
+
+  switch (field) {
+    case 'jobsAttended':
+      return { rows: tagJobs(jobs), label: 'Total Jobs' };
+    case 'qualifiedJobs':
+      return { rows: tagJobs(qualifiedJobs), label: 'Qualified Jobs' };
+    case 'unqualifiedJobs':
+      return { rows: tagJobs(unqualifiedJobs), label: 'Unqualified Jobs' };
+    case 'knockbacks':
+      return { rows: tagJobs(knockbacks), label: 'Knock backs' };
+    case 'convertedLaterCount':
+      return { rows: tagJobs(convertedLater), label: 'Converted later' };
+    case 'sales':
+      return { rows: tagSales(sales), label: 'Sales (invoices)' };
+    case 'totalSaleExGst':
+      return { rows: tagSales(sales), label: 'Total sale value (ex GST)' };
+    case 'avgSaleExGst':
+      return { rows: tagSales(sales), label: 'Average sale (ex GST)' };
+    case 'conversionRate':
+      return {
+        rows: tagJobs(qualifiedJobs),
+        label: 'Conversion rate — Qualified Jobs',
+        outcomes: [
+          { label: 'Sale made', count: saleMade.length },
+          { label: 'Converted later', count: convertedLater.length },
+          { label: 'Knock back', count: knockbacks.length },
+        ],
+      };
+    case 'callBacks':
+      return { rows: tagRows(callbacks, 'call_back'), label: 'Call backs' };
+    case 'pendingCancellations':
+      return { rows: tagRows(pendingCancels, 'pending_cancellation'), label: 'Pending cancellations' };
+    case 'inspectionRate': {
+      const yes = jobs.filter((j) => j.inspection_sheet === 'Yes').length;
+      return {
+        rows: tagJobs(jobs),
+        label: 'Inspection sheet completion',
+        outcomes: [
+          { label: 'Yes', count: yes },
+          { label: 'No / not recorded', count: jobs.length - yes },
+        ],
+      };
+    }
+    case 'optionRate': {
+      const yes = jobs.filter((j) => j.option_sheet === 'Yes').length;
+      return {
+        rows: tagJobs(jobs),
+        label: 'Option sheet completion',
+        outcomes: [
+          { label: 'Yes', count: yes },
+          { label: 'No / not recorded', count: jobs.length - yes },
+        ],
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+// Every clickable figure/chart section on the Technician & Sales report,
+// resolved against the exact same filtered rows the report itself computed
+// its numbers from. `scopeTrade`/`scopeTechnician` narrow to one "By trade"/
+// "By technician" table row, matching how that row's own figures are
+// computed in computeTechReport() above. Returns null for a metric this
+// report has no accurate record-level answer for.
+export function drilldownTech({ from, to, technicianId, tradeId, metric, category, series, scopeTrade, scopeTechnician }) {
+  const { jobsAll, salesAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
+
+  if (metric === 'salesByTradePie') {
+    return { rows: tagSales(salesAll.filter((s) => s.trade_name === category)), label: `Sale value by trade — ${category}` };
+  }
+  if (metric === 'jobsOppSalesByTrade') {
+    const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
+    if (series === 'Jobs') {
+      const list = jobsAll.filter((j) => j.trade_name === category);
+      return { rows: list.map((j) => ({ kind: jobKind(j), id: j.id })), label: `${category} — Jobs` };
+    }
+    if (series === 'Qualified leads') {
+      const list = jobsAll.filter((j) => j.trade_name === category && j.lead === 'Qualified');
+      return { rows: list.map((j) => ({ kind: jobKind(j), id: j.id })), label: `${category} — Qualified leads` };
+    }
+    return { rows: tagSales(salesAll.filter((s) => s.trade_name === category)), label: `${category} — Sales` };
+  }
+
+  let jobs = jobsAll;
+  let sales = salesAll;
+  let callbacks = callBacksAll;
+  let pendingCancels = pendingCancelsAll;
+  let scopeLabel = '';
+  if (scopeTrade) {
+    jobs = jobs.filter((j) => j.trade_name === scopeTrade);
+    sales = sales.filter((s) => s.trade_name === scopeTrade);
+    callbacks = callbacks.filter((c) => c.trade_name === scopeTrade);
+    pendingCancels = pendingCancels.filter((p) => p.trade_name === scopeTrade);
+    scopeLabel = `${scopeTrade} — `;
+  } else if (scopeTechnician) {
+    jobs = jobs.filter((j) => (j.technician_name || 'Unassigned') === scopeTechnician);
+    sales = sales.filter((s) => (s.credited_technician_name || 'Unassigned') === scopeTechnician);
+    callbacks = callbacks.filter((c) => (c.credited_technician_name || 'Unassigned') === scopeTechnician);
+    pendingCancels = pendingCancels.filter((p) => (p.credited_technician_name || 'Unassigned') === scopeTechnician);
+    scopeLabel = `${scopeTechnician} — `;
+  }
+
+  const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels }, metric);
+  if (!picked) return null;
+  return { ...picked, label: `${scopeLabel}${picked.label}` };
 }

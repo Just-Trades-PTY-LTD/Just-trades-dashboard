@@ -6,6 +6,7 @@ import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
+import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function emptyFilters() {
@@ -20,11 +21,12 @@ function moneyCents(v) {
   return `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function TechReport() {
+export default function TechReport({ jumpToJN }) {
   const settings = useSettings();
   const [filters, setFilters] = useState(emptyFilters());
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
+  const [drilldown, setDrilldown] = useState(null);
   const layout = useReportLayout('tech');
 
   useEffect(() => {
@@ -33,6 +35,14 @@ export default function TechReport() {
 
   function patch(p) {
     setFilters((f) => ({ ...f, ...p }));
+  }
+
+  // Every clickable figure/chart section opens the same modal against the
+  // /reports/tech/drilldown endpoint, carrying this report's own current
+  // filters (from/to/technician/trade) plus whichever selector that figure
+  // needs — see services/reports.js's drilldownTech() for the full list.
+  function openDrilldown(metric, extra) {
+    setDrilldown({ from: filters.from, to: filters.to, technicianId: filters.technicianId, tradeId: filters.tradeId, metric, ...extra });
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
@@ -46,19 +56,19 @@ export default function TechReport() {
     // deliberately not shown here (or anywhere in this report) — only the
     // raw Knock backs count — while still being computed and available via
     // the API for anything that needs it.
-    ['Total Jobs', company.jobsAttended],
-    ['Qualified Jobs', company.qualifiedJobs],
-    ['Total sale value (ex GST)', money(company.totalSaleExGst)],
-    ['Average sale (ex GST)', moneyCents(company.avgSaleExGst)],
-    ['Knock backs', company.knockbacks],
-    ['Conversion rate', `${company.conversionRate}%`],
-    ['Converted later', company.convertedLaterCount],
-    ['Sales (invoices)', company.sales],
-    ['Unqualified Jobs', company.unqualifiedJobs],
-    ['Call backs', company.callBacks],
-    ['Pending cancellations', company.pendingCancellations],
-    ['Inspection sheet completion', `${company.inspectionRate}%`],
-    ['Option sheet completion', `${company.optionRate}%`],
+    ['Total Jobs', company.jobsAttended, 'jobsAttended'],
+    ['Qualified Jobs', company.qualifiedJobs, 'qualifiedJobs'],
+    ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
+    ['Average sale (ex GST)', moneyCents(company.avgSaleExGst), 'avgSaleExGst'],
+    ['Knock backs', company.knockbacks, 'knockbacks'],
+    ['Conversion rate', `${company.conversionRate}%`, 'conversionRate'],
+    ['Converted later', company.convertedLaterCount, 'convertedLaterCount'],
+    ['Sales (invoices)', company.sales, 'sales'],
+    ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
+    ['Call backs', company.callBacks, 'callBacks'],
+    ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],
+    ['Inspection sheet completion', `${company.inspectionRate}%`, 'inspectionRate'],
+    ['Option sheet completion', `${company.optionRate}%`, 'optionRate'],
   ];
 
   return (
@@ -91,8 +101,14 @@ export default function TechReport() {
         <AdjustableSection id="kpis" title="Summary figures" defaultSize="md" layout={layout}>
           {(cfg) => (
             <div className="grid-cards" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${cfg.kpiMinCardWidth}px, 1fr))` }}>
-              {kpiRows.map(([label, val]) => (
-                <div key={label} className="panel" style={{ padding: '14px 16px' }}>
+              {kpiRows.map(([label, val, metric]) => (
+                <div
+                  key={label}
+                  className="panel clickable-stat"
+                  style={{ padding: '14px 16px' }}
+                  onClick={() => openDrilldown(metric)}
+                  title={`View the records behind ${label}`}
+                >
                   <div className="kpi-val" style={{ fontSize: 21 }}>
                     {val}
                   </div>
@@ -106,7 +122,15 @@ export default function TechReport() {
 
       <div className="grid-charts">
         <AdjustableSection id="salesByTradePie" title="Sale value by trade (ex GST)" defaultSize="md" layout={layout}>
-          {(cfg) => <PieCardBody data={salesByTradePie} formatValue={money} height={cfg.chartHeight} colorFor={tradeColor} />}
+          {(cfg) => (
+            <PieCardBody
+              data={salesByTradePie}
+              formatValue={money}
+              height={cfg.chartHeight}
+              colorFor={tradeColor}
+              onSliceClick={(name) => openDrilldown('salesByTradePie', { category: name })}
+            />
+          )}
         </AdjustableSection>
 
         <AdjustableSection id="jobsOppSalesByTrade" title="Jobs, qualified leads & sales by trade" defaultSize="md" layout={layout}>
@@ -116,11 +140,26 @@ export default function TechReport() {
                 <CartesianGrid stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} />
                 <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-                <Tooltip />
+                <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
                 <Legend />
-                <Bar dataKey="Jobs" fill="var(--chart-teal)" />
-                <Bar dataKey="Qualified leads" fill="var(--chart-orange)" />
-                <Bar dataKey="Sales" fill="var(--chart-violet)" />
+                <Bar
+                  dataKey="Jobs"
+                  fill="var(--chart-teal)"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Jobs' })}
+                />
+                <Bar
+                  dataKey="Qualified leads"
+                  fill="var(--chart-orange)"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Qualified leads' })}
+                />
+                <Bar
+                  dataKey="Sales"
+                  fill="var(--chart-violet)"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Sales' })}
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -180,16 +219,27 @@ export default function TechReport() {
                           {r.trade}
                         </span>
                       </td>
-                      <td>{r.jobsAttended}</td>
-                      <td>{money(r.totalSaleExGst)}</td>
-                      <td>{money(r.avgSaleExGst)}</td>
-                      <td>{r.knockbacks}</td>
-                      <td>{r.convertedLaterCount}</td>
-                      <td>{r.conversionRate}%</td>
-                      <td>{r.qualifiedJobs}</td>
-                      <td>{r.sales}</td>
-                      <td>{r.callBacks}</td>
-                      <td>{r.pendingCancellations}</td>
+                      {[
+                        ['jobsAttended', r.jobsAttended],
+                        ['totalSaleExGst', money(r.totalSaleExGst)],
+                        ['avgSaleExGst', money(r.avgSaleExGst)],
+                        ['knockbacks', r.knockbacks],
+                        ['convertedLaterCount', r.convertedLaterCount],
+                        ['conversionRate', `${r.conversionRate}%`],
+                        ['qualifiedJobs', r.qualifiedJobs],
+                        ['sales', r.sales],
+                        ['callBacks', r.callBacks],
+                        ['pendingCancellations', r.pendingCancellations],
+                      ].map(([field, val]) => (
+                        <td
+                          key={field}
+                          className="clickable-stat"
+                          onClick={() => openDrilldown(field, { scopeTrade: r.trade })}
+                          title={`View ${r.trade}'s records behind this figure`}
+                        >
+                          {val}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -224,19 +274,30 @@ export default function TechReport() {
                   {byTechnician.map((r) => (
                     <tr key={r.name}>
                       <td>{r.name}</td>
-                      <td>{r.jobsAttended}</td>
-                      <td>{r.qualifiedJobs}</td>
-                      <td>{money(r.totalSaleExGst)}</td>
-                      <td>{money(r.avgSaleExGst)}</td>
-                      <td>{r.knockbacks}</td>
-                      <td>{r.convertedLaterCount}</td>
-                      <td>{r.conversionRate}%</td>
-                      <td>{r.sales}</td>
-                      <td>{r.unqualifiedJobs}</td>
-                      <td>{r.callBacks}</td>
-                      <td>{r.pendingCancellations}</td>
-                      <td>{r.inspectionRate}%</td>
-                      <td>{r.optionRate}%</td>
+                      {[
+                        ['jobsAttended', r.jobsAttended],
+                        ['qualifiedJobs', r.qualifiedJobs],
+                        ['totalSaleExGst', money(r.totalSaleExGst)],
+                        ['avgSaleExGst', money(r.avgSaleExGst)],
+                        ['knockbacks', r.knockbacks],
+                        ['convertedLaterCount', r.convertedLaterCount],
+                        ['conversionRate', `${r.conversionRate}%`],
+                        ['sales', r.sales],
+                        ['unqualifiedJobs', r.unqualifiedJobs],
+                        ['callBacks', r.callBacks],
+                        ['pendingCancellations', r.pendingCancellations],
+                        ['inspectionRate', `${r.inspectionRate}%`],
+                        ['optionRate', `${r.optionRate}%`],
+                      ].map(([field, val]) => (
+                        <td
+                          key={field}
+                          className="clickable-stat"
+                          onClick={() => openDrilldown(field, { scopeTechnician: r.name })}
+                          title={`View ${r.name}'s records behind this figure`}
+                        >
+                          {val}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -245,6 +306,8 @@ export default function TechReport() {
           )}
         </AdjustableSection>
       </div>
+
+      {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => setDrilldown(null)} />}
     </div>
   );
 }

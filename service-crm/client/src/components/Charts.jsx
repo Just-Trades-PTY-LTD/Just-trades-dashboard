@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // Trade identity colours — fixed, same trade = same colour everywhere it
@@ -53,8 +54,12 @@ function renderPieLabel({ cx, cy, midAngle, outerRadius, name, value, formatValu
 
 // Bare chart content, sized by the caller (Reports pages wrap these in
 // AdjustableSection, which supplies the panel/title/controls and hands each
-// section's chosen height down through the `height` prop).
-export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
+// section's chosen height down through the `height` prop). Pass `onSliceClick`
+// to make every slice a drill-down into the exact records it represents —
+// the tooltip keeps working as normal; clicking is additive, not a
+// replacement for hover.
+export function PieCardBody({ data, formatValue, height = 240, colorFor, onSliceClick }) {
+  const [hoverIndex, setHoverIndex] = useState(null);
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }
@@ -72,7 +77,16 @@ export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
           label={(props) => renderPieLabel({ ...props, formatValue })}
         >
           {data.map((entry, i) => (
-            <Cell key={i} fill={getColor(entry.name, i)} />
+            <Cell
+              key={i}
+              fill={getColor(entry.name, i)}
+              stroke={onSliceClick && hoverIndex === i ? 'var(--ink)' : 'var(--surface)'}
+              strokeWidth={onSliceClick && hoverIndex === i ? 2 : 1}
+              style={onSliceClick ? { cursor: 'pointer' } : undefined}
+              onClick={onSliceClick ? () => onSliceClick(entry.name, entry) : undefined}
+              onMouseEnter={onSliceClick ? () => setHoverIndex(i) : undefined}
+              onMouseLeave={onSliceClick ? () => setHoverIndex(null) : undefined}
+            />
           ))}
         </Pie>
         <Tooltip formatter={(v) => (formatValue ? formatValue(v) : v)} />
@@ -81,7 +95,7 @@ export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
   );
 }
 
-export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220 }) {
+export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220, onBarClick }) {
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }
@@ -91,8 +105,14 @@ export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220 })
         <CartesianGrid stroke="var(--border)" horizontal={false} />
         <XAxis type="number" allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
         <YAxis type="category" dataKey="name" width={150} stroke="var(--ink-muted)" fontSize={11} />
-        <Tooltip />
-        <Bar dataKey="value" fill={color} radius={[0, 3, 3, 0]} />
+        <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
+        <Bar
+          dataKey="value"
+          fill={color}
+          radius={[0, 3, 3, 0]}
+          onClick={onBarClick ? (entry) => onBarClick(entry.name, entry) : undefined}
+          style={onBarClick ? { cursor: 'pointer' } : undefined}
+        />
       </BarChart>
     </ResponsiveContainer>
   );

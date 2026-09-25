@@ -68,7 +68,7 @@ export default function App() {
         {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} />}
         {activeModule === 'calls' && <CallsPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
         {activeModule === 'tech' && <TechSalesPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
-        {activeModule === 'reports' && <ReportsPage />}
+        {activeModule === 'reports' && <ReportsPage jumpToJN={jumpToJN} />}
         {activeModule === 'settings' && isAdmin && <SettingsPage isAdmin={isAdmin} />}
       </div>
     </SettingsProvider>

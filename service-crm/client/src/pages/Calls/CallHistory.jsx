@@ -19,7 +19,7 @@ function emptyFilters() {
   return { from: '', to: '', handledByUserId: '', callType: '', jobNumber: '', includeArchived: false };
 }
 
-export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice }) {
+export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded }) {
   const settings = useSettings();
   const [filters, setFilters] = useState(emptyFilters());
   const [expandedId, setExpandedId] = useState(null);
@@ -103,33 +103,46 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
 
   return (
     <div>
-      <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
-        <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-        <FilterSelect
-          label="Staff"
-          value={filters.handledByUserId}
-          onChange={(v) => patch({ handledByUserId: v })}
-          options={withInactiveLabel(settings.staffAll)}
-        />
-        <FilterSelect label="Call type" value={filters.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
-        <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
-        <div style={{ paddingBottom: 8 }}>
-          <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
-        </div>
-        <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
-          Clear filters
-        </button>
-        {selectedIds.size > 0 && (
-          <button className="btn btn-primary" type="button" onClick={archiveSelected}>
-            Archive selected ({selectedIds.size})
+      {embedded ? (
+        // This log is already a fixed set of records (a report drill-down) —
+        // no filter bar, and no Export link, since that would export
+        // everything matching these blank filters instead of just this set.
+        selectedIds.size > 0 && (
+          <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+              Archive selected ({selectedIds.size})
+            </button>
+          </div>
+        )
+      ) : (
+        <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
+          <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
+          <FilterSelect
+            label="Staff"
+            value={filters.handledByUserId}
+            onChange={(v) => patch({ handledByUserId: v })}
+            options={withInactiveLabel(settings.staffAll)}
+          />
+          <FilterSelect label="Call type" value={filters.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
+          <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
+          <div style={{ paddingBottom: 8 }}>
+            <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
+          </div>
+          <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
+            Clear filters
           </button>
-        )}
-        <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.calls.exportXlsxUrl(filters)}>
-          Export to Excel
-        </a>
-        <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
-      </div>
+          {selectedIds.size > 0 && (
+            <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+              Archive selected ({selectedIds.size})
+            </button>
+          )}
+          <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.calls.exportXlsxUrl(filters)}>
+            Export to Excel
+          </a>
+          <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
+        </div>
+      )}
 
       <div className="panel table-scroll">
         {loading ? (

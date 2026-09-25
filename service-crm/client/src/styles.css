@@ -508,3 +508,54 @@ table.data-table {
     padding: 16px 16px 48px;
   }
 }
+
+/* Report drill-down: click a stat/chart section to see its exact records. */
+.clickable-stat {
+  cursor: pointer;
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+  border-radius: 8px;
+}
+
+.clickable-stat:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+td.clickable-stat {
+  border-radius: 0;
+}
+
+.drilldown-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.drilldown-panel {
+  width: 100%;
+  max-width: 1180px;
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drilldown-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drilldown-body {
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+}

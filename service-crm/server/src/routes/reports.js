@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { all, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { computeCallsReport, computeTechReport } from '../services/reports.js';
+import { computeCallsReport, computeTechReport, drilldownCalls, drilldownTech } from '../services/reports.js';
 import { buildCallsWorkbook, buildTechWorkbook } from '../lib/xlsxReports.js';
+import { listCalls } from './calls.js';
+import { listTechEntries } from './techSales.js';
 
 function idNameMap(rows) {
   return new Map(rows.map((r) => [String(r.id), r.name]));
@@ -30,6 +32,33 @@ export function createReportsRouter() {
 
   router.get('/tech', (req, res) => {
     res.json(computeTechReport(req.query));
+  });
+
+  // Drill-down: resolve one clickable figure/chart section on a report to
+  // the exact records it represents. `metric` selects which figure; the rest
+  // of the query string carries the report's own current filters (from/to/
+  // handledByUserId, or from/to/technicianId/tradeId) plus whichever extra
+  // selector that figure needs (category/segment/staffName, or category/
+  // series/scopeTrade/scopeTechnician) — see services/reports.js for the
+  // full list. Never creates, edits or reclassifies anything; read-only.
+  router.get('/calls/drilldown', (req, res) => {
+    const { metric } = req.query;
+    if (!metric) return res.status(400).json({ error: 'A metric is required.' });
+    const result = drilldownCalls(req.query);
+    if (!result) return res.status(400).json({ error: `This figure can't be linked to specific records: "${metric}".` });
+    const idSet = new Set(result.rows.map((r) => r.id));
+    const rows = listCalls({ includeArchived: 'true' }).filter((r) => idSet.has(r.id));
+    res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, kind: 'calls', rows });
+  });
+
+  router.get('/tech/drilldown', (req, res) => {
+    const { metric } = req.query;
+    if (!metric) return res.status(400).json({ error: 'A metric is required.' });
+    const result = drilldownTech(req.query);
+    if (!result) return res.status(400).json({ error: `This figure can't be linked to specific records: "${metric}".` });
+    const keySet = new Set(result.rows.map((r) => `${r.kind}:${r.id}`));
+    const rows = listTechEntries({ includeArchived: 'true' }).filter((e) => keySet.has(`${e.kind}:${e.id}`));
+    res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, kind: 'tech', rows });
   });
 
   router.get('/layouts', (req, res) => {
