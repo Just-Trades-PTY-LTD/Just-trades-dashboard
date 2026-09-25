@@ -41,15 +41,17 @@ export default function TechReport() {
   const kpiRows = [
     // Total Jobs and Qualified Jobs lead the row, immediately next to each
     // other; Unqualified Jobs appears later with the remaining figures.
-    // Knock-back rate, conversion rate and average sale are all scoped to
-    // qualified jobs only — an unqualified job is never a knock-back.
+    // Conversion rate and average sale are both scoped to qualified jobs
+    // only — an unqualified job is never a knock-back. Knock-back rate is
+    // deliberately not shown here (or anywhere in this report) — only the
+    // raw Knock backs count — while still being computed and available via
+    // the API for anything that needs it.
     ['Total Jobs', company.jobsAttended],
     ['Qualified Jobs', company.qualifiedJobs],
     ['Total sale value (ex GST)', money(company.totalSaleExGst)],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst)],
     ['Knock backs', company.knockbacks],
     ['Conversion rate', `${company.conversionRate}%`],
-    ['Knock-back rate', `${company.knockbackRate}%`],
     ['Converted later', company.convertedLaterCount],
     ['Sales (invoices)', company.sales],
     ['Unqualified Jobs', company.unqualifiedJobs],
@@ -164,7 +166,6 @@ export default function TechReport() {
                     <th>Converted later</th>
                     <th>Conversion %</th>
                     <th>Qual. leads</th>
-                    <th>Knock-back %</th>
                     <th>Sales</th>
                     <th>Call backs</th>
                     <th>Pending cancel.</th>
@@ -181,7 +182,6 @@ export default function TechReport() {
                       <td>{r.convertedLaterCount}</td>
                       <td>{r.conversionRate}%</td>
                       <td>{r.qualifiedJobs}</td>
-                      <td>{r.knockbackRate}%</td>
                       <td>{r.sales}</td>
                       <td>{r.callBacks}</td>
                       <td>{r.pendingCancellations}</td>
@@ -207,7 +207,6 @@ export default function TechReport() {
                     <th>Knock backs</th>
                     <th>Converted later</th>
                     <th>Conversion %</th>
-                    <th>Knock-back %</th>
                     <th>Sales</th>
                     <th>Unqualified Jobs</th>
                     <th>Call backs</th>
@@ -227,7 +226,6 @@ export default function TechReport() {
                       <td>{r.knockbacks}</td>
                       <td>{r.convertedLaterCount}</td>
                       <td>{r.conversionRate}%</td>
-                      <td>{r.knockbackRate}%</td>
                       <td>{r.sales}</td>
                       <td>{r.unqualifiedJobs}</td>
                       <td>{r.callBacks}</td>
