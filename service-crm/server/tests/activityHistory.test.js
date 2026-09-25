@@ -33,6 +33,7 @@ test('creating a call records a "created" activity entry with the record identif
       tradeId: plumbing.id,
       jobNumber: 'JN-ACT-1',
       notes: 'First contact',
+      booked: 'Yes',
     });
     assert.equal(call.status, 201);
 

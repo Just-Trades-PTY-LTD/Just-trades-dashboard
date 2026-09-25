@@ -15,6 +15,7 @@ test('editing a call with cleared optional fields no longer 500s', async () => {
       callType: 'Lead',
       tradeId: plumbing.id,
       leadSourceId: bundle.lists.lead_source[0].id,
+      booked: 'Yes',
     });
     assert.equal(created.status, 201);
 

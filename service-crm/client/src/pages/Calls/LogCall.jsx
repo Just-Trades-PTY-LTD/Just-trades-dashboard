@@ -40,8 +40,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const { user } = useAuth();
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm(user?.id));
+  const [invalidFields, setInvalidFields] = useState(new Set());
 
   useEffect(() => {
+    setInvalidFields(new Set());
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -89,6 +91,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       setNotice('Please select a Call Type before saving.', true);
       return;
     }
+    // Booked is required for every Lead — on both a brand-new record and an
+    // edit of an existing one. An older Lead saved before this rule existed
+    // can still be opened/viewed with Booked blank; it just can't be saved
+    // again until Booked is answered. Every other Call Type leaves Booked
+    // optional (unless some other rule requires it).
+    if (form.callType === 'Lead' && !form.booked) {
+      setInvalidFields(new Set(['booked']));
+      setNotice('Please select whether this Lead was Booked before saving.', true);
+      return;
+    }
+    setInvalidFields(new Set());
     try {
       if (editing) {
         await api.calls.update(editing.id, form);
@@ -156,12 +169,21 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         <SelectField
           label="Call type *"
           value={form.callType}
-          onChange={(v) =>
-            patch({ callType: v, booked: '', notBookedReasonId: '', cancellationType: '', cancellationReasonId: '', callBackReasonId: '' })
-          }
+          onChange={(v) => {
+            patch({ callType: v, booked: '', notBookedReasonId: '', cancellationType: '', cancellationReasonId: '', callBackReasonId: '' });
+            setInvalidFields(new Set());
+          }}
           options={CALL_TYPES}
         />
-        {showBooked && <SelectField label="Booked?" value={form.booked} onChange={(v) => patch({ booked: v })} options={['Yes', 'No']} />}
+        {showBooked && (
+          <SelectField
+            label="Booked? *"
+            value={form.booked}
+            onChange={(v) => patch({ booked: v })}
+            options={['Yes', 'No']}
+            invalid={invalidFields.has('booked')}
+          />
+        )}
         {showCancellationType && (
           <SelectField
             label="Cancellation type"

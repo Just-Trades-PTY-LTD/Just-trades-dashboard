@@ -201,6 +201,13 @@ export function createCallsRouter() {
     // rule. Editing an existing call is never blocked by this.
     if (!b.direction) return res.status(400).json({ error: 'Please select a Contact Method before saving.' });
     if (!b.callType) return res.status(400).json({ error: 'Please select a Call Type before saving.' });
+    // Booked is required for every Lead, on every Contact Method — the
+    // backend backstop for the same rule the frontend enforces. Unlike
+    // Contact Method/Call Type above, this also applies when editing (below),
+    // not just on create.
+    if (b.callType === 'Lead' && !b.booked) {
+      return res.status(400).json({ error: 'Please select whether this Lead was Booked before saving.' });
+    }
     if (b.handledByUserId && !isUserActive(b.handledByUserId)) {
       return res.status(400).json({ error: 'This account has been deactivated and cannot be assigned to a new contact record.' });
     }
@@ -287,6 +294,14 @@ export function createCallsRouter() {
       notes: b.notes ?? existing.notes,
       follow_up: b.followUp !== undefined ? (b.followUp ? 1 : 0) : existing.follow_up,
     };
+    // Booked is required for every Lead. An existing record saved before this
+    // rule existed (or before it was a Lead) can still be viewed with Booked
+    // blank, but saving it again while it's a Lead requires an answer first —
+    // this checks the record's state *after* this edit, not just what was
+    // sent, so it also catches a call being edited into a Lead.
+    if (next.call_type === 'Lead' && !next.booked) {
+      return res.status(400).json({ error: 'Please select whether this Lead was Booked before saving.' });
+    }
     transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
         existingPendingCancellationId: existing.pending_cancellation_id,
