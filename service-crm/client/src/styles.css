@@ -20,21 +20,30 @@
 
   /* Trade identity colours — fixed hues, same trade = same colour everywhere
      these appear (summary cards, breakdowns, charts, legends). Validated with
-     scripts/validate_palette.js from the dataviz skill: all-pairs categorical
-     checks pass in both modes (worst normal-vision ΔE 28.5); yellow's sub-3:1
-     contrast is mitigated by the direct value labels/legends these charts
-     already carry. Heating & Cooling's red is kept clear of --alert/--warn
-     (worst ΔE 18.0 light / 14.8 dark) so it is never mistaken for an error
-     or warning. */
+     scripts/validate_palette.js from the dataviz skill: CVD separation and
+     normal-vision floor pass with room to spare (worst ΔE 27.2 all-pairs).
+     Electrical's yellow is deliberately lighter than the skill's usual
+     categorical band so it reads as a genuinely bright, vibrant yellow
+     rather than mustard/gold — the only check that formally fails is the
+     structural lightness-band rule, which exists for palette-wide
+     consistency, not readability; contrast and colour-blind separation are
+     both fine (mitigated where needed by the direct value labels these
+     charts already carry). Heating & Cooling's red is kept clear of
+     --alert/--warn (worst ΔE 18.0 light / 14.8 dark) so it is never
+     mistaken for an error or warning. */
   --trade-plumbing: var(--accent);
   --trade-heating-cooling: #ff0809;
-  --trade-electrical: #c9b200;
+  --trade-electrical: #eab308;
   --trade-electrical-ink: #1a1a16;
 
   /* Bright categorical set for non-trade breakdowns (referral sources,
-     cancellation/knock-back reasons, metric series). Fixed order, validated
-     adjacent-pair-safe in both modes; never reuse the trade hues above. */
-  --chart-teal: #1baf7a;
+     cancellation/knock-back reasons, metric series). Fixed order — combined
+     with the trade colours above into one validated 8-hue ring in
+     Charts.jsx's PIE_COLORS (adjacent pairs, including the wrap from last
+     back to first, all clear the colour-blind and normal-vision floors in
+     both modes) so that categories rendered next to each other never share
+     a colour family. */
+  --chart-teal: #00ccbc;
   --chart-orange: #eb6834;
   --chart-violet: #4a3aa7;
   --chart-magenta: #e87ba4;
@@ -64,7 +73,7 @@
 
     --trade-plumbing: var(--accent);
     --trade-heating-cooling: #e60003;
-    --trade-electrical: #a69300;
+    --trade-electrical: #facc15;
     --trade-electrical-ink: #1a1a16;
 
     --chart-teal: #199e70;

@@ -11,24 +11,44 @@ const TRADE_COLORS = {
 };
 
 // Bright categorical set for everything else (referral sources, cancellation
-// reasons, metric series). Fixed order; never reused for a trade.
-export const PIE_COLORS = ['var(--chart-teal)', 'var(--chart-orange)', 'var(--chart-violet)', 'var(--chart-magenta)', 'var(--chart-green)'];
-
-// Deterministic name -> slot so a category keeps its colour even when a
-// filter changes which categories appear or their order — an index cycle
-// would repaint the survivors.
-function hashIndex(name, length) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return h % length;
-}
+// reasons, metric series). Fixed order — validated adjacent-safe (including
+// the wrap from last back to first, since pie slices form a ring) so that
+// categories rendered next to each other never share a colour family, e.g.
+// orange and green never sit side by side (a classic red-green colour-blind
+// confusion pair). Assigned by render position, not by name: a fixed name-hash
+// could place two same-family colours next to each other by chance whenever
+// the data happens to put those two categories adjacent.
+export const PIE_COLORS = [
+  'var(--trade-plumbing)',
+  'var(--chart-orange)',
+  'var(--chart-teal)',
+  'var(--trade-electrical)',
+  'var(--chart-magenta)',
+  'var(--chart-green)',
+  'var(--chart-violet)',
+  'var(--trade-heating-cooling)',
+];
 
 export function tradeColor(name) {
-  return TRADE_COLORS[name] || PIE_COLORS[hashIndex(name || '', PIE_COLORS.length)];
+  return TRADE_COLORS[name] || null;
 }
 
-export function categoryColor(name) {
-  return PIE_COLORS[hashIndex(name || '', PIE_COLORS.length)];
+const LABEL_RADIAN = Math.PI / 180;
+
+// Recharts' default pie label paints the text in the slice's own fill colour,
+// which makes the bright yellow slice's label barely readable on a light
+// surface. Labels always render in the page's ink colour instead — text
+// wears text tokens, never the series colour — so every label stays legible
+// regardless of which bright colour its slice uses.
+function renderPieLabel({ cx, cy, midAngle, outerRadius, name, value, formatValue }) {
+  const radius = outerRadius + 18;
+  const x = cx + radius * Math.cos(-midAngle * LABEL_RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * LABEL_RADIAN);
+  return (
+    <text x={x} y={y} fill="var(--ink)" fontSize={12} textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central">
+      {name}: {formatValue ? formatValue(value) : value}
+    </text>
+  );
 }
 
 // Bare chart content, sized by the caller (Reports pages wrap these in
@@ -38,7 +58,7 @@ export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }
-  const getColor = colorFor || ((name) => categoryColor(name));
+  const getColor = (name, i) => (colorFor && colorFor(name)) || PIE_COLORS[i % PIE_COLORS.length];
   return (
     <ResponsiveContainer width="100%" height={height}>
       <PieChart>
@@ -49,10 +69,10 @@ export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
           cx="50%"
           cy="50%"
           outerRadius={85}
-          label={({ name, value }) => `${name}: ${formatValue ? formatValue(value) : value}`}
+          label={(props) => renderPieLabel({ ...props, formatValue })}
         >
           {data.map((entry, i) => (
-            <Cell key={i} fill={getColor(entry.name)} />
+            <Cell key={i} fill={getColor(entry.name, i)} />
           ))}
         </Pie>
         <Tooltip formatter={(v) => (formatValue ? formatValue(v) : v)} />
