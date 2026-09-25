@@ -19,21 +19,25 @@
   --info-tint: #e5eef5;
 
   /* Trade identity colours — fixed hues, same trade = same colour everywhere
-     these appear (summary cards, breakdowns, charts, legends). Validated with
-     scripts/validate_palette.js from the dataviz skill: CVD separation and
-     normal-vision floor pass with room to spare (worst ΔE 27.2 all-pairs).
-     Electrical's yellow is deliberately lighter than the skill's usual
-     categorical band so it reads as a genuinely bright, vibrant yellow
-     rather than mustard/gold — the only check that formally fails is the
+     these appear (summary cards, breakdowns, charts, legends). Deliberately
+     separate tokens from --accent (the app's general button/link colour) so
+     brightening these for reports never changes the rest of the UI.
+     Validated with scripts/validate_palette.js from the dataviz skill: CVD
+     separation and normal-vision floor pass with lots of room to spare
+     (worst ΔE 22.3 all-pairs). Plumbing's blue and Electrical's yellow are
+     both deliberately lighter/brighter than the skill's usual categorical
+     band, so they read as a genuinely bright blue and a true vibrant yellow
+     rather than muted/mustard — the only check that formally fails is the
      structural lightness-band rule, which exists for palette-wide
      consistency, not readability; contrast and colour-blind separation are
      both fine (mitigated where needed by the direct value labels these
-     charts already carry). Heating & Cooling's red is kept clear of
-     --alert/--warn (worst ΔE 18.0 light / 14.8 dark) so it is never
-     mistaken for an error or warning. */
-  --trade-plumbing: var(--accent);
+     charts already carry, always rendered in ink, never in the slice's own
+     colour). Heating & Cooling's red is kept clear of --alert/--warn (worst
+     ΔE 18.0 light / 14.8 dark) so it is never mistaken for an error or
+     warning. */
+  --trade-plumbing: #3b82f6;
   --trade-heating-cooling: #ff0809;
-  --trade-electrical: #eab308;
+  --trade-electrical: #facc15;
   --trade-electrical-ink: #1a1a16;
 
   /* Bright categorical set for non-trade breakdowns (referral sources,
@@ -71,9 +75,9 @@
     --info: #7cbdec;
     --info-tint: #1c2c38;
 
-    --trade-plumbing: var(--accent);
+    --trade-plumbing: #60a5fa;
     --trade-heating-cooling: #e60003;
-    --trade-electrical: #facc15;
+    --trade-electrical: #fde047;
     --trade-electrical-ink: #1a1a16;
 
     --chart-teal: #199e70;
