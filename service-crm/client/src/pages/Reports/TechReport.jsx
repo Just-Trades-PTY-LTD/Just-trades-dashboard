@@ -4,7 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
-import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
@@ -106,7 +106,7 @@ export default function TechReport() {
 
       <div className="grid-charts">
         <AdjustableSection id="salesByTradePie" title="Sale value by trade (ex GST)" defaultSize="md" layout={layout}>
-          {(cfg) => <PieCardBody data={salesByTradePie} formatValue={money} height={cfg.chartHeight} />}
+          {(cfg) => <PieCardBody data={salesByTradePie} formatValue={money} height={cfg.chartHeight} colorFor={tradeColor} />}
         </AdjustableSection>
 
         <AdjustableSection id="jobsOppSalesByTrade" title="Jobs, qualified leads & sales by trade" defaultSize="md" layout={layout}>
@@ -118,9 +118,9 @@ export default function TechReport() {
                 <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="Jobs" fill="#1b75ba" />
-                <Bar dataKey="Qualified leads" fill="#c9a227" />
-                <Bar dataKey="Sales" fill="#1f7a52" />
+                <Bar dataKey="Jobs" fill="var(--chart-teal)" />
+                <Bar dataKey="Qualified leads" fill="var(--chart-orange)" />
+                <Bar dataKey="Sales" fill="var(--chart-violet)" />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -146,7 +146,7 @@ export default function TechReport() {
                 <XAxis dataKey="period" stroke="var(--ink-muted)" fontSize={11} />
                 <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} tickFormatter={(v) => `$${v}`} />
                 <Tooltip formatter={(v) => money(v)} />
-                <Line type="monotone" dataKey="value" stroke="#1b75ba" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="value" stroke="var(--chart-teal)" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -174,7 +174,12 @@ export default function TechReport() {
                 <tbody>
                   {byTrade.map((r) => (
                     <tr key={r.trade}>
-                      <td>{r.trade}</td>
+                      <td>
+                        <span className="trade-label">
+                          <span className="trade-swatch" style={{ background: tradeColor(r.trade) }} />
+                          {r.trade}
+                        </span>
+                      </td>
                       <td>{r.jobsAttended}</td>
                       <td>{money(r.totalSaleExGst)}</td>
                       <td>{money(r.avgSaleExGst)}</td>

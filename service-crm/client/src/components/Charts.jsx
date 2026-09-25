@@ -1,14 +1,44 @@
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-export const PIE_COLORS = ['#1b75ba', '#b4642a', '#3d8a6e', '#8a4fbf', '#a63d46', '#c9a227', '#4f9da6', '#6b8e4e'];
+// Trade identity colours — fixed, same trade = same colour everywhere it
+// appears (summary cards, breakdowns, charts, legends). Hex values behind
+// these vars live in styles.css and are validated with the dataviz skill's
+// scripts/validate_palette.js.
+const TRADE_COLORS = {
+  Plumbing: 'var(--trade-plumbing)',
+  Electrical: 'var(--trade-electrical)',
+  'Heating & Cooling': 'var(--trade-heating-cooling)',
+};
+
+// Bright categorical set for everything else (referral sources, cancellation
+// reasons, metric series). Fixed order; never reused for a trade.
+export const PIE_COLORS = ['var(--chart-teal)', 'var(--chart-orange)', 'var(--chart-violet)', 'var(--chart-magenta)', 'var(--chart-green)'];
+
+// Deterministic name -> slot so a category keeps its colour even when a
+// filter changes which categories appear or their order — an index cycle
+// would repaint the survivors.
+function hashIndex(name, length) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return h % length;
+}
+
+export function tradeColor(name) {
+  return TRADE_COLORS[name] || PIE_COLORS[hashIndex(name || '', PIE_COLORS.length)];
+}
+
+export function categoryColor(name) {
+  return PIE_COLORS[hashIndex(name || '', PIE_COLORS.length)];
+}
 
 // Bare chart content, sized by the caller (Reports pages wrap these in
 // AdjustableSection, which supplies the panel/title/controls and hands each
 // section's chosen height down through the `height` prop).
-export function PieCardBody({ data, formatValue, height = 240 }) {
+export function PieCardBody({ data, formatValue, height = 240, colorFor }) {
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }
+  const getColor = colorFor || ((name) => categoryColor(name));
   return (
     <ResponsiveContainer width="100%" height={height}>
       <PieChart>
@@ -21,8 +51,8 @@ export function PieCardBody({ data, formatValue, height = 240 }) {
           outerRadius={85}
           label={({ name, value }) => `${name}: ${formatValue ? formatValue(value) : value}`}
         >
-          {data.map((_, i) => (
-            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+          {data.map((entry, i) => (
+            <Cell key={i} fill={getColor(entry.name)} />
           ))}
         </Pie>
         <Tooltip formatter={(v) => (formatValue ? formatValue(v) : v)} />
@@ -31,7 +61,7 @@ export function PieCardBody({ data, formatValue, height = 240 }) {
   );
 }
 
-export function BarCardBody({ data, color = '#1b75ba', height = 220 }) {
+export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220 }) {
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }

@@ -3,7 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
-import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from '../../components/Charts.jsx';
+import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
@@ -83,7 +83,7 @@ export default function CallsReport() {
       ) : (
         <div className="grid-charts">
           <AdjustableSection id="byTrade" title="Calls by trade" defaultSize="md" layout={layout}>
-            {(cfg) => <PieCardBody data={byTrade} height={cfg.chartHeight} />}
+            {(cfg) => <PieCardBody data={byTrade} height={cfg.chartHeight} colorFor={tradeColor} />}
           </AdjustableSection>
 
           <AdjustableSection id="bySourcePie" title="Leads by referral source" defaultSize="md" layout={layout}>
@@ -99,23 +99,23 @@ export default function CallsReport() {
                   <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="Booked" stackId="a" fill="#1f7a52" />
-                  <Bar dataKey="Not booked" stackId="a" fill="#a15c17" />
+                  <Bar dataKey="Booked" stackId="a" fill="var(--chart-green)" />
+                  <Bar dataKey="Not booked" stackId="a" fill="var(--chart-orange)" />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </AdjustableSection>
 
           <AdjustableSection id="notBookedReasons" title="Why leads aren't booking" defaultSize="md" layout={layout}>
-            {(cfg) => <BarCardBody data={notBookedReasons} color="#a15c17" height={cfg.chartHeight} />}
+            {(cfg) => <BarCardBody data={notBookedReasons} color="var(--chart-orange)" height={cfg.chartHeight} />}
           </AdjustableSection>
 
           <AdjustableSection id="newCancelReasons" title="New Job Cancellation reasons" defaultSize="md" layout={layout}>
-            {(cfg) => <BarCardBody data={newCancelReasons} color="#a3323a" height={cfg.chartHeight} />}
+            {(cfg) => <BarCardBody data={newCancelReasons} color="var(--chart-magenta)" height={cfg.chartHeight} />}
           </AdjustableSection>
 
           <AdjustableSection id="pendingCancelReasons" title="Pending Cancellation reasons" defaultSize="md" layout={layout}>
-            {(cfg) => <BarCardBody data={pendingCancelReasons} color="#8a4fbf" height={cfg.chartHeight} />}
+            {(cfg) => <BarCardBody data={pendingCancelReasons} color="var(--chart-violet)" height={cfg.chartHeight} />}
           </AdjustableSection>
 
           <AdjustableSection id="trend" title="Calls over time" defaultSize="lg" layout={layout}>
@@ -126,7 +126,7 @@ export default function CallsReport() {
                   <XAxis dataKey="date" stroke="var(--ink-muted)" fontSize={11} />
                   <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#1b75ba" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="count" stroke="var(--chart-teal)" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             )}
