@@ -115,6 +115,13 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
     { key: 'date', label: 'Date', width: 14 },
     { key: 'count', label: 'Calls' },
   ], data.trend);
+  breakdowns.addRow([]);
+
+  addSectionHeading(breakdowns, 'Inbound Calls by Time of Day');
+  addDataTable(breakdowns, [
+    { key: 'name', label: 'Hour', width: 20 },
+    { key: 'value', label: 'Inbound Calls' },
+  ], data.inboundByHour);
 
   return wb;
 }

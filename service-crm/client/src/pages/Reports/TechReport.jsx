@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
-import { money } from '../../lib/dates.js';
+import { useReportFilters } from '../../lib/useReportFilters.js';
+import { money, currentAdelaideWeek } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
-function emptyFilters() {
-  return { from: '', to: '', technicianId: '', tradeId: '' };
+function defaultFilters() {
+  return { ...currentAdelaideWeek(), technicianId: '', tradeId: '' };
 }
 
 // Cents matter for this one figure (it's a per-job average, rarely a round
@@ -23,26 +24,27 @@ function moneyCents(v) {
 
 export default function TechReport({ jumpToJN }) {
   const settings = useSettings();
-  const [filters, setFilters] = useState(emptyFilters());
+  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters);
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [drilldown, setDrilldown] = useState(null);
   const layout = useReportLayout('tech');
 
   useEffect(() => {
-    api.reports.tech({ ...filters, granularity }).then(setData);
-  }, [filters, granularity]);
-
-  function patch(p) {
-    setFilters((f) => ({ ...f, ...p }));
-  }
+    setLoading(true);
+    api.reports.tech({ ...applied, granularity }).then((d) => {
+      setData(d);
+      setLoading(false);
+    });
+  }, [applied, granularity]);
 
   // Every clickable figure/chart section opens the same modal against the
-  // /reports/tech/drilldown endpoint, carrying this report's own current
-  // filters (from/to/technician/trade) plus whichever selector that figure
-  // needs — see services/reports.js's drilldownTech() for the full list.
+  // /reports/tech/drilldown endpoint, carrying this report's own currently
+  // *applied* filters (from/to/technician/trade) plus whichever selector
+  // that figure needs — see services/reports.js's drilldownTech().
   function openDrilldown(metric, extra) {
-    setDrilldown({ from: filters.from, to: filters.to, technicianId: filters.technicianId, tradeId: filters.tradeId, metric, ...extra });
+    setDrilldown({ from: applied.from, to: applied.to, technicianId: applied.technicianId, tradeId: applied.tradeId, metric, ...extra });
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
@@ -74,22 +76,31 @@ export default function TechReport({ jumpToJN }) {
   return (
     <div>
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
-        <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
+        <DateField label="From" value={draft.from} onChange={(v) => patch({ from: v })} invalid={!!error} />
+        <DateField label="To" value={draft.to} onChange={(v) => patch({ to: v })} invalid={!!error} />
         <FilterSelect
           label="Technician"
-          value={filters.technicianId}
+          value={draft.technicianId}
           onChange={(v) => patch({ technicianId: v })}
           options={withInactiveLabel(settings.technicians)}
         />
-        <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
-        <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
-          Clear filters
+        <FilterSelect label="Trade" value={draft.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
+        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
+          {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
-        <a className="btn btn-primary" href={api.reports.techXlsxUrl(filters)} style={{ marginLeft: 'auto' }}>
+        <button className="btn" type="button" onClick={reset}>
+          Reset Filters
+        </button>
+        <a className="btn btn-primary" href={api.reports.techXlsxUrl(applied)} style={{ marginLeft: 'auto' }}>
           Export to Excel
         </a>
       </div>
+
+      {error && (
+        <div className="notice panel error" style={{ marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
 
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         Jobs, leads, knock-backs and call backs are dated by visit date. Sales are dated by invoice creation date. Conversion and

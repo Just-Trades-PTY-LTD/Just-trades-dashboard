@@ -1,4 +1,5 @@
 import { all } from '../db/index.js';
+import { mondayOf } from '../lib/adelaideTime.js';
 
 export function pct(a, b) {
   return b ? Math.round((a / b) * 100) : 0;
@@ -29,15 +30,45 @@ function inRange(dateStr, from, to) {
   return true;
 }
 
+// Stored dates are already Adelaide wall-clock calendar dates (see
+// lib/adelaideTime.js) — "week" bucketing finds the Monday of that same
+// calendar week via pure Y/M/D arithmetic, never a local-time Date getter,
+// so it's correct no matter which timezone the server process itself runs
+// in (this one runs in UTC).
 function bucketKey(dateStr, granularity) {
   const d10 = dateStr.slice(0, 10);
   if (granularity === 'day') return d10;
   if (granularity === 'month') return dateStr.slice(0, 7);
-  const d = new Date(d10);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return mondayOf(d10);
+}
+
+// "8:00am – 8:59am" for hour 8, "12:00pm – 12:59pm" for hour 12 (noon),
+// "12:00am – 12:59am" for hour 0 (midnight).
+function formatHourRange(h) {
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  const ampm = h < 12 ? 'am' : 'pm';
+  return `${displayHour}:00${ampm} – ${displayHour}:59${ampm}`;
+}
+
+// Groups a calls array into hourly buckets by the hour embedded in call_at
+// ("YYYY-MM-DDTHH:mm", already Adelaide wall-clock time — see
+// lib/adelaideTime.js — so this is a direct read, not a timezone
+// conversion). Only hours that actually have a record are included, sorted
+// by hour, so an overnight/weekend chart doesn't imply a fixed business-hours
+// window that isn't really there.
+function countByHour(list) {
+  const map = {};
+  list.forEach((c) => {
+    const hh = (c.call_at || '').slice(11, 13);
+    if (hh.length !== 2) return;
+    const h = Number(hh);
+    if (Number.isNaN(h)) return;
+    map[h] = (map[h] || 0) + 1;
+  });
+  return Object.keys(map)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((h) => ({ hour: h, name: formatHourRange(h), value: map[h] }));
 }
 
 // A category value that's blank/null is grouped and displayed as "Not
@@ -134,6 +165,11 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, count]) => ({ date, count }));
 
+  // Separate from the by-date trend above — this shows volume by hour of
+  // day (across the whole selected range), to spot the busiest calling
+  // periods, not volume over the date range itself.
+  const inboundByHour = countByHour(inboundCalls);
+
   const staffMap = {};
   reportCalls.forEach((c) => {
     const k = c.handled_by_name || 'Unassigned';
@@ -153,7 +189,7 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   });
   const staffPerf = Object.values(staffMap).map((s) => ({ ...s, rate: pct(s.booked, s.leads) }));
 
-  return { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, staffPerf };
+  return { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf };
 }
 
 // Selects the subset of an (already date/staff-scoped) calls array for one
@@ -257,6 +293,14 @@ export function drilldownCalls({ from, to, handledByUserId, metric, category, se
         (c) => c.call_type === 'Cancellation' && c.cancellation_type === 'Pending Cancellation' && catLabel(c.cancellation_reason_name) === category
       ),
       label: `Pending Cancellation reasons — ${category}`,
+    };
+  }
+  if (metric === 'inboundByHour') {
+    const hh = String(category).padStart(2, '0');
+    const inboundCalls = reportCalls.filter((c) => c.direction === 'Inbound');
+    return {
+      rows: inboundCalls.filter((c) => (c.call_at || '').slice(11, 13) === hh),
+      label: `Inbound Calls by Time of Day — ${formatHourRange(Number(category))}`,
     };
   }
 

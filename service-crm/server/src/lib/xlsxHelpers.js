@@ -1,3 +1,5 @@
+import { adelaideGeneratedAtLabel } from './adelaideTime.js';
+
 export const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A5C' } };
 export const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' } };
 export const SECTION_FONT = { bold: true, size: 13 };
@@ -33,5 +35,5 @@ export function addDataTable(sheet, columns, rows) {
 
 export function filterSummaryLines({ from, to, extra = [] }) {
   const period = from || to ? `Period: ${from ? from : 'earliest'} – ${to ? to : 'latest'}` : 'Period: all dates';
-  return [period, ...extra, `Generated: ${new Date().toLocaleString('en-AU')}`];
+  return [period, ...extra, `Generated: ${adelaideGeneratedAtLabel()}`];
 }

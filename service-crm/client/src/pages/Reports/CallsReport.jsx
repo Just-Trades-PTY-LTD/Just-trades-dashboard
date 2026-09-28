@@ -2,41 +2,44 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
+import { useReportFilters } from '../../lib/useReportFilters.js';
+import { currentAdelaideWeek } from '../../lib/dates.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
-function emptyFilters() {
-  return { from: '', to: '', handledByUserId: '' };
+function defaultFilters() {
+  return { ...currentAdelaideWeek(), handledByUserId: '' };
 }
 
 export default function CallsReport({ jumpToJN }) {
   const settings = useSettings();
-  const [filters, setFilters] = useState(emptyFilters());
+  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters);
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [drilldown, setDrilldown] = useState(null);
   const layout = useReportLayout('calls');
 
   useEffect(() => {
-    api.reports.calls(filters).then(setData);
-  }, [filters]);
-
-  function patch(p) {
-    setFilters((f) => ({ ...f, ...p }));
-  }
+    setLoading(true);
+    api.reports.calls(applied).then((d) => {
+      setData(d);
+      setLoading(false);
+    });
+  }, [applied]);
 
   // Every clickable figure/chart section opens the same modal against the
-  // /reports/calls/drilldown endpoint, carrying this report's own current
-  // filters (from/to/staff) plus whichever selector that figure needs — see
-  // services/reports.js's drilldownCalls() for the full list of metrics.
+  // /reports/calls/drilldown endpoint, carrying this report's own currently
+  // *applied* filters (from/to/staff) plus whichever selector that figure
+  // needs — see services/reports.js's drilldownCalls() for the full list.
   function openDrilldown(metric, extra) {
-    setDrilldown({ ...filters, metric, ...extra });
+    setDrilldown({ ...applied, metric, ...extra });
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, staffPerf } = data;
+  const { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf } = data;
 
   const kpiRows = [
     ['Total Contacts', kpis.total, 'total'],
@@ -57,21 +60,30 @@ export default function CallsReport({ jumpToJN }) {
   return (
     <div>
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
-        <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
+        <DateField label="From" value={draft.from} onChange={(v) => patch({ from: v })} invalid={!!error} />
+        <DateField label="To" value={draft.to} onChange={(v) => patch({ to: v })} invalid={!!error} />
         <FilterSelect
           label="Staff"
-          value={filters.handledByUserId}
+          value={draft.handledByUserId}
           onChange={(v) => patch({ handledByUserId: v })}
           options={withInactiveLabel(settings.staffAll)}
         />
-        <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
-          Clear filters
+        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
+          {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
-        <a className="btn btn-primary" href={api.reports.callsXlsxUrl(filters)} style={{ marginLeft: 'auto' }}>
+        <button className="btn" type="button" onClick={reset}>
+          Reset Filters
+        </button>
+        <a className="btn btn-primary" href={api.reports.callsXlsxUrl(applied)} style={{ marginLeft: 'auto' }}>
           Export to Excel
         </a>
       </div>
+
+      {error && (
+        <div className="notice panel error" style={{ marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
 
       <div style={{ marginBottom: 20 }}>
         <AdjustableSection id="kpis" title="Summary figures" defaultSize="md" layout={layout}>
@@ -188,6 +200,33 @@ export default function CallsReport({ jumpToJN }) {
                 </LineChart>
               </ResponsiveContainer>
             )}
+          </AdjustableSection>
+
+          <AdjustableSection id="inboundByHour" title="Inbound Calls by Time of Day" defaultSize="lg" layout={layout}>
+            {(cfg) =>
+              inboundByHour.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>
+                  No Inbound Calls in this range yet.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+                  <BarChart data={inboundByHour}>
+                    <CartesianGrid stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} interval={0} angle={-35} textAnchor="end" height={70} />
+                    <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
+                    <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
+                    <Bar
+                      dataKey="value"
+                      name="Inbound Calls"
+                      fill="var(--chart-teal)"
+                      radius={[3, 3, 0, 0]}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(entry) => openDrilldown('inboundByHour', { category: entry.hour })}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
+            }
           </AdjustableSection>
 
           <AdjustableSection id="byStaff" title="By staff" defaultSize="lg" layout={layout}>
