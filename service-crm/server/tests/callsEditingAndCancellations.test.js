@@ -131,6 +131,52 @@ test('Pending Cancellation is logged through Calls, links to the existing sale, 
   }
 });
 
+test('a Pending Cancellation logged against a job with no sale still credits the job\'s own Technician, never a blank/"Unassigned" one', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'No Sale Yet Tech' })).data;
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
+
+    // A job that was already a knock-back — never sold, so there is no
+    // sales-table row for syncPendingCancellation's usual sale?.
+    // credited_technician_id lookup to draw a technician from.
+    await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_no_sale',
+      visitDate: '2026-02-10',
+      technicianId: tech.id,
+      jobNumber: 'JN-PC-NOSALE',
+      tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
+      lead: 'Qualified',
+      knockbackReasonId: bundle.lists.knockback_reason[0].id,
+    });
+
+    const call = await server.request('POST', '/calls', {
+      callAt: '2026-02-12T09:00',
+      direction: 'Inbound',
+      callType: 'Cancellation',
+      cancellationType: 'Pending Cancellation',
+      cancellationReasonId: bundle.lists.pending_cancellation_reason[0].id,
+      jobNumber: 'JN-PC-NOSALE',
+    });
+    assert.equal(call.status, 201);
+
+    // The pending cancellation must be credited to the job's own (mandatory)
+    // Technician, falling back from the missing sale — never left blank and
+    // never bucketed under a synthetic "Unassigned" row in reports.
+    const report = (await server.request('GET', '/reports/tech?from=2026-02-01&to=2026-02-28')).data;
+    assert.equal(report.missingTechnicianCount, 0, 'nothing should be missing a technician');
+    assert.ok(!report.byTechnician.some((r) => r.name === 'Unassigned'), 'no synthetic "Unassigned" row');
+    const techRow = report.byTechnician.find((r) => r.name === 'No Sale Yet Tech');
+    assert.ok(techRow, 'the pending cancellation is credited to the job\'s own technician');
+    assert.equal(techRow.pendingCancellations, 1);
+  } finally {
+    server.close();
+  }
+});
+
 test('deleting a Pending Cancellation call removes its linked pending_cancellations record', async () => {
   const server = await startTestServer();
   try {

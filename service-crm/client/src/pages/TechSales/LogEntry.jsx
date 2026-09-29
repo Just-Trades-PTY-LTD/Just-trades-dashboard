@@ -204,6 +204,27 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         missing.push('New Job Number');
         fields.add('newJobNumber');
       }
+      if (!form.creditedTechnicianId) {
+        missing.push('Credited Technician');
+        fields.add('creditedTechnicianId');
+      }
+    } else if (isCallBack) {
+      if (!form.jobNumber || !form.jobNumber.trim()) {
+        missing.push('Job Number');
+        fields.add('jobNumber');
+      }
+      if (!form.technicianId) {
+        missing.push('Attending Technician');
+        fields.add('technicianId');
+      }
+      // Credited Technician is what every Technician & Sales report figure
+      // this entry counts towards is attributed to — mandatory on creation
+      // only (see handleSubmit below), so it can never silently fall into
+      // an "Unassigned" bucket in reports.
+      if (!form.creditedTechnicianId) {
+        missing.push('Credited Technician');
+        fields.add('creditedTechnicianId');
+      }
     } else if (!form.jobNumber || !form.jobNumber.trim()) {
       missing.push('Job Number');
       fields.add('jobNumber');
@@ -403,10 +424,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             invalid={invalidFields.has('technicianId')}
           />
           <SelectField
-            label="Credited technician (original work)"
+            label="Credited technician (original work) *"
             value={form.creditedTechnicianId}
             onChange={(v) => patch({ creditedTechnicianId: v })}
             options={withInactiveLabel(settings.technicians)}
+            invalid={invalidFields.has('creditedTechnicianId')}
           />
         </div>
       )}
@@ -415,10 +437,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         <div className="grid-form" style={{ marginTop: 14 }}>
           <DateField label="Date entered" value={form.dateLogged} onChange={(v) => patch({ dateLogged: v })} />
           <SelectField
-            label="Credited technician"
+            label={isExistingJob ? 'Credited technician *' : 'Credited technician'}
             value={form.creditedTechnicianId}
             onChange={(v) => patch({ creditedTechnicianId: v })}
             options={withInactiveLabel(settings.technicians)}
+            invalid={invalidFields.has('creditedTechnicianId')}
           />
         </div>
       )}

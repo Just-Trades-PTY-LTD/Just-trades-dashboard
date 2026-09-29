@@ -47,7 +47,7 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend } = data;
+  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount } = data;
 
   // Converted Later bonus adjustment (trial) — computed fresh on every
   // report run from the underlying jobs/sales (see services/reports.js).
@@ -113,6 +113,19 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
       {error && (
         <div className="notice panel error" style={{ marginBottom: 16 }}>
           {error}
+        </div>
+      )}
+
+      {missingTechnicianCount > 0 && (
+        <div
+          className="notice panel error clickable-stat"
+          style={{ marginBottom: 16, cursor: 'pointer' }}
+          onClick={() => openDrilldown('missingTechnician')}
+          title="View the records with no Technician assigned"
+        >
+          {missingTechnicianCount} record{missingTechnicianCount > 1 ? 's' : ''} in this range {missingTechnicianCount > 1 ? 'have' : 'has'} no Technician
+          assigned and {missingTechnicianCount > 1 ? "aren't" : "isn't"} included in the By Technician table below — click to view and correct{' '}
+          {missingTechnicianCount > 1 ? 'them' : 'it'}. The Technician field is mandatory going forward; this can only affect older records.
         </div>
       )}
 

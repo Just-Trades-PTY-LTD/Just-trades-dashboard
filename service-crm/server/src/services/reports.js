@@ -495,6 +495,18 @@ function bucketOutcome(b) {
 // company, one technician, one trade, or a specific drill-down's already-
 // filtered rows); the per-technician/per-week credit matching happens
 // internally regardless of how broad or narrow that scope is.
+//
+// "Converted Later" is the count of credits actually APPLIED against an
+// Actual Knockback (bucketOutcome's `used`) — never the raw count of
+// Quote Approved Later sales in scope. A Quote Approved Later entry is also
+// legitimately used to add an extra invoice to a job that already had a
+// sale (see LogEntry.jsx) — that sale still counts fully in Sales/Value,
+// but since there's no Actual Knockback left for it to offset that week, it
+// must not inflate "Converted Later" or get subtracted a second time out of
+// Adjusted Knockbacks. Using `used` here keeps the displayed "Converted
+// Later" figure always consistent with Adjusted Knockbacks = Actual
+// Knockbacks − Converted Later (never a mismatch where more credits show as
+// "Converted Later" than were actually available to subtract).
 function computeConvertedLaterAdjustment(jobs, sales) {
   const buckets = bucketConvertedLaterCredits(jobs, sales);
   let actualKnockbacks = 0;
@@ -503,7 +515,7 @@ function computeConvertedLaterAdjustment(jobs, sales) {
   buckets.forEach((b) => {
     const o = bucketOutcome(b);
     actualKnockbacks += o.actual;
-    convertedLaterCredits += o.credits;
+    convertedLaterCredits += o.used;
     adjustedKnockbacks += o.adjusted;
   });
   const qualifiedCount = jobs.filter((j) => j.lead === 'Qualified').length;
@@ -561,11 +573,25 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
     ),
   }));
 
+  // The Technician (or Credited Technician) field is mandatory on every entry
+  // type, so in ordinary use nothing should ever fall into this bucket — but
+  // a record saved before that was enforced can still have a blank one. Such
+  // a record must never be silently folded into a normal-looking "Unassigned"
+  // row in the By Technician table (which would misleadingly read like a
+  // real technician); instead it's counted here and surfaced separately (see
+  // missingTechnicianCount / the 'missingTechnician' drill-down) so it can be
+  // found and corrected at the source.
+  const missingTechnicianCount =
+    jobsAll.filter((j) => !j.technician_name).length +
+    salesAll.filter((s) => !s.credited_technician_name).length +
+    callBacksAll.filter((c) => !c.credited_technician_name).length +
+    pendingCancelsAll.filter((p) => !p.credited_technician_name).length;
+
   const techNameSet = new Set();
-  jobsAll.forEach((j) => techNameSet.add(j.technician_name || 'Unassigned'));
-  salesAll.forEach((s) => techNameSet.add(s.credited_technician_name || 'Unassigned'));
-  callBacksAll.forEach((c) => techNameSet.add(c.credited_technician_name || 'Unassigned'));
-  pendingCancelsAll.forEach((p) => techNameSet.add(p.credited_technician_name || 'Unassigned'));
+  jobsAll.forEach((j) => j.technician_name && techNameSet.add(j.technician_name));
+  salesAll.forEach((s) => s.credited_technician_name && techNameSet.add(s.credited_technician_name));
+  callBacksAll.forEach((c) => c.credited_technician_name && techNameSet.add(c.credited_technician_name));
+  pendingCancelsAll.forEach((p) => p.credited_technician_name && techNameSet.add(p.credited_technician_name));
 
   const byTechnician = Array.from(techNameSet).map((name) => {
     const techJobs = jobsAll.filter((j) => (j.technician_name || 'Unassigned') === name);
@@ -611,7 +637,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
   });
   const trend = Object.values(trendMap).sort((a, b) => a.period.localeCompare(b.period));
 
-  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend };
+  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount };
 }
 
 function tagRows(list, kind) {
@@ -673,8 +699,18 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
     // technician/trade filters, so these always match the displayed figure.
     case 'actualKnockbacks':
       return { rows: tagJobs(genuineKnockbackJobs(jobs)), label: 'Actual Knockbacks' };
-    case 'convertedLaterCredits':
-      return { rows: tagSales(quoteApprovedLaterSales(sales)), label: 'Converted Later' };
+    case 'convertedLaterCredits': {
+      // Only the credits actually applied against an Actual Knockback — see
+      // computeConvertedLaterAdjustment(). A Quote Approved Later sale that
+      // had no knockback left to offset that week (e.g. a plain extra
+      // invoice on an already-sold job) still counts in Sales/Value, but is
+      // not "Converted Later" and so is excluded here too, keeping this
+      // drill-down's total equal to the displayed figure.
+      const buckets = bucketConvertedLaterCredits(jobs, sales);
+      const usedCreditSales = [];
+      buckets.forEach((b) => usedCreditSales.push(...bucketOutcome(b).usedCredits));
+      return { rows: tagSales(usedCreditSales), label: 'Converted Later' };
+    }
     case 'adjustedKnockbacks':
     case 'bonusConversionRate': {
       const buckets = bucketConvertedLaterCredits(jobs, sales);
@@ -703,6 +739,22 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
       return { rows: tagRows(callbacks, 'call_back'), label: 'Call backs' };
     case 'pendingCancellations':
       return { rows: tagRows(pendingCancels, 'pending_cancellation'), label: 'Pending cancellations' };
+    // Records saved with no Technician/Credited Technician at all — the
+    // Technician field is mandatory everywhere, so this should normally be
+    // empty; it exists to surface a pre-existing legacy record for
+    // correction rather than let it disappear into a misleading
+    // "Unassigned" row in the By Technician table (see computeTechReport's
+    // missingTechnicianCount).
+    case 'missingTechnician':
+      return {
+        rows: [
+          ...tagJobs(jobs.filter((j) => !j.technician_name)),
+          ...tagSales(sales.filter((s) => !s.credited_technician_name)),
+          ...tagRows(callbacks.filter((c) => !c.credited_technician_name), 'call_back'),
+          ...tagRows(pendingCancels.filter((p) => !p.credited_technician_name), 'pending_cancellation'),
+        ],
+        label: 'Records with no Technician assigned',
+      };
     case 'inspectionRate': {
       const yes = jobs.filter((j) => j.inspection_sheet === 'Yes').length;
       return {

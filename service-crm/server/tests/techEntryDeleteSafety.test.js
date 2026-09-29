@@ -65,6 +65,7 @@ test('a knock-back job that was later converted by a Quote Approved Later sale c
         jobNumber: 'JN-DELSAFE-2',
         newJobNumber: 'AROFLO-DELSAFE-2',
         dateLogged: '2026-05-10',
+        creditedTechnicianId: tech.id,
         invoiceNumber: 'INV-DELSAFE-2',
         invoiceDate: '2026-05-10',
         saleValueExGst: 300,
@@ -116,6 +117,7 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
         jobNumber: 'JN-DELSAFE-4',
         visitDate: '2026-05-04',
         technicianId: tech.id,
+        creditedTechnicianId: tech.id,
         comments: 'test',
       })
     ).data.entry;

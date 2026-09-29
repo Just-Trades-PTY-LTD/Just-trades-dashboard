@@ -65,6 +65,7 @@ test('an inactive technician cannot be assigned to a brand-new job, call back, o
       jobNumber: 'JN-DEACT-ANY',
       visitDate: '2026-12-02',
       technicianId: tech.id,
+      creditedTechnicianId: tech.id,
     });
     assert.equal(callBackRes.status, 400);
     assert.match(callBackRes.data.error, /deactivated/);

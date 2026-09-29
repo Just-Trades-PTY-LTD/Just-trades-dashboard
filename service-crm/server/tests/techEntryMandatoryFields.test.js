@@ -384,7 +384,7 @@ test('editing an existing Quote Approved Later sale can change Trade and Job Typ
 test('Call Back and Pending Cancellation require a Job Number, but are never blocked for lack of a matching job', async () => {
   const server = await startTestServer();
   try {
-    await setup(server);
+    const { tech } = await setup(server);
 
     const callBackNoJn = await server.request('POST', '/tech/call-backs', { visitDate: '2026-10-20', comments: 'x' });
     assert.equal(callBackNoJn.status, 400);
@@ -393,6 +393,8 @@ test('Call Back and Pending Cancellation require a Job Number, but are never blo
     const callBackNoMatch = await server.request('POST', '/tech/call-backs', {
       jobNumber: 'JN-NEVER-SEEN-BEFORE',
       visitDate: '2026-10-20',
+      technicianId: tech.id,
+      creditedTechnicianId: tech.id,
       comments: 'still allowed',
     });
     assert.equal(callBackNoMatch.status, 201, 'Call Back does not require an existing match, unlike Quote Approved Later');
@@ -420,6 +422,7 @@ test('Call Back auto-populates Trade and Job Type from the matched job, and an e
       jobNumber: 'JN-CB-AUTOFILL',
       visitDate: '2026-10-21',
       technicianId: tech.id,
+      creditedTechnicianId: tech.id,
       comments: 'return visit',
     });
     assert.equal(callBack.status, 201);
@@ -433,6 +436,110 @@ test('Call Back auto-populates Trade and Job Type from the matched job, and an e
     assert.equal(patched.status, 200);
     assert.equal(patched.data.tradeId, electrical.id);
     assert.equal(patched.data.jobTypeId, electrical.jobTypes[0].id);
+  } finally {
+    server.close();
+  }
+});
+
+test('Credited Technician is mandatory on a brand-new Call Back and a brand-new Quote Approved Later — but never blocks editing an existing entry', async () => {
+  const server = await startTestServer();
+  try {
+    const { tech, plumbing } = await setup(server);
+    await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-CREDTECH-1', lead: 'Not Qualified', knockbackReasonId: null })
+    );
+
+    // Call Back: both Attending and Credited Technician are required.
+    const callBackMissingBoth = await server.request('POST', '/tech/call-backs', {
+      jobNumber: 'JN-CREDTECH-1',
+      visitDate: '2026-10-25',
+    });
+    assert.equal(callBackMissingBoth.status, 400);
+    assert.match(callBackMissingBoth.data.error, /Attending Technician/);
+    assert.match(callBackMissingBoth.data.error, /Credited Technician/);
+
+    const callBackMissingCredited = await server.request('POST', '/tech/call-backs', {
+      jobNumber: 'JN-CREDTECH-1',
+      visitDate: '2026-10-25',
+      technicianId: tech.id,
+    });
+    assert.equal(callBackMissingCredited.status, 400);
+    assert.match(callBackMissingCredited.data.error, /Credited Technician/);
+
+    const callBackOk = await server.request('POST', '/tech/call-backs', {
+      jobNumber: 'JN-CREDTECH-1',
+      visitDate: '2026-10-25',
+      technicianId: tech.id,
+      creditedTechnicianId: tech.id,
+    });
+    assert.equal(callBackOk.status, 201);
+
+    // Editing that same Call Back to clear its Credited Technician is never
+    // blocked — the mandatory check only applies to creation.
+    const callBackEdited = await server.request('PATCH', `/tech/call-backs/${callBackOk.data.entry.id}`, {
+      creditedTechnicianId: '',
+    });
+    assert.equal(callBackEdited.status, 200, 'editing is never blocked by the mandatory-on-creation rule');
+
+    // Quote Approved Later: Credited Technician is required alongside both JNs.
+    const qalMissingCredited = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-CREDTECH-1',
+      newJobNumber: 'AROFLO-CREDTECH-1',
+      dateLogged: '2026-10-26',
+    });
+    assert.equal(qalMissingCredited.status, 400);
+    assert.match(qalMissingCredited.data.error, /Credited Technician/);
+
+    const qalOk = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-CREDTECH-1',
+      newJobNumber: 'AROFLO-CREDTECH-2',
+      dateLogged: '2026-10-26',
+      creditedTechnicianId: tech.id,
+    });
+    assert.equal(qalOk.status, 201);
+
+    const qalEdited = await server.request('PATCH', `/tech/quote-approved-later/${qalOk.data.entry.id}`, {
+      creditedTechnicianId: '',
+    });
+    assert.equal(qalEdited.status, 200, 'editing an existing Quote Approved Later is never blocked by the mandatory-on-creation rule');
+  } finally {
+    server.close();
+  }
+});
+
+test('a record saved with no Technician at all is excluded from the By Technician table (never shown under a synthetic "Unassigned" row) and is instead surfaced by missingTechnicianCount / the missingTechnician drill-down', async () => {
+  const server = await startTestServer();
+  try {
+    const { tech, plumbing } = await setup(server);
+    await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-MISSINGTECH-1', lead: 'Not Qualified', knockbackReasonId: null })
+    );
+    // A legacy Call Back saved before Credited Technician was mandatory —
+    // inserted directly, exactly like real pre-existing data on disk, never
+    // created through the now-guarded POST route.
+    const { run: dbRun } = await import('../src/db/index.js');
+    const { lastInsertRowid: callBackId } = dbRun(
+      `INSERT INTO call_backs (job_id, job_number, visit_date, attending_technician_id, credited_technician_id, created_by_user_id)
+       VALUES (NULL, ?, ?, NULL, NULL, 1)`,
+      ['JN-MISSINGTECH-1', '2026-10-27']
+    );
+
+    const report = (await server.request('GET', '/reports/tech?from=2026-10-01&to=2026-10-31')).data;
+    assert.equal(report.missingTechnicianCount, 1);
+    assert.ok(!report.byTechnician.some((r) => r.name === 'Unassigned'), 'no synthetic "Unassigned" row is ever shown');
+    // The company-wide total still includes it — nothing is silently dropped.
+    assert.equal(report.company.callBacks, 1);
+
+    const drill = (
+      await server.request('GET', '/reports/tech/drilldown?from=2026-10-01&to=2026-10-31&metric=missingTechnician')
+    ).data;
+    assert.equal(drill.count, 1);
+    assert.equal(drill.rows[0].kind, 'call_back');
+    assert.equal(drill.rows[0].id, callBackId);
   } finally {
     server.close();
   }

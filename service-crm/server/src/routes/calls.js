@@ -25,12 +25,21 @@ function syncPendingCancellation({ existingPendingCancellationId, callType, canc
   }
 
   const sale = findLatestSale(jobNumber);
+  // A sale made at the original visit always carries its own credited
+  // technician, but a job that was never sold (e.g. it was already a
+  // knock-back, or a Pending Cancellation was logged against it before any
+  // sale was recorded) has no sale row to draw one from. Falling back to
+  // the original job's own Technician — mandatory on every job — means this
+  // can never end up silently blank and bucketed as "Unassigned" in
+  // reports; only a Job Number that matches neither a sale nor a job at all
+  // (a typo, or one never logged) can still leave it unset.
+  const originalJob = sale ? null : findOriginalJob(jobNumber);
   const fields = {
     sale_id: sale?.id || null,
     job_number: jobNumber,
     date_logged: (callAt || '').slice(0, 10),
-    credited_technician_id: sale?.credited_technician_id || null,
-    trade_id: tradeId || sale?.trade_id || null,
+    credited_technician_id: sale?.credited_technician_id || originalJob?.technician_id || null,
+    trade_id: tradeId || sale?.trade_id || originalJob?.trade_id || null,
     reason_id: cancellationReasonId || null,
     comments: notes || '',
   };

@@ -557,6 +557,11 @@ export function createTechSalesRouter() {
     const missing = [];
     if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Original Job Number');
     if (!b.newJobNumber || !String(b.newJobNumber).trim()) missing.push('New Job Number');
+    // Credited Technician drives every Technician & Sales report figure this
+    // entry counts towards — mandatory on creation (never on edit, so a
+    // legacy entry saved before this check existed can still be edited)
+    // so it can never silently fall into an "Unassigned" bucket.
+    if (!b.creditedTechnicianId) missing.push('Credited Technician');
     if (missing.length) {
       return res.status(400).json({
         error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
@@ -702,6 +707,20 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     if (!b.jobNumber || !String(b.jobNumber).trim()) {
       return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    }
+    // Attending Technician and Credited Technician are both mandatory on
+    // creation (never on edit, so a legacy entry saved before this check
+    // existed can still be edited) — Credited Technician in particular is
+    // what every Technician & Sales report figure counts this entry
+    // towards, and leaving it blank is exactly how a call back could
+    // silently fall into an "Unassigned" bucket in reports.
+    const missing = [];
+    if (!b.technicianId) missing.push('Attending Technician');
+    if (!b.creditedTechnicianId) missing.push('Credited Technician');
+    if (missing.length) {
+      return res.status(400).json({
+        error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
+      });
     }
     if (!isTechnicianActive(b.technicianId)) {
       return res.status(400).json({ error: 'This technician has been deactivated and cannot be assigned to a new call back.' });

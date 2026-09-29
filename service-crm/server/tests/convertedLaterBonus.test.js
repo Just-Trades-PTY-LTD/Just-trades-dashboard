@@ -155,7 +155,10 @@ test('More Converted Later entries than knockbacks floors Adjusted Knockbacks at
 
     const report = (await server.request('GET', `/reports/tech?from=${monday}&to=2026-03-08`)).data;
     assert.equal(report.company.actualKnockbacks, 1);
-    assert.equal(report.company.convertedLaterCredits, 2);
+    // Only 1 of the 2 credits offered could actually be used (there was
+    // only 1 knockback to offset) — Converted Later reports the used
+    // count, not the raw number of Quote Approved Later sales offered.
+    assert.equal(report.company.convertedLaterCredits, 1);
     assert.equal(report.company.adjustedKnockbacks, 0, 'never negative even with a surplus of credits');
   } finally {
     server.close();
@@ -190,7 +193,10 @@ test('Multiple technicians: one technician\'s credit never reduces another techn
 
     const report = (await server.request('GET', `/reports/tech?from=${monday}&to=2026-03-08`)).data;
     assert.equal(report.company.actualKnockbacks, 2);
-    assert.equal(report.company.convertedLaterCredits, 1);
+    // Tech B's credit had no knockback of its own to offset, so it's never
+    // "used" — Converted Later (used credits) is 0, even though 1 Quote
+    // Approved Later sale exists and still counts fully in Sales/Value.
+    assert.equal(report.company.convertedLaterCredits, 0);
     // A buggy "global pool" calc would wrongly let Tech B's unused credit
     // reduce Tech A's knockbacks (2 - 1 = 1). The correct, per-technician
     // calc must keep Tech A's 2 knockbacks fully intact.
@@ -201,7 +207,10 @@ test('Multiple technicians: one technician\'s credit never reduces another techn
     assert.equal(rowA.actualKnockbacks, 2);
     assert.equal(rowA.adjustedKnockbacks, 2);
     assert.equal(rowB.actualKnockbacks, 0);
-    assert.equal(rowB.convertedLaterCredits, 1);
+    assert.equal(rowB.convertedLaterCredits, 0, "Tech B's credit was never used, so it doesn't count as Converted Later");
+    // The quote-approved-later sale itself still counts fully, even though
+    // its credit went unused (the helper's own anchor job/sale is the 2nd).
+    assert.equal(rowB.sales, 2);
     assert.equal(rowB.adjustedKnockbacks, 0);
   } finally {
     server.close();
@@ -231,7 +240,9 @@ test('Week-boundary behaviour: an unused credit expires at the end of its week a
 
     const singleWeek1 = (await server.request('GET', `/reports/tech?from=${week1Monday}&to=2026-03-08`)).data;
     assert.equal(singleWeek1.company.actualKnockbacks, 2);
-    assert.equal(singleWeek1.company.convertedLaterCredits, 3);
+    // 3 credits were offered but only 2 could be used (only 2 knockbacks to
+    // offset) — Converted Later reports the used count, not the raw offer.
+    assert.equal(singleWeek1.company.convertedLaterCredits, 2);
     assert.equal(singleWeek1.company.adjustedKnockbacks, 0);
 
     const singleWeek2 = (await server.request('GET', `/reports/tech?from=${week2Monday}&to=2026-03-15`)).data;
@@ -244,7 +255,9 @@ test('Week-boundary behaviour: an unused credit expires at the end of its week a
     // it" answer (actual 3 - credits 3 = 0), which would be wrong.
     const spanning = (await server.request('GET', `/reports/tech?from=${week1Monday}&to=2026-03-15`)).data;
     assert.equal(spanning.company.actualKnockbacks, 3);
-    assert.equal(spanning.company.convertedLaterCredits, 3);
+    // Used credits: 2 (week 1) + 0 (week 2) = 2 — the 3rd, unused week-1
+    // credit is never counted, in a single week or spanning both.
+    assert.equal(spanning.company.convertedLaterCredits, 2);
     assert.equal(spanning.company.adjustedKnockbacks, 1, 'each week must be settled separately before the totals are combined');
   } finally {
     server.close();
@@ -318,6 +331,89 @@ test('Drill-downs: Actual Knockbacks, Converted Later and Adjusted Knockbacks ea
     assert.equal(outcomeByLabel['Actual Knockbacks'], 2);
     assert.equal(outcomeByLabel['Converted Later credits applied'], 1);
     assert.equal(outcomeByLabel['Adjusted Knockbacks'], 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("Tyler's worked example: a genuine conversion and a separate 'extra invoice' sale are distinguished correctly", async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, knockbackReasonId } = await setup(server);
+    const tyler = (await server.request('POST', '/settings/technicians', { name: 'Tyler' })).data;
+
+    // 2 knockback jobs (Qualified, no sale).
+    await knockback(server, {
+      technicianId: tyler.id, visitDate: '2026-05-04', tradeId: plumbing.id, jobTypeId, knockbackReasonId,
+      jobNumber: 'JN-TYLER-KB-1',
+    });
+    await knockback(server, {
+      technicianId: tyler.id, visitDate: '2026-05-05', tradeId: plumbing.id, jobTypeId, knockbackReasonId,
+      jobNumber: 'JN-TYLER-KB-2',
+    });
+
+    // 2 sale-made jobs (Qualified, sold at the visit), $1500 each.
+    const sale1 = await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_sale_made', visitDate: '2026-05-04', technicianId: tyler.id, jobNumber: 'JN-TYLER-SALE-1',
+      tradeId: plumbing.id, jobTypeId, lead: 'Qualified',
+      invoiceNumber: 'INV-TYLER-SALE-1', invoiceDate: '2026-05-04', saleValueExGst: 1500,
+    });
+    assert.equal(sale1.status, 201);
+    const sale2 = await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_sale_made', visitDate: '2026-05-05', technicianId: tyler.id, jobNumber: 'JN-TYLER-SALE-2',
+      tradeId: plumbing.id, jobTypeId, lead: 'Qualified',
+      invoiceNumber: 'INV-TYLER-SALE-2', invoiceDate: '2026-05-05', saleValueExGst: 1500,
+    });
+    assert.equal(sale2.status, 201);
+
+    // Genuine conversion: references a knockback JN, same week -> offsets it.
+    const genuine = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-TYLER-KB-1',
+      newJobNumber: 'AROFLO-TYLER-1',
+      dateLogged: '2026-05-06',
+      creditedTechnicianId: tyler.id,
+      invoiceNumber: 'INV-TYLER-CL-1',
+      invoiceDate: '2026-05-06',
+      saleValueExGst: 1033,
+    });
+    assert.equal(genuine.status, 201, JSON.stringify(genuine.data));
+
+    // Extra invoice: references an already-sold job, a different week -> no
+    // knockback of its own to offset, must count fully in Sales/Value but
+    // NOT as Converted Later.
+    const extra = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-TYLER-SALE-1',
+      newJobNumber: 'AROFLO-TYLER-2',
+      dateLogged: '2026-05-13',
+      creditedTechnicianId: tyler.id,
+      invoiceNumber: 'INV-TYLER-CL-2',
+      invoiceDate: '2026-05-13',
+      saleValueExGst: 1000,
+    });
+    assert.equal(extra.status, 201, JSON.stringify(extra.data));
+
+    const report = (await server.request('GET', `/reports/tech?from=2026-05-04&to=2026-05-13&technicianId=${tyler.id}`)).data;
+    assert.equal(report.company.jobsAttended, 4, 'the 2 Converted Later sales must never be counted as new jobs');
+    assert.equal(report.company.qualifiedJobs, 4);
+    assert.equal(report.company.sales, 4, '2 sale-made jobs + 2 Converted Later sales');
+    assert.equal(report.company.actualKnockbacks, 2);
+    assert.equal(report.company.convertedLaterCredits, 1, 'only the genuine conversion is a used credit; the extra invoice has nothing to offset');
+    assert.equal(report.company.adjustedKnockbacks, 1);
+    assert.equal(report.company.bonusConversionRate, 75, '(4 - 1) / 4 * 100');
+    assert.ok(Math.abs(report.company.totalSaleExGst - 5033) < 0.01);
+    assert.ok(Math.abs(report.company.avgSaleExGst - 1258.25) < 0.01);
+
+    const rowTyler = report.byTechnician.find((r) => r.name === 'Tyler');
+    assert.ok(rowTyler, 'Tyler must appear in theByTechnician breakdown');
+    assert.equal(rowTyler.jobsAttended, 4);
+    assert.equal(rowTyler.qualifiedJobs, 4);
+    assert.equal(rowTyler.sales, 4);
+    assert.equal(rowTyler.actualKnockbacks, 2);
+    assert.equal(rowTyler.convertedLaterCredits, 1);
+    assert.equal(rowTyler.adjustedKnockbacks, 1);
+    assert.equal(rowTyler.bonusConversionRate, 75);
+    assert.ok(Math.abs(rowTyler.totalSaleExGst - 5033) < 0.01);
+    assert.ok(Math.abs(rowTyler.avgSaleExGst - 1258.25) < 0.01);
   } finally {
     server.close();
   }
