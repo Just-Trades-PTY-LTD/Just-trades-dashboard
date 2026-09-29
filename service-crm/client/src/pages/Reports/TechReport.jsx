@@ -67,18 +67,17 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
     // Total Jobs and Qualified Jobs lead the row, immediately next to each
     // other; Unqualified Jobs appears later with the remaining figures.
     // Sales / Converted Later / Actual Knockbacks / Adjusted Knockbacks /
-    // Conversion % (Bonus) are grouped together as one cluster of "main
-    // performance figures" — each appears exactly once. Actual Knockbacks
-    // and Conversion % (Bonus) replace the old, differently-scoped Knock
-    // backs / Conversion rate cards in place; Adjusted Knockbacks is the
-    // only genuinely new figure.
+    // Conversion % are grouped together as one cluster of "main performance
+    // figures" — each appears exactly once. Actual Knockbacks and Conversion
+    // % replace the old, differently-scoped Knock backs / Conversion rate
+    // cards in place; Adjusted Knockbacks is the only genuinely new figure.
     ['Total Jobs', company.jobsAttended, 'jobsAttended'],
     ['Qualified Jobs', company.qualifiedJobs, 'qualifiedJobs'],
     ['Sales (invoices)', company.sales, 'sales'],
     ['Converted Later', company.convertedLaterCredits, 'convertedLaterCredits'],
     ['Actual Knockbacks', company.actualKnockbacks, 'actualKnockbacks'],
     ['Adjusted Knockbacks', company.adjustedKnockbacks, 'adjustedKnockbacks'],
-    ['Conversion % (Bonus)', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, 'bonusConversionRate'],
+    ['Conversion %', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, 'bonusConversionRate'],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst), 'avgSaleExGst'],
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
@@ -123,7 +122,7 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
         <strong>Trial (report logic only, no saved record is ever changed):</strong> Actual Knockbacks and Converted Later are
         each counted by their own date (visit date / invoice date). Adjusted Knockbacks credits one Converted Later sale
         against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits expire at the
-        end of that week. Conversion % (Bonus) is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
+        end of that week. Conversion % is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -328,7 +327,7 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     <th title="Trial: report logic only — see the note above">Converted Later</th>
                     <th title="Trial: report logic only — see the note above">Actual Knockbacks</th>
                     <th title="Trial: report logic only — see the note above">Adjusted Knockbacks</th>
-                    <th title="Trial: report logic only — see the note above">Conversion % (Bonus)</th>
+                    <th title="Trial: report logic only — see the note above">Conversion %</th>
                     <th>Value (ex GST)</th>
                     <th>Average Sale</th>
                     <th>Unqualified Jobs</th>

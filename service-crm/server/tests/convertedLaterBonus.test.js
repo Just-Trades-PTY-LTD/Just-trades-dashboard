@@ -161,7 +161,7 @@ test('More Converted Later entries than knockbacks floors Adjusted Knockbacks at
   }
 });
 
-test('Zero Qualified Jobs: Conversion Rate (bonus) is 0% and never errors', async () => {
+test('Zero Qualified Jobs: Conversion % is 0% and never errors', async () => {
   const server = await startTestServer();
   try {
     await setup(server);
@@ -267,7 +267,7 @@ test('Technician filter narrows the adjustment to that technician only', async (
   }
 });
 
-test('Conversion Rate (bonus) is capped at 100% and Adjusted Knockbacks never goes below zero', async () => {
+test('Conversion % is capped at 100% and Adjusted Knockbacks never goes below zero', async () => {
   const server = await startTestServer();
   try {
     const { plumbing, jobTypeId, knockbackReasonId, techA } = await setup(server);
@@ -343,14 +343,14 @@ test('Excel export shows each metric exactly once — no duplicate Actual Knockb
     // should be the first cell of exactly one row.
     const summary = wb.getWorksheet('Summary');
     const summaryRows = summary.getSheetValues().filter(Boolean).map((r) => r?.[1]).filter(Boolean);
-    ['Actual Knockbacks', 'Converted Later', 'Adjusted Knockbacks', 'Conversion % (Bonus)', 'Sales (invoices)'].forEach((label) => {
+    ['Actual Knockbacks', 'Converted Later', 'Adjusted Knockbacks', 'Conversion %', 'Sales (invoices)'].forEach((label) => {
       assert.equal(summaryRows.filter((v) => v === label).length, 1, `"${label}" should appear exactly once in the Summary sheet`);
     });
     // The old, differently-scoped labels must not appear anywhere anymore —
     // they were renamed in place, not kept alongside the new ones.
     const summaryText = summaryRows.join(' | ');
     assert.equal(countOccurrences(summaryText, 'Knock backs'), 0, '"Knock backs" was renamed to "Actual Knockbacks", not duplicated');
-    assert.equal(countOccurrences(summaryText, 'Conversion rate'), 0, '"Conversion rate" was renamed to "Conversion % (Bonus)", not duplicated');
+    assert.equal(countOccurrences(summaryText, 'Conversion rate'), 0, '"Conversion rate" was renamed to "Conversion %", not duplicated');
     assert.equal(countOccurrences(summaryText, 'Converted later'), 0, 'lowercase "Converted later" must not also appear alongside "Converted Later"');
 
     // By technician: the header row's cells should each be unique.
@@ -358,19 +358,18 @@ test('Excel export shows each metric exactly once — no duplicate Actual Knockb
     const headerRow = byTechnician.getRow(byTechnician.getSheetValues().findIndex((r) => r && r.includes('Technician')));
     const headers = headerRow.values.filter(Boolean);
     console.log('By technician headers:', headers);
-    ['Actual Knockbacks', 'Converted Later', 'Adjusted Knockbacks', 'Conversion % (Bonus)', 'Sales'].forEach((label) => {
+    ['Actual Knockbacks', 'Converted Later', 'Adjusted Knockbacks', 'Conversion %', 'Sales'].forEach((label) => {
       assert.equal(headers.filter((h) => h === label).length, 1, `"${label}" should appear exactly once as a By technician column header`);
     });
     assert.ok(!headers.includes('Knock backs'), '"Knock backs" column must not remain alongside "Actual Knockbacks"');
-    assert.ok(!headers.includes('Conversion %'), 'the old "Conversion %" column must not remain alongside "Conversion % (Bonus)"');
 
     // Column order: Sales -> Converted Later -> Actual Knockbacks ->
-    // Adjusted Knockbacks -> Conversion % (Bonus), as specified.
+    // Adjusted Knockbacks -> Conversion %, as specified.
     const idx = (label) => headers.indexOf(label);
     assert.ok(idx('Sales') < idx('Converted Later'));
     assert.ok(idx('Converted Later') < idx('Actual Knockbacks'));
     assert.ok(idx('Actual Knockbacks') < idx('Adjusted Knockbacks'));
-    assert.ok(idx('Adjusted Knockbacks') < idx('Conversion % (Bonus)'));
+    assert.ok(idx('Adjusted Knockbacks') < idx('Conversion %'));
   } finally {
     server.close();
   }

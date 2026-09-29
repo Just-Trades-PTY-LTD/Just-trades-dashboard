@@ -691,7 +691,7 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
       });
       return {
         rows: [...tagJobs(genuineKnockbackJobs(jobs)), ...tagSales(usedCreditSales)],
-        label: field === 'bonusConversionRate' ? 'Conversion Rate (bonus) — how it was calculated' : 'Adjusted Knockbacks',
+        label: field === 'bonusConversionRate' ? 'Conversion % — how it was calculated' : 'Adjusted Knockbacks',
         outcomes: [
           { label: 'Actual Knockbacks', count: actual },
           { label: 'Converted Later credits applied', count: used },

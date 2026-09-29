@@ -148,11 +148,11 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
 
 // By technician: Total Jobs and Qualified Jobs lead, immediately adjacent.
 // Sales / Converted Later / Actual Knockbacks / Adjusted Knockbacks /
-// Conversion % (Bonus) are one cluster of "main performance figures", each
+// Conversion % are one cluster of "main performance figures", each
 // appearing exactly once — matching the on-screen "By technician" table's
-// column order. Actual Knockbacks and Conversion % (Bonus) are the same
-// (renamed) figures as the old Knock backs / Conversion rate columns used to
-// be — see services/reports.js for the calculation, unchanged by this file.
+// column order. Actual Knockbacks and Conversion % are the same (renamed)
+// figures as the old Knock backs / Conversion rate columns used to be — see
+// services/reports.js for the calculation, unchanged by this file.
 const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'label', label: 'Technician', width: 22 },
   { key: 'jobsAttended', label: 'Total Jobs' },
@@ -161,7 +161,7 @@ const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'convertedLaterCredits', label: 'Converted Later' },
   { key: 'actualKnockbacks', label: 'Actual Knockbacks' },
   { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks' },
-  { key: 'bonusConversionRate', label: 'Conversion % (Bonus)', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
+  { key: 'bonusConversionRate', label: 'Conversion %', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
   { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
   { key: 'avgSaleExGst', label: 'Average Sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
   { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
@@ -186,14 +186,14 @@ export function buildTechWorkbook(data, filters, lookups) {
     ['Qualified Jobs', c.qualifiedJobs],
     ['Sales (invoices)', c.sales],
     // Trial (report logic only, no saved record is ever changed): Actual
-    // Knockbacks and Conversion % (Bonus) are the same figures the old
-    // Knock backs / Conversion rate rows used to show, renamed in place —
-    // see services/reports.js for the calculation. Adjusted Knockbacks is
-    // the only genuinely new figure.
+    // Knockbacks and Conversion % are the same figures the old Knock backs /
+    // Conversion rate rows used to show, renamed in place — see
+    // services/reports.js for the calculation. Adjusted Knockbacks is the
+    // only genuinely new figure.
     ['Converted Later', c.convertedLaterCredits],
     ['Actual Knockbacks', c.actualKnockbacks],
     ['Adjusted Knockbacks', c.adjustedKnockbacks],
-    ['Conversion % (Bonus)', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
+    ['Conversion %', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
     ['Total sale value (ex GST)', money(c.totalSaleExGst)],
     ['Average sale (ex GST)', Number((c.avgSaleExGst || 0).toFixed(2))],
     ['Unqualified Jobs', c.unqualifiedJobs],
