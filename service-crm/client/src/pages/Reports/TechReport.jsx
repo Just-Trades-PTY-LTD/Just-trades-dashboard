@@ -49,17 +49,11 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend } = data;
 
-  // Converted Later bonus adjustment (trial) — entirely additive report
-  // figures, computed fresh on every report run; see services/reports.js.
-  // Kept in its own KPI row, table columns and chart rather than folded into
-  // the figures above, so the two can never be mistaken for each other and
-  // this trial can be removed later by deleting this section alone.
-  const bonusKpiRows = [
-    ['Actual Knockbacks', company.actualKnockbacks, 'actualKnockbacks'],
-    ['Converted Later', company.convertedLaterCredits, 'convertedLaterCredits'],
-    ['Adjusted Knockbacks', company.adjustedKnockbacks, 'adjustedKnockbacks'],
-    ['Conversion Rate (bonus)', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, 'bonusConversionRate'],
-  ];
+  // Converted Later bonus adjustment (trial) — computed fresh on every
+  // report run from the underlying jobs/sales (see services/reports.js).
+  // These figures replace the old Knock backs / Converted later / Conversion
+  // rate cards in place (renamed, same single card each) rather than adding
+  // a second, duplicate set — only Adjusted Knockbacks is genuinely new.
   const knockbackAdjustmentByTechnician = byTechnician
     .filter((r) => r.actualKnockbacks > 0 || r.convertedLaterCredits > 0)
     .map((r) => ({
@@ -72,19 +66,21 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   const kpiRows = [
     // Total Jobs and Qualified Jobs lead the row, immediately next to each
     // other; Unqualified Jobs appears later with the remaining figures.
-    // Conversion rate and average sale are both scoped to qualified jobs
-    // only — an unqualified job is never a knock-back. Knock-back rate is
-    // deliberately not shown here (or anywhere in this report) — only the
-    // raw Knock backs count — while still being computed and available via
-    // the API for anything that needs it.
+    // Sales / Converted Later / Actual Knockbacks / Adjusted Knockbacks /
+    // Conversion % (Bonus) are grouped together as one cluster of "main
+    // performance figures" — each appears exactly once. Actual Knockbacks
+    // and Conversion % (Bonus) replace the old, differently-scoped Knock
+    // backs / Conversion rate cards in place; Adjusted Knockbacks is the
+    // only genuinely new figure.
     ['Total Jobs', company.jobsAttended, 'jobsAttended'],
     ['Qualified Jobs', company.qualifiedJobs, 'qualifiedJobs'],
+    ['Sales (invoices)', company.sales, 'sales'],
+    ['Converted Later', company.convertedLaterCredits, 'convertedLaterCredits'],
+    ['Actual Knockbacks', company.actualKnockbacks, 'actualKnockbacks'],
+    ['Adjusted Knockbacks', company.adjustedKnockbacks, 'adjustedKnockbacks'],
+    ['Conversion % (Bonus)', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, 'bonusConversionRate'],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst), 'avgSaleExGst'],
-    ['Knock backs', company.knockbacks, 'knockbacks'],
-    ['Conversion rate', `${company.conversionRate}%`, 'conversionRate'],
-    ['Converted later', company.convertedLaterCount, 'convertedLaterCount'],
-    ['Sales (invoices)', company.sales, 'sales'],
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
     ['Call backs', company.callBacks, 'callBacks'],
     ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],
@@ -122,9 +118,12 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
       )}
 
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
-        Jobs, leads, knock-backs and call backs are dated by visit date. Sales are dated by invoice creation date. Conversion and
-        knock-back figures reflect each job's <em>current</em> status, including quotes approved after the visit — re-running a
-        report for a past period can show different numbers than when it was first generated.
+        Jobs, leads, knock-backs and call backs are dated by visit date. Sales are dated by invoice creation date.
+        <br />
+        <strong>Trial (report logic only, no saved record is ever changed):</strong> Actual Knockbacks and Converted Later are
+        each counted by their own date (visit date / invoice date). Adjusted Knockbacks credits one Converted Later sale
+        against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits expire at the
+        end of that week. Conversion % (Bonus) is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -145,37 +144,6 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                   <div className="kpi-label">{label}</div>
                 </div>
               ))}
-            </div>
-          )}
-        </AdjustableSection>
-      </div>
-
-      <div style={{ marginBottom: 20 }}>
-        <AdjustableSection id="convertedLaterBonus" title="Converted Later Bonus Adjustment (Trial)" defaultSize="md" layout={layout}>
-          {(cfg) => (
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
-                Trial figures only — report logic, not saved data. Each Converted Later sale credits one Actual Knockback for
-                the same technician within the same Monday–Sunday week; unused credits expire at the end of that week. This
-                never changes the Knock backs / Converted later / Conversion rate figures above, and can be removed later
-                without affecting any saved record.
-              </div>
-              <div className="grid-cards" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${cfg.kpiMinCardWidth}px, 1fr))` }}>
-                {bonusKpiRows.map(([label, val, metric]) => (
-                  <div
-                    key={label}
-                    className="panel clickable-stat"
-                    style={{ padding: '14px 16px' }}
-                    onClick={() => openDrilldown(metric)}
-                    title={`View the records behind ${label}`}
-                  >
-                    <div className="kpi-val" style={{ fontSize: 21 }}>
-                      {val}
-                    </div>
-                    <div className="kpi-label">{label}</div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </AdjustableSection>
@@ -356,21 +324,18 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     <th>Technician</th>
                     <th>Total Jobs</th>
                     <th>Qualified Jobs</th>
-                    <th>Value (ex GST)</th>
-                    <th>Avg sale</th>
-                    <th>Knock backs</th>
-                    <th>Converted later</th>
-                    <th>Conversion %</th>
                     <th>Sales</th>
+                    <th title="Trial: report logic only — see the note above">Converted Later</th>
+                    <th title="Trial: report logic only — see the note above">Actual Knockbacks</th>
+                    <th title="Trial: report logic only — see the note above">Adjusted Knockbacks</th>
+                    <th title="Trial: report logic only — see the note above">Conversion % (Bonus)</th>
+                    <th>Value (ex GST)</th>
+                    <th>Average Sale</th>
                     <th>Unqualified Jobs</th>
-                    <th>Call backs</th>
-                    <th>Pending cancel.</th>
-                    <th>Insp. sheet</th>
-                    <th>Option sheet</th>
-                    <th title="Trial: report logic only, see the Converted Later Bonus Adjustment section above">Actual Knockbacks</th>
-                    <th title="Trial: report logic only, see the Converted Later Bonus Adjustment section above">Converted Later</th>
-                    <th title="Trial: report logic only, see the Converted Later Bonus Adjustment section above">Adjusted Knockbacks</th>
-                    <th title="Trial: report logic only, see the Converted Later Bonus Adjustment section above">Conversion % (bonus)</th>
+                    <th>Call Backs</th>
+                    <th>Pending Cancellations</th>
+                    <th>Inspection Sheet %</th>
+                    <th>Option Sheet %</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -380,21 +345,18 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                       {[
                         ['jobsAttended', r.jobsAttended],
                         ['qualifiedJobs', r.qualifiedJobs],
+                        ['sales', r.sales],
+                        ['convertedLaterCredits', r.convertedLaterCredits],
+                        ['actualKnockbacks', r.actualKnockbacks],
+                        ['adjustedKnockbacks', r.adjustedKnockbacks],
+                        ['bonusConversionRate', `${(r.bonusConversionRate ?? 0).toFixed(2)}%`],
                         ['totalSaleExGst', money(r.totalSaleExGst)],
                         ['avgSaleExGst', money(r.avgSaleExGst)],
-                        ['knockbacks', r.knockbacks],
-                        ['convertedLaterCount', r.convertedLaterCount],
-                        ['conversionRate', `${r.conversionRate}%`],
-                        ['sales', r.sales],
                         ['unqualifiedJobs', r.unqualifiedJobs],
                         ['callBacks', r.callBacks],
                         ['pendingCancellations', r.pendingCancellations],
                         ['inspectionRate', `${r.inspectionRate}%`],
                         ['optionRate', `${r.optionRate}%`],
-                        ['actualKnockbacks', r.actualKnockbacks],
-                        ['convertedLaterCredits', r.convertedLaterCredits],
-                        ['adjustedKnockbacks', r.adjustedKnockbacks],
-                        ['bonusConversionRate', `${(r.bonusConversionRate ?? 0).toFixed(2)}%`],
                       ].map(([field, val]) => (
                         <td
                           key={field}

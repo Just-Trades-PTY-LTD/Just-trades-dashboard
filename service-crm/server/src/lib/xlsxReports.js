@@ -146,22 +146,27 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'pendingCancellations', label: 'Pending cancel.' },
 ];
 
-// By technician: Total Jobs and Qualified Jobs lead, immediately adjacent;
-// Unqualified Jobs appears later with the remaining figures — matching the
-// on-screen "By technician" table's column order.
+// By technician: Total Jobs and Qualified Jobs lead, immediately adjacent.
+// Sales / Converted Later / Actual Knockbacks / Adjusted Knockbacks /
+// Conversion % (Bonus) are one cluster of "main performance figures", each
+// appearing exactly once — matching the on-screen "By technician" table's
+// column order. Actual Knockbacks and Conversion % (Bonus) are the same
+// (renamed) figures as the old Knock backs / Conversion rate columns used to
+// be — see services/reports.js for the calculation, unchanged by this file.
 const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'label', label: 'Technician', width: 22 },
   { key: 'jobsAttended', label: 'Total Jobs' },
   { key: 'qualifiedJobs', label: 'Qualified Jobs' },
-  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
-  { key: 'avgSaleExGst', label: 'Avg sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
-  { key: 'knockbacks', label: 'Knock backs' },
-  { key: 'convertedLaterCount', label: 'Converted later' },
-  { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
   { key: 'sales', label: 'Sales' },
+  { key: 'convertedLaterCredits', label: 'Converted Later' },
+  { key: 'actualKnockbacks', label: 'Actual Knockbacks' },
+  { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks' },
+  { key: 'bonusConversionRate', label: 'Conversion % (Bonus)', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
+  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
+  { key: 'avgSaleExGst', label: 'Average Sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
   { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
-  { key: 'callBacks', label: 'Call backs' },
-  { key: 'pendingCancellations', label: 'Pending cancel.' },
+  { key: 'callBacks', label: 'Call Backs' },
+  { key: 'pendingCancellations', label: 'Pending Cancellations' },
 ];
 
 export function buildTechWorkbook(data, filters, lookups) {
@@ -179,27 +184,23 @@ export function buildTechWorkbook(data, filters, lookups) {
   addKpiTable(summary, [
     ['Total Jobs', c.jobsAttended],
     ['Qualified Jobs', c.qualifiedJobs],
+    ['Sales (invoices)', c.sales],
+    // Trial (report logic only, no saved record is ever changed): Actual
+    // Knockbacks and Conversion % (Bonus) are the same figures the old
+    // Knock backs / Conversion rate rows used to show, renamed in place —
+    // see services/reports.js for the calculation. Adjusted Knockbacks is
+    // the only genuinely new figure.
+    ['Converted Later', c.convertedLaterCredits],
+    ['Actual Knockbacks', c.actualKnockbacks],
+    ['Adjusted Knockbacks', c.adjustedKnockbacks],
+    ['Conversion % (Bonus)', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
     ['Total sale value (ex GST)', money(c.totalSaleExGst)],
     ['Average sale (ex GST)', Number((c.avgSaleExGst || 0).toFixed(2))],
-    ['Knock backs', c.knockbacks],
-    ['Conversion rate', `${c.conversionRate}%`],
-    ['Converted later', c.convertedLaterCount],
-    ['Sales (invoices)', c.sales],
     ['Unqualified Jobs', c.unqualifiedJobs],
     ['Call backs', c.callBacks],
     ['Pending cancellations', c.pendingCancellations],
     ['Inspection sheet completion', `${c.inspectionRate}%`],
     ['Option sheet completion', `${c.optionRate}%`],
-  ]);
-
-  // Converted Later bonus adjustment (trial) — report logic only, entirely
-  // additive to the figures above; see services/reports.js for the rules.
-  addSectionHeading(summary, 'Converted Later Bonus Adjustment (Trial)');
-  addKpiTable(summary, [
-    ['Actual Knockbacks', c.actualKnockbacks],
-    ['Converted Later', c.convertedLaterCredits],
-    ['Adjusted Knockbacks', c.adjustedKnockbacks],
-    ['Conversion Rate (bonus)', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
   ]);
 
   const byTrade = wb.addWorksheet('By trade');
@@ -214,15 +215,8 @@ export function buildTechWorkbook(data, filters, lookups) {
   addTitleBlock(byTechnician, 'Technician & Sales Report — By Technician', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   const techCols = [
     ...TECH_BY_TECHNICIAN_COLUMNS,
-    { key: 'inspectionRate', label: 'Insp. sheet', value: (r) => `${r.inspectionRate}%` },
-    { key: 'optionRate', label: 'Option sheet', value: (r) => `${r.optionRate}%` },
-    // Converted Later bonus adjustment (trial) — additive columns, entirely
-    // separate from the "Knock backs"/"Converted later"/"Conversion rate"
-    // columns above.
-    { key: 'actualKnockbacks', label: 'Actual Knockbacks' },
-    { key: 'convertedLaterCredits', label: 'Converted Later' },
-    { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks' },
-    { key: 'bonusConversionRate', label: 'Conversion Rate (bonus)', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
+    { key: 'inspectionRate', label: 'Inspection Sheet %', value: (r) => `${r.inspectionRate}%` },
+    { key: 'optionRate', label: 'Option Sheet %', value: (r) => `${r.optionRate}%` },
   ];
   addDataTable(
     byTechnician,

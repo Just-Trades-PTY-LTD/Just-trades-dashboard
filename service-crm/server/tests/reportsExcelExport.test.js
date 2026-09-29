@@ -112,7 +112,7 @@ test('technician & sales report Excel export produces a workbook with Summary, B
     const byTechnician = wb.getWorksheet('By technician');
     const byTechnicianText = byTechnician.getSheetValues().flat().filter(Boolean).join(' | ');
     assert.match(byTechnicianText, /Riley/);
-    assert.match(byTechnicianText, /Insp\. sheet/);
+    assert.match(byTechnicianText, /Inspection Sheet %/);
     assert.match(byTechnicianText, /Qualified Jobs/);
     assert.match(byTechnicianText, /Unqualified Jobs/);
 
