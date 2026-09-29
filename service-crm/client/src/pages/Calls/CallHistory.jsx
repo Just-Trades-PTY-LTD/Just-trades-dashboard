@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
+import { usePersistentFilters } from '../../lib/usePersistentFilters.js';
 import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
 import { contactMethodLabel } from '../../lib/contactMethods.js';
@@ -21,7 +22,7 @@ function emptyFilters() {
 
 export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded }) {
   const settings = useSettings();
-  const [filters, setFilters] = useState(emptyFilters());
+  const [filters, setFilters] = usePersistentFilters('crm.calls.historyFilters', emptyFilters, embedded);
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());

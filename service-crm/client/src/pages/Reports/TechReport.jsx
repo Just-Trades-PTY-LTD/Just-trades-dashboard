@@ -22,13 +22,12 @@ function moneyCents(v) {
   return `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function TechReport({ jumpToJN }) {
+export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   const settings = useSettings();
-  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters);
+  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [drilldown, setDrilldown] = useState(null);
   const layout = useReportLayout('tech');
 
   useEffect(() => {
@@ -318,7 +317,7 @@ export default function TechReport({ jumpToJN }) {
         </AdjustableSection>
       </div>
 
-      {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => setDrilldown(null)} />}
+      {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}
     </div>
   );
 }

@@ -9,10 +9,14 @@ export function useSessionState(key, defaultValue) {
   const [value, setValue] = useState(() => {
     try {
       const stored = sessionStorage.getItem(key);
-      return stored !== null ? JSON.parse(stored) : defaultValue;
+      if (stored !== null) return JSON.parse(stored);
     } catch {
-      return defaultValue;
+      // fall through to defaultValue below
     }
+    // defaultValue may be a function (e.g. "the current week", computed
+    // fresh at mount time) instead of a plain value — same convention as
+    // useState's own lazy initializer.
+    return typeof defaultValue === 'function' ? defaultValue() : defaultValue;
   });
 
   function setAndStore(next) {

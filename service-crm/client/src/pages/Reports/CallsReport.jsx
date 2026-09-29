@@ -14,12 +14,11 @@ function defaultFilters() {
   return { ...currentAdelaideWeek(), handledByUserId: '' };
 }
 
-export default function CallsReport({ jumpToJN }) {
+export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
   const settings = useSettings();
-  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters);
+  const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.calls.filters');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [drilldown, setDrilldown] = useState(null);
   const layout = useReportLayout('calls');
 
   useEffect(() => {
@@ -287,7 +286,7 @@ export default function CallsReport({ jumpToJN }) {
         </div>
       )}
 
-      {drilldown && <DrilldownModal kind="calls" params={drilldown} jumpToJN={jumpToJN} onClose={() => setDrilldown(null)} />}
+      {drilldown && <DrilldownModal kind="calls" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}
     </div>
   );
 }

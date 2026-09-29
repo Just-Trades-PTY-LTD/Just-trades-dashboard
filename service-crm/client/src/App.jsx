@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { useAuth } from './auth/AuthContext.jsx';
-import { useSessionState } from './lib/useSessionState.js';
+import { useCrmNav, makeSliceSetter } from './lib/crmNav.js';
 import { SettingsProvider } from './lib/SettingsContext.jsx';
 import Login from './pages/Login.jsx';
 import Home from './pages/Home.jsx';
@@ -19,8 +18,7 @@ const BASE_TABS = [
 
 export default function App() {
   const { user, loading, logout } = useAuth();
-  const [module, setModule] = useSessionState('crm.module', 'home');
-  const [pendingJump, setPendingJump] = useState(null);
+  const [nav, updateNav] = useCrmNav();
 
   if (loading) return null;
   if (!user) return <Login />;
@@ -32,15 +30,32 @@ export default function App() {
   const tabs = isAdmin ? [...BASE_TABS, ['settings', 'Settings']] : BASE_TABS;
   // A staff session that still has 'settings' recorded from an earlier admin
   // session on this browser (or a role downgrade) should land somewhere real.
-  const activeModule = tabs.some(([id]) => id === module) ? module : 'home';
+  const activeModule = tabs.some(([id]) => id === nav.module) ? nav.module : 'home';
 
+  function setModule(id) {
+    updateNav((prev) => ({ ...prev, module: id }));
+  }
+
+  // A single logical action (clicking "View job →") — one Back-stop, not
+  // two: the module switch pushes the new history entry, and the target
+  // page's own effect (consuming pendingJump) amends that same entry rather
+  // than pushing a second one — see Calls/TechSales index.jsx.
   function jumpToJN(target, jn) {
-    setModule(target);
-    setPendingJump({ target, jn });
+    updateNav((prev) => ({ ...prev, module: target, pendingJump: { target, jn } }));
   }
   function clearJump() {
-    setPendingJump(null);
+    updateNav((prev) => ({ ...prev, pendingJump: null }), { push: false });
   }
+
+  const setCallsSub = makeSliceSetter(updateNav, 'calls', 'sub');
+  const setCallsEditing = makeSliceSetter(updateNav, 'calls', 'editing');
+  const setTechSub = makeSliceSetter(updateNav, 'tech', 'sub');
+  const setTechEditing = makeSliceSetter(updateNav, 'tech', 'editing');
+  const setReportsSub = makeSliceSetter(updateNav, 'reports', 'sub');
+  const setReportsCallsDrilldown = makeSliceSetter(updateNav, 'reports', 'callsDrilldown');
+  const setReportsTechDrilldown = makeSliceSetter(updateNav, 'reports', 'techDrilldown');
+  const setSettingsSub = makeSliceSetter(updateNav, 'settings', 'sub');
+  const pendingJump = nav.pendingJump;
 
   return (
     <SettingsProvider>
@@ -66,10 +81,40 @@ export default function App() {
         </div>
 
         {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} />}
-        {activeModule === 'calls' && <CallsPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
-        {activeModule === 'tech' && <TechSalesPage pendingJump={pendingJump} clearJump={clearJump} jumpToJN={jumpToJN} />}
-        {activeModule === 'reports' && <ReportsPage jumpToJN={jumpToJN} />}
-        {activeModule === 'settings' && isAdmin && <SettingsPage isAdmin={isAdmin} />}
+        {activeModule === 'calls' && (
+          <CallsPage
+            sub={nav.calls.sub}
+            setSub={setCallsSub}
+            editing={nav.calls.editing}
+            setEditing={setCallsEditing}
+            pendingJump={pendingJump && pendingJump.target === 'calls' ? pendingJump : null}
+            clearJump={clearJump}
+            jumpToJN={jumpToJN}
+          />
+        )}
+        {activeModule === 'tech' && (
+          <TechSalesPage
+            sub={nav.tech.sub}
+            setSub={setTechSub}
+            editing={nav.tech.editing}
+            setEditing={setTechEditing}
+            pendingJump={pendingJump && pendingJump.target === 'tech' ? pendingJump : null}
+            clearJump={clearJump}
+            jumpToJN={jumpToJN}
+          />
+        )}
+        {activeModule === 'reports' && (
+          <ReportsPage
+            sub={nav.reports.sub}
+            setSub={setReportsSub}
+            callsDrilldown={nav.reports.callsDrilldown}
+            setCallsDrilldown={setReportsCallsDrilldown}
+            techDrilldown={nav.reports.techDrilldown}
+            setTechDrilldown={setReportsTechDrilldown}
+            jumpToJN={jumpToJN}
+          />
+        )}
+        {activeModule === 'settings' && isAdmin && <SettingsPage sub={nav.settings.sub} setSub={setSettingsSub} isAdmin={isAdmin} />}
       </div>
     </SettingsProvider>
   );

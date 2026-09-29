@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
-import { useSessionState } from '../../lib/useSessionState.js';
 import { SubTabs } from '../../components/Fields.jsx';
 import LogEntry from './LogEntry.jsx';
 import JobHistory from './JobHistory.jsx';
 
-export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
-  const [sub, setSub] = useSessionState('crm.tech.sub', 'log');
+export default function TechSalesPage({ sub, setSub, editing, setEditing, pendingJump, clearJump, jumpToJN }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
   const [notice, setNoticeState] = useState(null);
   const [initialJobNumber, setInitialJobNumber] = useState('');
 
@@ -30,7 +27,10 @@ export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
   useEffect(() => {
     if (pendingJump && pendingJump.target === 'tech') {
       setInitialJobNumber(pendingJump.jn);
-      setSub('history');
+      // Continuation of the same "related call(s) →" click that already
+      // pushed a history entry for the module switch — amend it, don't push
+      // again.
+      setSub('history', { push: false });
       clearJump();
     }
   }, [pendingJump, clearJump]);
@@ -40,9 +40,20 @@ export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
     setTimeout(() => setNoticeState(null), 6000);
   }
 
+  // Opening a record is a Back-stop: pressing Back should return to Job
+  // History. setEditing pushes that entry; setSub folds the tab switch into
+  // the same entry rather than creating a second one.
   function startEdit(entry) {
     setEditing(entry);
-    setSub('log');
+    setSub('log', { push: false });
+  }
+
+  // Cancelling or saving an edit is the mirror of opening it — go back to
+  // the entry that was current before the edit started (Job History), the
+  // same way the browser's own Back button would. Skipped for a brand new
+  // (non-edit) log, which never pushed an entry to begin with.
+  function closeEdit() {
+    if (editing) window.history.back();
   }
 
   return (
@@ -61,9 +72,9 @@ export default function TechSalesPage({ pendingJump, clearJump, jumpToJN }) {
           editing={editing}
           onSaved={() => {
             load();
-            setEditing(null);
+            closeEdit();
           }}
-          onCancelEdit={() => setEditing(null)}
+          onCancelEdit={closeEdit}
           setNotice={setNotice}
         />
       )}

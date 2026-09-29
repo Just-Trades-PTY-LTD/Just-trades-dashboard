@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSessionState } from './useSessionState.js';
 
 // Splits a report's filter bar into "draft" (what's currently in the date/
 // staff/technician/trade inputs) and "applied" (what the report, its
@@ -8,9 +9,14 @@ import { useState } from 'react';
 // `defaults` is called fresh every time a current default is needed, so
 // "the current week" always means the week right now, not whatever it was
 // when the report first mounted.
-export function useReportFilters(defaults) {
-  const [draft, setDraft] = useState(defaults);
-  const [applied, setApplied] = useState(defaults);
+//
+// `storageKey` persists draft/applied to sessionStorage (same mechanism as
+// which tab is active), so navigating away to another view and back —
+// including via the browser's Back button — restores the same dates and
+// filters instead of resetting to the current week.
+export function useReportFilters(defaults, storageKey) {
+  const [draft, setDraft] = useSessionState(`${storageKey}.draft`, defaults);
+  const [applied, setApplied] = useSessionState(`${storageKey}.applied`, defaults);
   const [error, setError] = useState('');
 
   function patch(p) {
