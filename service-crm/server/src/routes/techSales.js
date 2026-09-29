@@ -6,6 +6,7 @@ import { mergeId } from '../lib/merge.js';
 import {
   findConvertibleKnockback,
   findDuplicateInvoice,
+  findDuplicateNewJobNumber,
   findOriginalJob,
   findLatestSale,
   isTechnicianActive,
@@ -30,6 +31,7 @@ const JOB_TRACKED_FIELDS = [
 ];
 const SALE_TRACKED_FIELDS = [
   'job_number',
+  'new_job_number',
   'credited_technician_id',
   'trade_id',
   'job_type_id',
@@ -149,7 +151,13 @@ function saleToEntry(s) {
     technicianName: s.credited_technician_name,
     creditedTechnicianId: s.credited_technician_id,
     creditedTechnicianName: s.credited_technician_name,
+    // The *original* visit's Job Number — used for matching/linking/
+    // attribution (see /quote-approved-later below). Distinct from
+    // newJobNumber, the separate AroFlo JN created for the approved work,
+    // which is reference/search only and blank ('') on any legacy record
+    // saved before this field existed.
     jobNumber: s.job_number,
+    newJobNumber: s.new_job_number || '',
     tradeId: s.trade_id,
     tradeName: s.trade_name,
     jobTypeId: s.job_type_id,
@@ -257,7 +265,13 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
     }
     if (tradeId) entries = entries.filter((e) => e.tradeId === Number(tradeId));
     if (entryType) entries = entries.filter((e) => e.kind === entryType);
-    if (jobNumber) entries = entries.filter((e) => normKey(e.jobNumber) === normKey(jobNumber));
+    // Matches either JN on a Quote Approved Later entry — the original job
+    // number it's linked against, or its own separate New Job Number — so a
+    // search for either one locates the same entry.
+    if (jobNumber) {
+      const key = normKey(jobNumber);
+      entries = entries.filter((e) => normKey(e.jobNumber) === key || (e.newJobNumber && normKey(e.newJobNumber) === key));
+    }
 
   entries.sort((a, b) => (b.dateShown || '').localeCompare(a.dateShown || '') || b.id - a.id);
 
@@ -533,18 +547,41 @@ export function createTechSalesRouter() {
   // ---- Existing Job — Quote Approved Later ----
   router.post('/quote-approved-later', (req, res) => {
     const b = req.body || {};
-    if (!b.jobNumber || !String(b.jobNumber).trim()) {
-      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+    // Both JNs are required on every brand-new entry — Original Job Number
+    // to locate/link the original visit (and drive technician/trade/job-type
+    // attribution below), New Job Number as the separate AroFlo JN created
+    // for the approved work. Checked only here, on creation; editing an
+    // existing entry (PATCH below) is never blocked by this, so a legacy
+    // record saved with only one JN can still be edited without being forced
+    // to fill in a New Job Number it never recorded.
+    const missing = [];
+    if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Original Job Number');
+    if (!b.newJobNumber || !String(b.newJobNumber).trim()) missing.push('New Job Number');
+    if (missing.length) {
+      return res.status(400).json({
+        error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
+      });
     }
     // "Existing Job — Quote Approved Later" only ever makes sense against a
-    // job that's actually on record — it must match by exact Job Number
-    // (never a partial/fuzzy match, so it can never link to the wrong job),
-    // and is blocked entirely rather than saved half-linked if nothing
-    // matches.
+    // job that's actually on record — the Original Job Number must match by
+    // exact Job Number (never a partial/fuzzy match, so it can never link to
+    // the wrong job), and is blocked entirely rather than saved half-linked
+    // if nothing matches.
     const matchedJob = findOriginalJob(b.jobNumber);
     if (!matchedJob) {
       return res.status(400).json({
-        error: `No existing job found for JN ${b.jobNumber}. "Existing Job — Quote Approved Later" must reference a Job Number that was already logged as a New Job entry.`,
+        error: `No existing job found for Original Job Number ${b.jobNumber}. "Existing Job — Quote Approved Later" must reference a Job Number that was already logged as a New Job entry.`,
+      });
+    }
+    // The New Job Number is AroFlo's own, freshly created for the approved
+    // work — it must never be reused across more than one Quote Approved
+    // Later entry, but this check is scoped to that entry type alone (see
+    // findDuplicateNewJobNumber), so it can never block some other,
+    // unrelated record from legitimately referencing that same JN later.
+    const dupeNewJn = findDuplicateNewJobNumber(b.newJobNumber);
+    if (dupeNewJn) {
+      return res.status(400).json({
+        error: `New Job Number ${b.newJobNumber} is already used on another Quote Approved Later entry (Original JN ${dupeNewJn.job_number}). Each New Job Number can only be used once.`,
       });
     }
 
@@ -557,9 +594,13 @@ export function createTechSalesRouter() {
     const saleId = transaction(() => {
       // The original job's Technician, Trade and Job Type are auto-populated
       // below where possible, but stay editable — an explicit value in the
-      // request always wins over the matched job's own value.
+      // request always wins over the matched job's own value. New Job
+      // Number is stored alongside, purely for reference/search — it never
+      // touches job_id (the original job's link) and never creates or
+      // affects any job row.
       const saleValues = {
         job_number: b.jobNumber || '',
+        new_job_number: b.newJobNumber || '',
         credited_technician_id: b.creditedTechnicianId || null,
         trade_id: b.tradeId || matchedJob.trade_id || null,
         job_type_id: b.jobTypeId || matchedJob.job_type_id || null,
@@ -569,12 +610,13 @@ export function createTechSalesRouter() {
         comments: b.comments || '',
       };
       const { lastInsertRowid } = run(
-        `INSERT INTO sales (job_id, job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
+        `INSERT INTO sales (job_id, job_number, new_job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
           invoice_number, invoice_date, sale_value_ex_gst, comments, created_by_user_id)
-         VALUES (?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           matchedJob.id,
           saleValues.job_number,
+          saleValues.new_job_number,
           b.dateLogged,
           saleValues.credited_technician_id,
           saleValues.trade_id,
@@ -610,8 +652,21 @@ export function createTechSalesRouter() {
     const existing = get('SELECT * FROM sales WHERE id = ? AND source = ?', [req.params.id, 'quote_approved_later']);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
+    // Editing is never blocked by the "must match" or "both required" rules
+    // that only apply to creation — this is exactly how a legacy record
+    // (New Job Number blank) picks one up later without disturbing its
+    // existing link (job_id is never touched here, on create or edit).
+    if (b.newJobNumber !== undefined && String(b.newJobNumber).trim()) {
+      const dupeNewJn = findDuplicateNewJobNumber(b.newJobNumber, req.params.id);
+      if (dupeNewJn) {
+        return res.status(400).json({
+          error: `New Job Number ${b.newJobNumber} is already used on another Quote Approved Later entry (Original JN ${dupeNewJn.job_number}). Each New Job Number can only be used once.`,
+        });
+      }
+    }
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
+      new_job_number: b.newJobNumber ?? existing.new_job_number,
       credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
       trade_id: mergeId(b.tradeId, existing.trade_id),
       job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
@@ -622,10 +677,11 @@ export function createTechSalesRouter() {
     };
     const dateLogged = b.dateLogged ?? existing.date_logged;
     run(
-      `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
+      `UPDATE sales SET job_number=?, new_job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
         sale_value_ex_gst=?, comments=?, updated_at=datetime('now') WHERE id=?`,
       [
         next.job_number,
+        next.new_job_number,
         dateLogged,
         next.credited_technician_id,
         next.trade_id,

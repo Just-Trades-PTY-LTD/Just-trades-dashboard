@@ -131,6 +131,7 @@ test('Quote Approved Later can still find and link to a job whose technician was
 
     const approved = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-DEACT-QAL',
+      newJobNumber: 'AROFLO-DEACT-QAL',
       dateLogged: '2026-12-10',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-DEACT-QAL',

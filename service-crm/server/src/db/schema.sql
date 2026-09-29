@@ -127,6 +127,14 @@ CREATE TABLE IF NOT EXISTS sales (
   archived INTEGER NOT NULL DEFAULT 0,
   job_id INTEGER REFERENCES jobs(id),
   job_number TEXT NOT NULL,
+  -- Only meaningful for source='quote_approved_later': the separate, brand
+  -- new AroFlo Job Number created for the approved work, distinct from
+  -- job_number (the *original* visit's JN, used for matching/linking/
+  -- attribution above). Reference/search only — never linked to a job row,
+  -- never counted as a Total/Qualified Job. Blank ('') for every other
+  -- source and for any legacy quote_approved_later row saved before this
+  -- field existed.
+  new_job_number TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL CHECK (source IN ('sale_made_at_visit', 'quote_approved_later')),
   date_logged TEXT NOT NULL,
   credited_technician_id INTEGER REFERENCES technicians(id),

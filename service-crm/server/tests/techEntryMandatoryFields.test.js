@@ -190,6 +190,7 @@ test('an unqualified no-sale job is never counted as a knock-back to convert, ev
 
     const approved = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-KB-NOFLIP',
+      newJobNumber: 'AROFLO-KB-NOFLIP',
       dateLogged: '2026-10-10',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-KB-NOFLIP',
@@ -279,6 +280,7 @@ test('Existing Job — Quote Approved Later must match an existing Job Number, a
 
     const noMatch = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-NO-SUCH-JOB',
+      newJobNumber: 'AROFLO-NOMATCH',
       dateLogged: '2026-10-15',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-NOMATCH',
@@ -316,6 +318,7 @@ test('Existing Job — Quote Approved Later auto-populates Technician, Trade and
 
     const matched = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-QAL-AUTOFILL',
+      newJobNumber: 'AROFLO-QAL-AUTOFILL-1',
       dateLogged: '2026-10-16',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-QAL-AUTOFILL',
@@ -328,6 +331,7 @@ test('Existing Job — Quote Approved Later auto-populates Technician, Trade and
 
     const overridden = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-QAL-AUTOFILL',
+      newJobNumber: 'AROFLO-QAL-AUTOFILL-2',
       dateLogged: '2026-10-17',
       creditedTechnicianId: tech.id,
       tradeId: electrical.id,
@@ -356,6 +360,7 @@ test('editing an existing Quote Approved Later sale can change Trade and Job Typ
     );
     const created = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-QAL-EDIT',
+      newJobNumber: 'AROFLO-QAL-EDIT',
       dateLogged: '2026-10-18',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-QAL-EDIT',

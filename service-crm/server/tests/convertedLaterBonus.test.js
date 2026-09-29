@@ -74,6 +74,7 @@ async function convertedLaterCredit(server, { creditedTechnicianId, invoiceDate,
   // offsetting one specific job.
   const res = await server.request('POST', '/tech/quote-approved-later', {
     jobNumber: anchorJn,
+    newJobNumber: `AROFLO-${anchorJn}`,
     dateLogged: dateLogged || invoiceDate,
     creditedTechnicianId,
     invoiceNumber: `INV-CL-${anchorJn}`,

@@ -60,6 +60,20 @@ export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
   );
 }
 
+/** An active Quote Approved Later sale already using this New Job Number, if
+ * any (excluding excludeSaleId, for editing). Scoped strictly to
+ * source='quote_approved_later' sales — it must never block an unrelated
+ * record (a New Job, Call Back, Pending Cancellation, or another sale's own
+ * job_number) from legitimately referencing that same AroFlo JN later. */
+export function findDuplicateNewJobNumber(newJobNumber, excludeSaleId) {
+  const key = normKey(newJobNumber);
+  if (!key) return null;
+  return get(
+    `SELECT * FROM sales WHERE archived = 0 AND source = 'quote_approved_later' AND lower(trim(new_job_number)) = ? AND id != ? LIMIT 1`,
+    [key, excludeSaleId || 0]
+  );
+}
+
 // A deactivated technician/user must never be newly assigned to work — this
 // is the backend backstop for that rule, since the picker they'd normally be
 // chosen from already excludes them. It only applies to assigning NEW work

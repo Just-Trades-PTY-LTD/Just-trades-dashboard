@@ -39,6 +39,7 @@ test('§6 worked example: knock-back flips to converted, job counted once', asyn
     // 16 March: Existing Job — Quote Approved Later, same JN
     const approved = await server.request('POST', '/tech/quote-approved-later', {
       jobNumber: 'JN-10432',
+      newJobNumber: 'AROFLO-10432',
       dateLogged: '2025-03-16',
       creditedTechnicianId: tech.id,
       invoiceNumber: 'INV-5541',

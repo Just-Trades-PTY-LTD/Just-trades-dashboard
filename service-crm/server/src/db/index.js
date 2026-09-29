@@ -82,6 +82,21 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    // Purely additive: a brand-new nullable-in-spirit column (TEXT NOT NULL
+    // DEFAULT ''), so SQLite backfills '' onto every existing row the moment
+    // this runs — no existing sale's job_number, job_id, source or any other
+    // column is read or written by this migration. An existing Quote
+    // Approved Later sale simply ends up with new_job_number = '' ("no New
+    // Job Number recorded"), exactly as intended for a legacy record.
+    id: 'sales_new_job_number',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(sales)').all().some((c) => c.name === 'new_job_number');
+      if (!hasColumn) {
+        database.exec("ALTER TABLE sales ADD COLUMN new_job_number TEXT NOT NULL DEFAULT ''");
+      }
+    },
+  },
 ];
 
 function runMigrations(database) {

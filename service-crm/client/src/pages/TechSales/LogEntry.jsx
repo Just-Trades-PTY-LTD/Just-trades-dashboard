@@ -32,6 +32,7 @@ function emptyForm(kind) {
     technicianId: '',
     creditedTechnicianId: '',
     jobNumber: '',
+    newJobNumber: '',
     tradeId: '',
     jobTypeId: '',
     lead: '',
@@ -61,6 +62,7 @@ function fromEntry(entry) {
     technicianId: entry.technicianId || '',
     creditedTechnicianId: entry.creditedTechnicianId || '',
     jobNumber: entry.jobNumber || '',
+    newJobNumber: entry.newJobNumber || '',
     tradeId: entry.tradeId || '',
     jobTypeId: entry.jobTypeId || '',
     lead: entry.lead || '',
@@ -189,6 +191,19 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         missing.push(`a different Job Number — ${form.jobNumber} already exists`);
         fields.add('jobNumber');
       }
+    } else if (isExistingJob) {
+      // Both JNs are mandatory only on a brand-new Quote Approved Later
+      // entry — editing an existing one (including a legacy record saved
+      // with only one JN) is never blocked by this, per handleSubmit()
+      // below.
+      if (!form.jobNumber || !form.jobNumber.trim()) {
+        missing.push('Original Job Number');
+        fields.add('jobNumber');
+      }
+      if (!form.newJobNumber || !form.newJobNumber.trim()) {
+        missing.push('New Job Number');
+        fields.add('newJobNumber');
+      }
     } else if (!form.jobNumber || !form.jobNumber.trim()) {
       missing.push('Job Number');
       fields.add('jobNumber');
@@ -237,6 +252,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       } else if (isExistingJob) {
         const body = {
           jobNumber: form.jobNumber,
+          newJobNumber: form.newJobNumber,
           dateLogged: form.dateLogged,
           creditedTechnicianId: form.creditedTechnicianId || null,
           tradeId: form.tradeId || null,
@@ -316,14 +332,40 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         </div>
       )}
 
-      {showJobLookup && (
+      {isExistingJob ? (
         <div className="grid-form" style={{ marginTop: 14 }}>
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
-            <label>Job number (JN) *</label>
+            <label>Original Job Number *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
             <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The original visit's Job Number — used to locate the original job and credit the correct technician.
+            </div>
+          </div>
+          <div className={`field${invalidFields.has('newJobNumber') ? ' invalid' : ''}`}>
+            <label>New Job Number *</label>
+            <input
+              className="mono"
+              placeholder="e.g. 20458"
+              value={form.newJobNumber}
+              onChange={(e) => patch({ newJobNumber: e.target.value })}
+            />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The new AroFlo Job Number created for the approved work — reference and searching only, does not link to a job or
+              count as a Total/Qualified Job.
+            </div>
           </div>
         </div>
+      ) : (
+        showJobLookup && (
+          <div className="grid-form" style={{ marginTop: 14 }}>
+            <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
+              <label>Job number (JN) *</label>
+              <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+              <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
+            </div>
+          </div>
+        )
       )}
 
       {isNewJob && (

@@ -161,7 +161,7 @@ test('Technician & Sales drill-down: every KPI, trade/technician cell and chart 
     });
     assert.equal(converted.status, 201);
     await server.request('POST', '/tech/quote-approved-later', {
-      jobNumber: 'JN-D3', dateLogged: '2026-03-10', creditedTechnicianId: techA.id,
+      jobNumber: 'JN-D3', newJobNumber: 'AROFLO-D3', dateLogged: '2026-03-10', creditedTechnicianId: techA.id,
       invoiceNumber: 'INV-D3', invoiceDate: '2026-03-10', saleValueExGst: 300,
     });
     await server.request('POST', '/tech/new-job', {

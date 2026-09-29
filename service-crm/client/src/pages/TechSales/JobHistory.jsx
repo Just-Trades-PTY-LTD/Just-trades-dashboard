@@ -57,7 +57,14 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
     if (filters.technicianId && String(e.technicianId) !== String(filters.technicianId) && String(e.creditedTechnicianId) !== String(filters.technicianId)) return false;
     if (filters.tradeId && String(e.tradeId) !== String(filters.tradeId)) return false;
     if (filters.entryType && e.kind !== filters.entryType) return false;
-    if (filters.jobNumber && (e.jobNumber || '').trim().toLowerCase() !== filters.jobNumber.trim().toLowerCase()) return false;
+    if (filters.jobNumber) {
+      // Matches either JN on a Quote Approved Later entry — the original
+      // job it's linked against, or its own separate New Job Number.
+      const q = filters.jobNumber.trim().toLowerCase();
+      const matchesOriginal = (e.jobNumber || '').trim().toLowerCase() === q;
+      const matchesNew = (e.newJobNumber || '').trim().toLowerCase() === q;
+      if (!matchesOriginal && !matchesNew) return false;
+    }
     return true;
   });
 
@@ -152,7 +159,14 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
           />
           <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
           <FilterSelect label="Entry type" value={filters.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
-          <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
+          <TextField
+            label="Job number"
+            placeholder="Original or New JN"
+            value={filters.jobNumber}
+            onChange={(v) => patch({ jobNumber: v })}
+            mono
+            maxWidth={160}
+          />
           <div style={{ paddingBottom: 8 }}>
             <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
           </div>
@@ -193,6 +207,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                 <th>Entry type</th>
                 <th>Technician</th>
                 <th>JN</th>
+                <th title="Only shown for Existing Job — Quote Approved Later: the separate AroFlo Job Number created for the approved work">New JN</th>
                 <th>Trade / job type</th>
                 <th>Outcome</th>
                 <th>Comments</th>
@@ -226,6 +241,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                           </div>
                         )}
                       </td>
+                      <td className="mono">{e.kind === 'quote_approved_later' ? e.newJobNumber || '—' : ''}</td>
                       <td>
                         {e.tradeName}
                         {e.jobTypeName ? ` — ${e.jobTypeName}` : ''}
@@ -279,7 +295,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                     </tr>
                     {expandedId === key && (
                       <tr>
-                        <td colSpan={9} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                        <td colSpan={10} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
                               <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}

@@ -63,6 +63,7 @@ test('a knock-back job that was later converted by a Quote Approved Later sale c
     const sale = (
       await server.request('POST', '/tech/quote-approved-later', {
         jobNumber: 'JN-DELSAFE-2',
+        newJobNumber: 'AROFLO-DELSAFE-2',
         dateLogged: '2026-05-10',
         invoiceNumber: 'INV-DELSAFE-2',
         invoiceDate: '2026-05-10',

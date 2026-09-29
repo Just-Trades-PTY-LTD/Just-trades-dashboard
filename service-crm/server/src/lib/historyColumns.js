@@ -24,6 +24,12 @@ export const TECH_COLUMNS = [
   { key: 'technicianName', label: 'Technician' },
   { key: 'creditedTechnicianName', label: 'Credited technician' },
   { key: 'jobNumber', label: 'Job number' },
+  // Only ever populated for a Quote Approved Later entry — the separate,
+  // brand new AroFlo Job Number created for the approved work, distinct
+  // from Job number (the original visit's JN, used above for linking).
+  // Blank for every other entry type and for any legacy Quote Approved
+  // Later record saved before this field existed.
+  { key: 'newJobNumber', label: 'New job number' },
   { key: 'tradeName', label: 'Trade' },
   { key: 'jobTypeName', label: 'Job type' },
   { key: 'lead', label: 'Lead' },
