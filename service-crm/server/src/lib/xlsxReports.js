@@ -192,6 +192,16 @@ export function buildTechWorkbook(data, filters, lookups) {
     ['Option sheet completion', `${c.optionRate}%`],
   ]);
 
+  // Converted Later bonus adjustment (trial) — report logic only, entirely
+  // additive to the figures above; see services/reports.js for the rules.
+  addSectionHeading(summary, 'Converted Later Bonus Adjustment (Trial)');
+  addKpiTable(summary, [
+    ['Actual Knockbacks', c.actualKnockbacks],
+    ['Converted Later', c.convertedLaterCredits],
+    ['Adjusted Knockbacks', c.adjustedKnockbacks],
+    ['Conversion Rate (bonus)', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
+  ]);
+
   const byTrade = wb.addWorksheet('By trade');
   addTitleBlock(byTrade, 'Technician & Sales Report — By Trade', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   addDataTable(
@@ -206,6 +216,13 @@ export function buildTechWorkbook(data, filters, lookups) {
     ...TECH_BY_TECHNICIAN_COLUMNS,
     { key: 'inspectionRate', label: 'Insp. sheet', value: (r) => `${r.inspectionRate}%` },
     { key: 'optionRate', label: 'Option sheet', value: (r) => `${r.optionRate}%` },
+    // Converted Later bonus adjustment (trial) — additive columns, entirely
+    // separate from the "Knock backs"/"Converted later"/"Conversion rate"
+    // columns above.
+    { key: 'actualKnockbacks', label: 'Actual Knockbacks' },
+    { key: 'convertedLaterCredits', label: 'Converted Later' },
+    { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks' },
+    { key: 'bonusConversionRate', label: 'Conversion Rate (bonus)', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
   ];
   addDataTable(
     byTechnician,

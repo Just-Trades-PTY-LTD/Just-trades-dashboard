@@ -414,6 +414,107 @@ function splitJobs(jobs) {
   return { qualifiedJobs, unqualifiedJobs, noSale, saleMade, knockbacks, convertedLater };
 }
 
+// ---------------------------------------------------------------------------
+// Converted Later bonus adjustment (trial) — report logic only.
+//
+// This is entirely separate from, and never reads or writes, the permanent
+// job-level converted_later/converted_by_sale_id flip used elsewhere in this
+// file (that flip is JN-based, has no week boundary and no per-technician
+// cap, and permanently changes which bucket a job counts in for every
+// report from then on). This adjustment instead computes a week-scoped,
+// per-technician "bonus view" fresh from the raw jobs/sales on every report
+// run — nothing it computes is stored, and removing it later is just
+// deleting this code; no saved record is ever touched.
+//
+// Rule: each Converted Later sale (an 'quote_approved_later' sale, counted
+// by its own invoice/approval date — never the original job's visit date)
+// provides one credit against one genuine qualified-no-sale job (an "Actual
+// Knockback", counted by its own visit date) for the same technician within
+// the same Monday–Sunday week. Unused credits/unoffset knockbacks never
+// cross a technician or week boundary in either direction.
+function pctPrecise(a, b) {
+  if (!b) return 0;
+  const raw = (a / b) * 100;
+  return Math.min(100, Math.max(0, Math.round(raw * 100) / 100));
+}
+
+// A genuine "Actual Knockback": a qualified job that didn't sell at the
+// visit — regardless of whether it was ever later flipped by the separate,
+// permanent converted_later mechanism, which this adjustment ignores
+// entirely.
+function genuineKnockbackJobs(jobs) {
+  return jobs.filter((j) => j.lead === 'Qualified' && !j.had_sale_at_visit);
+}
+
+function quoteApprovedLaterSales(sales) {
+  return sales.filter((s) => s.source === 'quote_approved_later');
+}
+
+// Buckets genuine qualified-no-sale jobs and quote-approved-later sales by
+// (technician name, Monday-of-week) — the only two axes a credit is ever
+// allowed to move across. `jobs`/`sales` should already carry any
+// technician/trade/date filters the caller wants respected (this never
+// re-fetches or re-filters on its own).
+function bucketConvertedLaterCredits(jobs, sales) {
+  const noSaleQualified = genuineKnockbackJobs(jobs);
+  const quoteApprovedLater = quoteApprovedLaterSales(sales);
+
+  const buckets = new Map();
+  function bucket(techName, week) {
+    const key = `${techName}\u0000${week}`;
+    if (!buckets.has(key)) buckets.set(key, { techName, week, knockbackJobs: [], creditSales: [] });
+    return buckets.get(key);
+  }
+  noSaleQualified.forEach((j) => {
+    if (!j.visit_date) return;
+    bucket(j.technician_name || 'Unassigned', mondayOf(j.visit_date)).knockbackJobs.push(j);
+  });
+  quoteApprovedLater.forEach((s) => {
+    if (!s.invoice_date) return;
+    bucket(s.credited_technician_name || 'Unassigned', mondayOf(s.invoice_date)).creditSales.push(s);
+  });
+  return buckets;
+}
+
+// One bucket's outcome: how many of its credits were actually consumed
+// (deterministically, oldest invoice first, purely for a stable, explainable
+// drill-down — the count is the same regardless of which specific credit is
+// picked as "used"), and the resulting adjusted knockback count, floored at
+// zero.
+function bucketOutcome(b) {
+  const actual = b.knockbackJobs.length;
+  const credits = b.creditSales.length;
+  const used = Math.min(actual, credits);
+  const adjusted = Math.max(0, actual - credits);
+  const sortedCredits = [...b.creditSales].sort((x, y) => (x.invoice_date || '').localeCompare(y.invoice_date || '') || x.id - y.id);
+  return { actual, credits, used, adjusted, usedCredits: sortedCredits.slice(0, used), unusedCredits: sortedCredits.slice(used) };
+}
+
+// The four new, additive report figures — see the file-level comment above.
+// `jobs`/`sales` are whatever set the caller wants this scoped to (the whole
+// company, one technician, one trade, or a specific drill-down's already-
+// filtered rows); the per-technician/per-week credit matching happens
+// internally regardless of how broad or narrow that scope is.
+function computeConvertedLaterAdjustment(jobs, sales) {
+  const buckets = bucketConvertedLaterCredits(jobs, sales);
+  let actualKnockbacks = 0;
+  let convertedLaterCredits = 0;
+  let adjustedKnockbacks = 0;
+  buckets.forEach((b) => {
+    const o = bucketOutcome(b);
+    actualKnockbacks += o.actual;
+    convertedLaterCredits += o.credits;
+    adjustedKnockbacks += o.adjusted;
+  });
+  const qualifiedCount = jobs.filter((j) => j.lead === 'Qualified').length;
+  return {
+    actualKnockbacks,
+    convertedLaterCredits,
+    adjustedKnockbacks,
+    bonusConversionRate: pctPrecise(qualifiedCount - adjustedKnockbacks, qualifiedCount),
+  };
+}
+
 function computeMetrics(jobs, sales, callbacks, pendingCancels) {
   const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
   const conversionCount = saleMade.length + convertedLater.length;
@@ -445,7 +546,10 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
 
-  const company = computeMetrics(jobsAll, salesAll, callBacksAll, pendingCancelsAll);
+  const company = {
+    ...computeMetrics(jobsAll, salesAll, callBacksAll, pendingCancelsAll),
+    ...computeConvertedLaterAdjustment(jobsAll, salesAll),
+  };
 
   const byTrade = trades.map((trade) => ({
     trade: trade.name,
@@ -463,15 +567,25 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
   callBacksAll.forEach((c) => techNameSet.add(c.credited_technician_name || 'Unassigned'));
   pendingCancelsAll.forEach((p) => techNameSet.add(p.credited_technician_name || 'Unassigned'));
 
-  const byTechnician = Array.from(techNameSet).map((name) => ({
-    name,
-    ...computeMetrics(
-      jobsAll.filter((j) => (j.technician_name || 'Unassigned') === name),
-      salesAll.filter((s) => (s.credited_technician_name || 'Unassigned') === name),
-      callBacksAll.filter((c) => (c.credited_technician_name || 'Unassigned') === name),
-      pendingCancelsAll.filter((p) => (p.credited_technician_name || 'Unassigned') === name)
-    ),
-  }));
+  const byTechnician = Array.from(techNameSet).map((name) => {
+    const techJobs = jobsAll.filter((j) => (j.technician_name || 'Unassigned') === name);
+    // A Converted Later sale is scoped to whichever technician it's
+    // credited to, not the job's own attending technician — usually the
+    // same person, but an explicit override on that sale is respected here
+    // exactly as it is everywhere else (see quote-approved-later's
+    // creditedTechnicianId).
+    const techSales = salesAll.filter((s) => (s.credited_technician_name || 'Unassigned') === name);
+    return {
+      name,
+      ...computeMetrics(
+        techJobs,
+        techSales,
+        callBacksAll.filter((c) => (c.credited_technician_name || 'Unassigned') === name),
+        pendingCancelsAll.filter((p) => (p.credited_technician_name || 'Unassigned') === name)
+      ),
+      ...computeConvertedLaterAdjustment(techJobs, techSales),
+    };
+  });
 
   const salesByTradePie = trades
     .map((trade) => ({
@@ -553,6 +667,38 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
           { label: 'Knock back', count: knockbacks.length },
         ],
       };
+    // --- Converted Later bonus adjustment (trial) — see the file-level
+    // comment above computeConvertedLaterAdjustment(). Derived from the
+    // exact same jobs/sales arrays already scoped by this drill-down's own
+    // technician/trade filters, so these always match the displayed figure.
+    case 'actualKnockbacks':
+      return { rows: tagJobs(genuineKnockbackJobs(jobs)), label: 'Actual Knockbacks' };
+    case 'convertedLaterCredits':
+      return { rows: tagSales(quoteApprovedLaterSales(sales)), label: 'Converted Later' };
+    case 'adjustedKnockbacks':
+    case 'bonusConversionRate': {
+      const buckets = bucketConvertedLaterCredits(jobs, sales);
+      let actual = 0;
+      let used = 0;
+      let adjusted = 0;
+      const usedCreditSales = [];
+      buckets.forEach((b) => {
+        const o = bucketOutcome(b);
+        actual += o.actual;
+        used += o.used;
+        adjusted += o.adjusted;
+        usedCreditSales.push(...o.usedCredits);
+      });
+      return {
+        rows: [...tagJobs(genuineKnockbackJobs(jobs)), ...tagSales(usedCreditSales)],
+        label: field === 'bonusConversionRate' ? 'Conversion Rate (bonus) — how it was calculated' : 'Adjusted Knockbacks',
+        outcomes: [
+          { label: 'Actual Knockbacks', count: actual },
+          { label: 'Converted Later credits applied', count: used },
+          { label: 'Adjusted Knockbacks', count: adjusted },
+        ],
+      };
+    }
     case 'callBacks':
       return { rows: tagRows(callbacks, 'call_back'), label: 'Call backs' };
     case 'pendingCancellations':
