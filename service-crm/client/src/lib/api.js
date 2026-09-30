@@ -84,6 +84,7 @@ export const api = {
   lookup: {
     job: (jn) => request('GET', `/lookup/job${qs({ jn })}`),
     sale: (jn) => request('GET', `/lookup/sale${qs({ jn })}`),
+    call: (jn) => request('GET', `/lookup/call${qs({ jn })}`),
   },
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),

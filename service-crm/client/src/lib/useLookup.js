@@ -18,7 +18,7 @@ export function useJobLookup(jobNumber, mode) {
     setResult(null);
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      const fn = mode === 'sale' ? api.lookup.sale : api.lookup.job;
+      const fn = mode === 'sale' ? api.lookup.sale : mode === 'call' ? api.lookup.call : api.lookup.job;
       fn(jobNumber)
         .then(setResult)
         .catch(() => setResult(null));

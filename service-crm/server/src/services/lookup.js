@@ -51,6 +51,24 @@ export function findLatestSale(jobNumber) {
   );
 }
 
+/** The earliest active Calls & Contacts record matching this Job Number
+ * (case/whitespace-insensitive), if any — i.e. the linked/original booking
+ * record, never a later, unrelated contact that happens to share the JN.
+ * Used to auto-populate a new job's Suburb; see db/index.js's
+ * 'backfill_job_suburb_from_calls' one-time migration for the same rule
+ * applied to jobs that already existed when this shipped. */
+export function findOriginalBookingCall(jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  return get(
+    `SELECT * FROM calls
+     WHERE archived = 0 AND lower(trim(job_number)) = ?
+     ORDER BY call_at ASC, id ASC
+     LIMIT 1`,
+    [key]
+  );
+}
+
 export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
   const key = normKey(invoiceNumber);
   if (!key) return null;

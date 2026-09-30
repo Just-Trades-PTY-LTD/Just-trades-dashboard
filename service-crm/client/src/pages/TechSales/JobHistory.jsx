@@ -209,6 +209,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                 <th>JN</th>
                 <th title="Only shown for Existing Job — Quote Approved Later: the separate AroFlo Job Number created for the approved work">New JN</th>
                 <th>Trade / job type</th>
+                <th>Suburb</th>
                 <th>Outcome</th>
                 <th>Comments</th>
                 <th></th>
@@ -246,6 +247,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                         {e.tradeName}
                         {e.jobTypeName ? ` — ${e.jobTypeName}` : ''}
                       </td>
+                      <td>{e.suburb || '—'}</td>
                       <td>
                         {e.kind === 'new_job_no_sale' && !e.convertedLater && (
                           <span className="badge badge-warn">Knock back{e.knockbackReasonName ? `: ${e.knockbackReasonName}` : ''}</span>
@@ -295,7 +297,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                     </tr>
                     {expandedId === key && (
                       <tr>
-                        <td colSpan={10} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
+                        <td colSpan={11} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
                               <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}

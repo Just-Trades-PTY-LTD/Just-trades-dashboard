@@ -5,6 +5,7 @@ import { useJobLookup } from '../../lib/useLookup.js';
 import { todayLocalDate } from '../../lib/dates.js';
 import { DateField, NumberField, SelectField, TextAreaField, YesNoField } from '../../components/Fields.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
+import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const ENTRY_TYPES = [
@@ -51,6 +52,7 @@ function emptyForm(kind) {
     callBackReasonId: '',
     pendingCancellationReasonId: '',
     comments: '',
+    suburb: '',
   };
 }
 
@@ -78,6 +80,7 @@ function fromEntry(entry) {
     callBackReasonId: entry.reasonId || '',
     pendingCancellationReasonId: entry.reasonId || '',
     comments: entry.comments || '',
+    suburb: entry.suburb || '',
   };
 }
 
@@ -120,6 +123,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // a duplicate.
   const newJobDuplicateCheck = useJobLookup(isNewJob && !editing ? form.jobNumber : '', 'job');
 
+  // The earliest Calls & Contacts record sharing this Job Number — the
+  // linked/original booking, never a later, unrelated contact — used only to
+  // auto-populate a brand-new job's Suburb below. Runs on both create and
+  // edit (like the autofill effect just below), gated only by the form's own
+  // Suburb still being blank, so it never overwrites a value already set.
+  const callSuburbLookup = useJobLookup(isNewJob ? form.jobNumber : '', 'call');
+
   // Silently autofill the credited technician, trade and job type from the
   // matched job/sale, the way the prototype's lookup effect did — filled in
   // automatically where possible, but always left editable in case the match
@@ -137,6 +147,16 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult]);
+
+  // Suburb: auto-populated from the matched call above, but only when there's
+  // actually a suburb on it to use — a matching call with none recorded (or
+  // no matching call at all) leaves this blank for manual selection instead,
+  // exactly as if nothing had matched.
+  useEffect(() => {
+    if (!isNewJob || !callSuburbLookup?.found || !callSuburbLookup.suburb || form.suburb) return;
+    patch({ suburb: callSuburbLookup.suburb });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callSuburbLookup, isNewJob]);
 
   function changeEntryType(kind) {
     setForm(emptyForm(kind));
@@ -268,6 +288,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           invoiceDate: form.invoiceDate,
           saleValueExGst: form.saleValueExGst,
           comments: form.comments,
+          suburb: form.suburb,
         };
         res = editing ? { entry: await api.tech.updateNewJob(editing.id, body) } : await api.tech.createNewJob(body);
       } else if (isExistingJob) {
@@ -407,6 +428,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                 Job Number {form.jobNumber} already exists (visit {newJobDuplicateCheck.visitDate}
                 {newJobDuplicateCheck.trade ? ` — ${newJobDuplicateCheck.trade}` : ''}). If this is a follow-up on that job, use "Existing
                 Job — Quote Approved Later" or "Call Back" instead.
+              </div>
+            )}
+          </div>
+          <div className="field">
+            <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
+            {callSuburbLookup?.found && callSuburbLookup.suburb && form.suburb === callSuburbLookup.suburb && (
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                Auto-filled from the matching Calls &amp; Contacts record for this Job Number — still editable if it needs correcting.
               </div>
             )}
           </div>

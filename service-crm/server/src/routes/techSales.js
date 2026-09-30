@@ -7,6 +7,7 @@ import {
   findConvertibleKnockback,
   findDuplicateInvoice,
   findDuplicateNewJobNumber,
+  findOriginalBookingCall,
   findOriginalJob,
   findLatestSale,
   isTechnicianActive,
@@ -28,6 +29,7 @@ const JOB_TRACKED_FIELDS = [
   'install_technician_id',
   'install_date',
   'comments',
+  'suburb',
 ];
 const SALE_TRACKED_FIELDS = [
   'job_number',
@@ -136,6 +138,7 @@ function jobToEntry(j) {
     invoiceDate: sale?.invoice_date || '',
     saleValueExGst: sale?.sale_value_ex_gst ?? '',
     comments: j.comments,
+    suburb: j.suburb || '',
     createdAt: j.created_at,
   };
 }
@@ -419,12 +422,19 @@ export function createTechSalesRouter() {
         install_technician_id: isSaleMade ? b.installTechnicianId || null : null,
         install_date: isSaleMade ? b.installDate || '' : '',
         comments: b.comments || '',
+        // An explicit value always wins; otherwise fall back to the earliest
+        // Calls & Contacts record sharing this Job Number (the linked/
+        // original booking, never a later, unrelated contact) — the same
+        // backend backstop pattern already used for Trade/Job Type on
+        // Quote Approved Later and Call Back, so this is never dependent on
+        // the client having actually run that lookup itself.
+        suburb: b.suburb || findOriginalBookingCall(b.jobNumber)?.suburb || '',
       };
       const { lastInsertRowid: jobId } = run(
         `INSERT INTO jobs (job_number, visit_date, technician_id, trade_id, job_type_id, lead, inspection_sheet,
           option_sheet, had_sale_at_visit, knockback, knockback_reason_id, work_completion, install_technician_id,
-          install_date, comments, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          install_date, comments, suburb, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           jobValues.job_number,
           b.visitDate,
@@ -441,6 +451,7 @@ export function createTechSalesRouter() {
           jobValues.install_technician_id,
           jobValues.install_date,
           jobValues.comments,
+          jobValues.suburb,
           req.user.id,
         ]
       );
@@ -500,6 +511,7 @@ export function createTechSalesRouter() {
       install_technician_id: isSaleMade ? mergeId(b.installTechnicianId, existing.install_technician_id) : null,
       install_date: isSaleMade ? b.installDate ?? existing.install_date : '',
       comments: b.comments ?? existing.comments,
+      suburb: b.suburb ?? existing.suburb,
     };
     const visitDate = b.visitDate ?? existing.visit_date;
 
@@ -507,7 +519,7 @@ export function createTechSalesRouter() {
       run(
         `UPDATE jobs SET technician_id=?, job_number=?, visit_date=?, trade_id=?, job_type_id=?, lead=?,
           inspection_sheet=?, option_sheet=?, knockback_reason_id=?, work_completion=?, install_technician_id=?,
-          install_date=?, comments=?, updated_at=datetime('now') WHERE id=?`,
+          install_date=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
         [
           next.technician_id,
           next.job_number,
@@ -522,6 +534,7 @@ export function createTechSalesRouter() {
           next.install_technician_id,
           next.install_date,
           next.comments,
+          next.suburb,
           req.params.id,
         ]
       );

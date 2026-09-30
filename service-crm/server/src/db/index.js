@@ -97,10 +97,71 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    // Purely additive: a brand-new nullable-in-spirit column (TEXT NOT NULL
+    // DEFAULT ''). No existing job's technician, job_number, visit_date or
+    // any other column is read or written here — every existing job simply
+    // ends up with suburb = '' ("none recorded"), same as any legacy record.
+    id: 'jobs_suburb',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'suburb');
+      if (!hasColumn) {
+        database.exec("ALTER TABLE jobs ADD COLUMN suburb TEXT NOT NULL DEFAULT ''");
+      }
+    },
+  },
+];
+
+// One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;
+// each is either a column-existence check or a self-limiting WHERE clause),
+// a backfill like this one is only ever meant to run once: guarded by
+// one_time_migrations so it can never re-fire on a later boot and overwrite
+// a suburb someone deliberately corrected (including clearing it back to
+// blank) after this first ran. Never rewrite or remove an entry once it has
+// shipped, for the same reason as MIGRATIONS above.
+const ONE_TIME_MIGRATIONS = [
+  {
+    // Populates jobs.suburb from Calls & Contacts for jobs that already
+    // existed when this feature shipped — see lookup.js's
+    // findOriginalBookingSuburb() for the exact "earliest matching call"
+    // rule this mirrors (kept in sync manually since this is one-off SQL,
+    // not a reusable function). Only ever touches a job whose suburb is
+    // still blank, and only when the single earliest active call sharing its
+    // Job Number (case/whitespace-insensitive) itself has a non-blank
+    // suburb — every other job (no matching call at all, or the earliest
+    // matching call has no suburb recorded either) is left exactly as
+    // blank as it already was, never guessed at.
+    id: 'backfill_job_suburb_from_calls',
+    run(database) {
+      database.exec(`
+        UPDATE jobs
+        SET suburb = (
+          SELECT c.suburb FROM calls c
+          WHERE c.archived = 0 AND lower(trim(c.job_number)) = lower(trim(jobs.job_number))
+          ORDER BY c.call_at ASC, c.id ASC
+          LIMIT 1
+        )
+        WHERE jobs.suburb = ''
+          AND trim(jobs.job_number) != ''
+          AND COALESCE((
+            SELECT c.suburb FROM calls c
+            WHERE c.archived = 0 AND lower(trim(c.job_number)) = lower(trim(jobs.job_number))
+            ORDER BY c.call_at ASC, c.id ASC
+            LIMIT 1
+          ), '') != ''
+      `);
+    },
+  },
 ];
 
 function runMigrations(database) {
   for (const migration of MIGRATIONS) migration.run(database);
+  for (const migration of ONE_TIME_MIGRATIONS) {
+    const already = database.prepare('SELECT 1 FROM one_time_migrations WHERE id = ?').get(migration.id);
+    if (already) continue;
+    migration.run(database);
+    database.prepare('INSERT INTO one_time_migrations (id) VALUES (?)').run(migration.id);
+  }
 }
 
 /** Thrown when no database file exists at the configured path and creating a

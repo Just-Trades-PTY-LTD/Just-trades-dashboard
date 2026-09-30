@@ -114,6 +114,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   install_technician_id INTEGER REFERENCES technicians(id),
   install_date TEXT NOT NULL DEFAULT '',
   comments TEXT NOT NULL DEFAULT '',
+  -- The customer's suburb — auto-populated from the earliest matching Calls
+  -- & Contacts record (by Job Number) when one exists, but always editable
+  -- afterwards. Blank when no matching call was found (picked manually
+  -- instead) or none of it carried a suburb.
+  suburb TEXT NOT NULL DEFAULT '',
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -210,6 +215,17 @@ CREATE TABLE IF NOT EXISTS user_report_layouts (
   layout_json TEXT NOT NULL DEFAULT '{}',
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (user_id, report_key)
+);
+
+-- Marks a one-time data migration (as opposed to the always-safe-to-rerun
+-- additive schema migrations in db/index.js's MIGRATIONS array) as already
+-- applied, so it's never re-evaluated against live data on a later boot —
+-- see db/index.js's runOneTimeMigrations() for why that distinction matters
+-- (a repeatable backfill could otherwise keep overwriting a value someone
+-- deliberately cleared afterwards).
+CREATE TABLE IF NOT EXISTS one_time_migrations (
+  id TEXT PRIMARY KEY,
+  ran_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_calls_job_number ON calls (job_number);

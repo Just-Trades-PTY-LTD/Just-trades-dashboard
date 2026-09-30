@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { findLatestSale, findOriginalJob } from '../services/lookup.js';
+import { findLatestSale, findOriginalBookingCall, findOriginalJob } from '../services/lookup.js';
 
 export function createLookupRouter() {
   const router = Router();
@@ -39,6 +39,17 @@ export function createLookupRouter() {
       jobTypeId: sale.job_type_id,
       jobType: sale.job_type_name,
     });
+  });
+
+  // The earliest Calls & Contacts record sharing this Job Number — used to
+  // auto-populate a brand-new job's Suburb. `found: true` just means a
+  // matching call exists; `suburb` can still legitimately be '' if that
+  // call never recorded one (the caller should treat that the same as no
+  // match — never fall through to a different, later call).
+  router.get('/call', (req, res) => {
+    const call = findOriginalBookingCall(req.query.jn || '');
+    if (!call) return res.json({ found: false });
+    res.json({ found: true, suburb: call.suburb || '', callId: call.id, callAt: call.call_at });
   });
 
   return router;
