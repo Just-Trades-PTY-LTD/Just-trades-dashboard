@@ -63,6 +63,11 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
       'Adjusted Knockbacks': r.adjustedKnockbacks,
     }));
 
+  // Adjusted Knockbacks and Conversion % are purely calculated (Actual
+  // Knockbacks − Converted Later, and the conversion rate derived from that)
+  // — neither represents its own distinct group of records, so neither is
+  // clickable. A `tooltip` in place of a metric name means "show this
+  // explanation instead of opening a drill-down".
   const kpiRows = [
     // Total Jobs and Qualified Jobs lead the row, immediately next to each
     // other; Unqualified Jobs appears later with the remaining figures.
@@ -76,8 +81,13 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
     ['Sales (invoices)', company.sales, 'sales'],
     ['Converted Later', company.convertedLaterCredits, 'convertedLaterCredits'],
     ['Actual Knockbacks', company.actualKnockbacks, 'actualKnockbacks'],
-    ['Adjusted Knockbacks', company.adjustedKnockbacks, 'adjustedKnockbacks'],
-    ['Conversion %', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, 'bonusConversionRate'],
+    ['Adjusted Knockbacks', company.adjustedKnockbacks, null, 'Calculated as Actual Knockbacks minus Converted Later.'],
+    [
+      'Conversion %',
+      `${(company.bonusConversionRate ?? 0).toFixed(2)}%`,
+      null,
+      'Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.',
+    ],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
     ['Average sale (ex GST)', moneyCents(company.avgSaleExGst), 'avgSaleExGst'],
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
@@ -142,13 +152,13 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
         <AdjustableSection id="kpis" title="Summary figures" defaultSize="md" layout={layout}>
           {(cfg) => (
             <div className="grid-cards" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${cfg.kpiMinCardWidth}px, 1fr))` }}>
-              {kpiRows.map(([label, val, metric]) => (
+              {kpiRows.map(([label, val, metric, tooltip]) => (
                 <div
                   key={label}
-                  className="panel clickable-stat"
+                  className={`panel${metric ? ' clickable-stat' : ''}`}
                   style={{ padding: '14px 16px' }}
-                  onClick={() => openDrilldown(metric)}
-                  title={`View the records behind ${label}`}
+                  onClick={metric ? () => openDrilldown(metric) : undefined}
+                  title={metric ? `View the records behind ${label}` : tooltip}
                 >
                   <div className="kpi-val" style={{ fontSize: 21 }}>
                     {val}
@@ -232,12 +242,10 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     style={{ cursor: 'pointer' }}
                     onClick={(entry) => openDrilldown('convertedLaterCredits', { scopeTechnician: entry.name })}
                   />
-                  <Bar
-                    dataKey="Adjusted Knockbacks"
-                    fill="var(--chart-violet)"
-                    style={{ cursor: 'pointer' }}
-                    onClick={(entry) => openDrilldown('adjustedKnockbacks', { scopeTechnician: entry.name })}
-                  />
+                  {/* Adjusted Knockbacks is purely calculated (Actual Knockbacks
+                      − Converted Later) — it isn't its own group of records,
+                      so this bar isn't clickable, unlike the two beside it. */}
+                  <Bar dataKey="Adjusted Knockbacks" fill="var(--chart-violet)" />
                 </BarChart>
               </ResponsiveContainer>
             )
@@ -339,8 +347,12 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     <th>Sales</th>
                     <th title="Trial: report logic only — see the note above">Converted Later</th>
                     <th title="Trial: report logic only — see the note above">Actual Knockbacks</th>
-                    <th title="Trial: report logic only — see the note above">Adjusted Knockbacks</th>
-                    <th title="Trial: report logic only — see the note above">Conversion %</th>
+                    <th title="Trial: report logic only — see the note above. Calculated as Actual Knockbacks minus Converted Later.">
+                      Adjusted Knockbacks
+                    </th>
+                    <th title="Trial: report logic only — see the note above. Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.">
+                      Conversion %
+                    </th>
                     <th>Value (ex GST)</th>
                     <th>Average Sale</th>
                     <th>Unqualified Jobs</th>
@@ -360,8 +372,16 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ['sales', r.sales],
                         ['convertedLaterCredits', r.convertedLaterCredits],
                         ['actualKnockbacks', r.actualKnockbacks],
-                        ['adjustedKnockbacks', r.adjustedKnockbacks],
-                        ['bonusConversionRate', `${(r.bonusConversionRate ?? 0).toFixed(2)}%`],
+                        // Adjusted Knockbacks and Conversion % are purely
+                        // calculated (see the column header tooltips above) —
+                        // neither is its own group of records, so neither cell
+                        // opens a drill-down.
+                        ['adjustedKnockbacks', r.adjustedKnockbacks, 'Calculated as Actual Knockbacks minus Converted Later.'],
+                        [
+                          'bonusConversionRate',
+                          `${(r.bonusConversionRate ?? 0).toFixed(2)}%`,
+                          'Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.',
+                        ],
                         ['totalSaleExGst', money(r.totalSaleExGst)],
                         ['avgSaleExGst', money(r.avgSaleExGst)],
                         ['unqualifiedJobs', r.unqualifiedJobs],
@@ -369,12 +389,12 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ['pendingCancellations', r.pendingCancellations],
                         ['inspectionRate', `${r.inspectionRate}%`],
                         ['optionRate', `${r.optionRate}%`],
-                      ].map(([field, val]) => (
+                      ].map(([field, val, tooltip]) => (
                         <td
                           key={field}
-                          className="clickable-stat"
-                          onClick={() => openDrilldown(field, { scopeTechnician: r.name })}
-                          title={`View ${r.name}'s records behind this figure`}
+                          className={tooltip ? undefined : 'clickable-stat'}
+                          onClick={tooltip ? undefined : () => openDrilldown(field, { scopeTechnician: r.name })}
+                          title={tooltip || `View ${r.name}'s records behind this figure`}
                         >
                           {val}
                         </td>

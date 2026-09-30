@@ -296,7 +296,7 @@ test('Conversion % is capped at 100% and Adjusted Knockbacks never goes below ze
   }
 });
 
-test('Drill-downs: Actual Knockbacks, Converted Later and Adjusted Knockbacks each show the right records', async () => {
+test('Drill-downs: Actual Knockbacks and Converted Later each show the right records; Adjusted Knockbacks has no drill-down (it is a calculated figure)', async () => {
   const server = await startTestServer();
   try {
     const { plumbing, jobTypeId, knockbackReasonId, techA } = await setup(server);
@@ -314,23 +314,22 @@ test('Drill-downs: Actual Knockbacks, Converted Later and Adjusted Knockbacks ea
     assert.equal(report.company.adjustedKnockbacks, 1);
 
     const actualDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=actualKnockbacks`)).data;
-    assert.equal(actualDrill.count, 2);
+    assert.equal(actualDrill.count, 2, 'must equal the displayed Actual Knockbacks figure exactly, never a combined/mismatched count');
     assert.ok(actualDrill.rows.every((r) => r.kind === 'new_job_no_sale'));
 
     const creditDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=convertedLaterCredits`)).data;
-    assert.equal(creditDrill.count, 1);
+    assert.equal(creditDrill.count, 1, 'must equal the displayed Converted Later figure exactly');
     assert.ok(creditDrill.rows.every((r) => r.kind === 'quote_approved_later'));
 
-    const adjustedDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=adjustedKnockbacks`)).data;
-    // 2 knockback rows + 1 used-credit row = 3 rows total; the outcomes
-    // explain the arithmetic explicitly.
-    assert.equal(adjustedDrill.count, 3);
-    assert.equal(adjustedDrill.rows.filter((r) => r.kind === 'new_job_no_sale').length, 2);
-    assert.equal(adjustedDrill.rows.filter((r) => r.kind === 'quote_approved_later').length, 1);
-    const outcomeByLabel = Object.fromEntries(adjustedDrill.outcomes.map((o) => [o.label, o.count]));
-    assert.equal(outcomeByLabel['Actual Knockbacks'], 2);
-    assert.equal(outcomeByLabel['Converted Later credits applied'], 1);
-    assert.equal(outcomeByLabel['Adjusted Knockbacks'], 1);
+    // Adjusted Knockbacks (Actual Knockbacks − Converted Later) is a
+    // calculated figure, not its own group of records — it has no
+    // drill-down at all (previously this wrongly opened Actual + Converted
+    // Later combined, i.e. 3 rows here, never matching the displayed "1").
+    const adjustedRes = await server.rawGet(`/reports/tech/drilldown?from=${from}&to=${to}&metric=adjustedKnockbacks`);
+    assert.equal(adjustedRes.status, 400);
+
+    const conversionRes = await server.rawGet(`/reports/tech/drilldown?from=${from}&to=${to}&metric=bonusConversionRate`);
+    assert.equal(conversionRes.status, 400, 'Conversion % is also purely calculated and has no drill-down');
   } finally {
     server.close();
   }
@@ -467,6 +466,42 @@ test('Excel export shows each metric exactly once — no duplicate Actual Knockb
     assert.ok(idx('Converted Later') < idx('Actual Knockbacks'));
     assert.ok(idx('Actual Knockbacks') < idx('Adjusted Knockbacks'));
     assert.ok(idx('Adjusted Knockbacks') < idx('Conversion %'));
+  } finally {
+    server.close();
+  }
+});
+
+test('Reported bug: 9 Actual Knockbacks and 8 Adjusted Knockbacks must never open 10 records — Actual Knockbacks drill-down opens exactly 9, and Adjusted Knockbacks/Conversion % have no drill-down at all', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, knockbackReasonId, techA } = await setup(server);
+    const from = '2026-03-02';
+    const to = '2026-03-08';
+
+    // 9 genuine knockbacks and 1 credit that offsets exactly one of them ->
+    // Actual Knockbacks 9, Converted Later 1, Adjusted Knockbacks 8 — the
+    // exact figures from the reported bug.
+    for (let i = 0; i < 9; i += 1) {
+      await knockback(server, {
+        technicianId: techA.id,
+        visitDate: '2026-03-03',
+        tradeId: plumbing.id,
+        jobTypeId,
+        knockbackReasonId,
+      });
+    }
+    await convertedLaterCredit(server, { creditedTechnicianId: techA.id, invoiceDate: '2026-03-04', tradeId: plumbing.id, jobTypeId });
+
+    const report = (await server.request('GET', `/reports/tech?from=${from}&to=${to}`)).data;
+    assert.equal(report.company.actualKnockbacks, 9);
+    assert.equal(report.company.convertedLaterCredits, 1);
+    assert.equal(report.company.adjustedKnockbacks, 8);
+
+    const actualDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=actualKnockbacks`)).data;
+    assert.equal(actualDrill.count, 9, 'must open exactly the 9 Actual Knockback records, never 9 + 1 credits = 10');
+
+    const adjustedRes = await server.rawGet(`/reports/tech/drilldown?from=${from}&to=${to}&metric=adjustedKnockbacks`);
+    assert.equal(adjustedRes.status, 400, 'Adjusted Knockbacks is calculated (9 - 1), not its own group of records, so it has no drill-down');
   } finally {
     server.close();
   }

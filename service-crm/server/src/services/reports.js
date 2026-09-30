@@ -697,8 +697,21 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
     // comment above computeConvertedLaterAdjustment(). Derived from the
     // exact same jobs/sales arrays already scoped by this drill-down's own
     // technician/trade filters, so these always match the displayed figure.
-    case 'actualKnockbacks':
-      return { rows: tagJobs(genuineKnockbackJobs(jobs)), label: 'Actual Knockbacks' };
+    //
+    // Both figures below are built by bucketing jobs/sales the same way
+    // computeConvertedLaterAdjustment() itself does (bucketConvertedLaterCredits),
+    // rather than re-deriving the population a second, slightly different
+    // way (e.g. genuineKnockbackJobs(jobs) directly) — a job missing a visit
+    // date is silently skipped by the bucketer, so re-deriving independently
+    // could show one more/fewer record than the figure it's meant to explain.
+    // Bucketing first guarantees this drill-down's row count always equals
+    // the displayed number, with no possibility of drift.
+    case 'actualKnockbacks': {
+      const buckets = bucketConvertedLaterCredits(jobs, sales);
+      const knockbackJobs = [];
+      buckets.forEach((b) => knockbackJobs.push(...b.knockbackJobs));
+      return { rows: tagJobs(knockbackJobs), label: 'Actual Knockbacks' };
+    }
     case 'convertedLaterCredits': {
       // Only the credits actually applied against an Actual Knockback — see
       // computeConvertedLaterAdjustment(). A Quote Approved Later sale that
@@ -711,30 +724,15 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
       buckets.forEach((b) => usedCreditSales.push(...bucketOutcome(b).usedCredits));
       return { rows: tagSales(usedCreditSales), label: 'Converted Later' };
     }
-    case 'adjustedKnockbacks':
-    case 'bonusConversionRate': {
-      const buckets = bucketConvertedLaterCredits(jobs, sales);
-      let actual = 0;
-      let used = 0;
-      let adjusted = 0;
-      const usedCreditSales = [];
-      buckets.forEach((b) => {
-        const o = bucketOutcome(b);
-        actual += o.actual;
-        used += o.used;
-        adjusted += o.adjusted;
-        usedCreditSales.push(...o.usedCredits);
-      });
-      return {
-        rows: [...tagJobs(genuineKnockbackJobs(jobs)), ...tagSales(usedCreditSales)],
-        label: field === 'bonusConversionRate' ? 'Conversion % — how it was calculated' : 'Adjusted Knockbacks',
-        outcomes: [
-          { label: 'Actual Knockbacks', count: actual },
-          { label: 'Converted Later credits applied', count: used },
-          { label: 'Adjusted Knockbacks', count: adjusted },
-        ],
-      };
-    }
+    // Adjusted Knockbacks (Actual Knockbacks − Converted Later) and
+    // Conversion % (derived from Adjusted Knockbacks) are purely calculated
+    // figures — neither represents its own distinct group of records, so
+    // neither has a drill-down. Combining the Actual Knockback jobs and the
+    // Converted Later sales into one list here previously produced a row
+    // count equal to Actual + Converted Later (never Adjusted, their
+    // difference), which was confusing and is why these two are excluded
+    // instead of "fixed": there is no single accurate record set behind a
+    // subtraction. Falls through to the default (no drill-down) below.
     case 'callBacks':
       return { rows: tagRows(callbacks, 'call_back'), label: 'Call backs' };
     case 'pendingCancellations':
