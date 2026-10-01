@@ -1,6 +1,5 @@
 import { useAuth } from './auth/AuthContext.jsx';
 import { useCrmNav, makeSliceSetter } from './lib/crmNav.js';
-import { confirmLeave } from './lib/unsavedGuard.js';
 import { SettingsProvider } from './lib/SettingsContext.jsx';
 import Login from './pages/Login.jsx';
 import Home from './pages/Home.jsx';
@@ -34,9 +33,6 @@ export default function App() {
   const activeModule = tabs.some(([id]) => id === nav.module) ? nav.module : 'home';
 
   function setModule(id) {
-    // A form left open with unsaved changes (currently: the Calls & Contacts
-    // new/edit contact form) gets a chance to block this before it's lost.
-    if (!confirmLeave()) return;
     updateNav((prev) => ({ ...prev, module: id }));
   }
 

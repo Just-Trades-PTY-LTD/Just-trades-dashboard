@@ -3,7 +3,6 @@ import { api } from '../../lib/api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { nowLocalDateTime } from '../../lib/dates.js';
-import { useUnsavedFormGuard } from '../../lib/unsavedGuard.js';
 import { CONTACT_METHOD_OPTIONS } from '../../lib/contactMethods.js';
 import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../components/Fields.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
@@ -12,7 +11,6 @@ import { useJobLookup } from '../../lib/useLookup.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
-const UNSAVED_CHANGES_MESSAGE = 'This contact has unsaved changes. Leave without saving?';
 
 function emptyForm(defaultHandledByUserId) {
   return {
@@ -38,59 +36,46 @@ function emptyForm(defaultHandledByUserId) {
   };
 }
 
-function formFromEditing(editing) {
-  return {
-    callAt: editing.callAt,
-    direction: editing.direction,
-    handledByUserId: editing.handledByUserId || '',
-    callType: editing.callType,
-    tradeId: editing.tradeId || '',
-    jobTypeId: editing.jobTypeId || '',
-    leadSourceId: editing.leadSourceId || '',
-    booked: editing.booked || '',
-    notBookedReasonId: editing.notBookedReasonId || '',
-    cancellationType: editing.cancellationType || '',
-    cancellationReasonId: editing.cancellationReasonId || '',
-    callBackReasonId: editing.callBackReasonId || '',
-    jobNumber: editing.jobNumber || '',
-    suburb: editing.suburb || '',
-    notes: editing.notes || '',
-    followUp: editing.followUp || false,
-  };
-}
-
-export default function LogCall({ editing, onSaved, onCancel, onLeaveWithoutSaving, setNotice }) {
+export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const { user } = useAuth();
   const settings = useSettings();
-  const [form, setForm] = useState(() => (editing ? formFromEditing(editing) : emptyForm(user?.id)));
-  // What the form looked like right after it was opened (fresh blank, or the
-  // record being edited) — compared against the current form below to know
-  // whether there are unsaved changes to warn about before it's discarded.
-  const [baseline, setBaseline] = useState(form);
+  const [form, setForm] = useState(emptyForm(user?.id));
   const [invalidFields, setInvalidFields] = useState(new Set());
 
   useEffect(() => {
     setInvalidFields(new Set());
-    // Handled by defaults to whoever's logged in on a brand-new entry — still
-    // a normal editable select, in case one person is logging a call for a
-    // colleague. Computed fresh here (not just once at module load) so the
-    // date/time is always "now" at the moment this form actually opens,
-    // never a stale instant from whenever the Calls page itself was loaded.
-    const next = editing ? formFromEditing(editing) : emptyForm(user?.id);
-    setForm(next);
-    setBaseline(next);
+    if (editing) {
+      setForm({
+        callAt: editing.callAt,
+        direction: editing.direction,
+        handledByUserId: editing.handledByUserId || '',
+        callType: editing.callType,
+        tradeId: editing.tradeId || '',
+        jobTypeId: editing.jobTypeId || '',
+        leadSourceId: editing.leadSourceId || '',
+        booked: editing.booked || '',
+        notBookedReasonId: editing.notBookedReasonId || '',
+        cancellationType: editing.cancellationType || '',
+        cancellationReasonId: editing.cancellationReasonId || '',
+        callBackReasonId: editing.callBackReasonId || '',
+        jobNumber: editing.jobNumber || '',
+        suburb: editing.suburb || '',
+        notes: editing.notes || '',
+        followUp: editing.followUp || false,
+      });
+    } else {
+      // Handled by defaults to whoever's logged in — still a normal editable
+      // select, in case one person is logging a call for a colleague.
+      setForm(emptyForm(user?.id));
+    }
   }, [editing, user]);
-
-  const isDirty = JSON.stringify(form) !== JSON.stringify(baseline);
-  useUnsavedFormGuard(isDirty, UNSAVED_CHANGES_MESSAGE, onLeaveWithoutSaving);
 
   function patch(p) {
     setForm((f) => ({ ...f, ...p }));
   }
 
-  function handleCancel() {
-    if (isDirty && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return;
-    onCancel();
+  function resetForm() {
+    setForm(emptyForm(user?.id));
   }
 
   async function handleSubmit(e) {
@@ -126,6 +111,7 @@ export default function LogCall({ editing, onSaved, onCancel, onLeaveWithoutSavi
         setNotice('Call logged.');
       }
       onSaved();
+      if (!editing) resetForm();
     } catch (err) {
       setNotice(err.message, true);
     }
@@ -166,9 +152,11 @@ export default function LogCall({ editing, onSaved, onCancel, onLeaveWithoutSavi
     <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600 }}>{editing ? 'Update call' : 'New call record'}</div>
-        <button type="button" className="btn" onClick={() => patch({ callAt: nowLocalDateTime() })}>
-          Use current time
-        </button>
+        {!editing && (
+          <button type="button" className="btn" onClick={() => patch({ callAt: nowLocalDateTime() })}>
+            Refresh time
+          </button>
+        )}
       </div>
 
       <div className="grid-form">
@@ -266,9 +254,11 @@ export default function LogCall({ editing, onSaved, onCancel, onLeaveWithoutSavi
         <button type="submit" className="btn btn-primary">
           {editing ? 'Update call' : 'Save call'}
         </button>
-        <button type="button" className="btn" onClick={handleCancel}>
-          {editing ? 'Cancel edit' : 'Back to list'}
-        </button>
+        {editing && (
+          <button type="button" className="btn" onClick={onCancelEdit}>
+            Cancel edit
+          </button>
+        )}
       </div>
     </form>
   );

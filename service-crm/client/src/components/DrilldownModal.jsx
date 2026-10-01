@@ -101,7 +101,7 @@ export default function DrilldownModal({ kind, params, jumpToJN, onClose }) {
             <div className="empty-state">{error}</div>
           ) : editingRecord ? (
             kind === 'calls' ? (
-              <LogCall editing={editingRecord} onSaved={handleSaved} onCancel={() => setEditingRecord(null)} setNotice={setNotice} />
+              <LogCall editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
             ) : (
               <LogEntry editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
             )
