@@ -62,7 +62,7 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown }) {
     <AdjustableSection id="knockbackReasons" title="Knockback Reasons" defaultSize="lg" layout={layout}>
       {(cfg) => (
         <div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
             <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
             <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
             <FilterSelect
@@ -81,31 +81,35 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown }) {
             <button className="btn" type="button" onClick={() => setFilters(defaultFilters())}>
               Clear filters
             </button>
-          </div>
-
-          <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
-            Why jobs are being knocked back — defaults to the whole company; filter down to one technician to spot patterns worth coaching on.
+            {!loading && data && (
+              <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginLeft: 'auto', paddingBottom: 8 }}>
+                {data.total} knock-back{data.total === 1 ? '' : 's'} — defaults to the whole company; click a reason to view its records.
+              </div>
+            )}
           </div>
 
           {loading ? (
             <div className="empty-state">Loading…</div>
           ) : !data || data.total === 0 ? (
-            <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '20px 0', textAlign: 'center' }}>
               No knock-backs match these filters yet.
             </div>
           ) : (
-            <>
-              <div style={{ fontSize: 12.5, color: 'var(--ink-muted)', marginBottom: 10 }}>
-                {data.total} knock-back{data.total === 1 ? '' : 's'} total
-              </div>
-              <BarCardBody data={chartData} color="var(--chart-orange)" height={cfg.chartHeight} onBarClick={(name) => openReasonDrilldown(name)} />
-              <div className="table-scroll" style={{ marginTop: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, alignItems: 'start' }}>
+              <BarCardBody
+                data={chartData}
+                color="var(--chart-orange)"
+                height={cfg.chartHeight}
+                labelWidth={200}
+                onBarClick={(name) => openReasonDrilldown(name)}
+              />
+              <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>Reason</th>
                       <th>Count</th>
-                      <th>% of knock-backs</th>
+                      <th>%</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -125,7 +129,7 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown }) {
                   </tbody>
                 </table>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}

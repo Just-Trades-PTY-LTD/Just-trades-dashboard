@@ -95,6 +95,18 @@ function callBackRow(id) {
   );
 }
 
+// The Technician on a job is mandatory and never cleared, so it's always a
+// safe, well-defined fallback for a Quote Approved Later/Call Back/Pending
+// Cancellation entry's own Credited Technician whenever that field would
+// otherwise end up blank — most notably when an edit clears it (mergeId()
+// turns a cleared select into null, and only creation, not editing, requires
+// this field to be filled in). Returns null, never guesses, when there's no
+// linked job to fall back to.
+function originalJobTechnicianId(jobId) {
+  if (!jobId) return null;
+  return get('SELECT technician_id FROM jobs WHERE id = ?', [jobId])?.technician_id || null;
+}
+
 function pendingCancellationRow(id) {
   return get(
     `SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name, r.name AS reason_name
@@ -685,7 +697,14 @@ export function createTechSalesRouter() {
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
       new_job_number: b.newJobNumber ?? existing.new_job_number,
-      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      // Credited Technician is only mandatory on creation — an edit that
+      // clears it (e.g. a select reset to blank) would otherwise silently
+      // save null, which is exactly how a "Converted Later" entry could end
+      // up with no technician assigned despite that rule. Falling back to
+      // the original job's own (always-present) technician — never a guess,
+      // and never applied when an explicit value is given — means this can
+      // no longer happen.
+      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id) || originalJobTechnicianId(existing.job_id),
       trade_id: mergeId(b.tradeId, existing.trade_id),
       job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       invoice_number: b.invoiceNumber ?? existing.invoice_number,
@@ -778,10 +797,20 @@ export function createTechSalesRouter() {
     const existing = get('SELECT * FROM call_backs WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
+    const attending_technician_id = mergeId(b.technicianId, existing.attending_technician_id);
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
-      attending_technician_id: mergeId(b.technicianId, existing.attending_technician_id),
-      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      attending_technician_id,
+      // Same fallback as Quote Approved Later's own edit route — an edit
+      // that clears Credited Technician falls back to the linked original
+      // job's technician first (job_id can legitimately be null, since a
+      // Call Back is never required to match an existing job), then this
+      // same call back's own Attending Technician, which is always present.
+      // Never applied when an explicit value is given.
+      credited_technician_id:
+        mergeId(b.creditedTechnicianId, existing.credited_technician_id) ||
+        originalJobTechnicianId(existing.job_id) ||
+        attending_technician_id,
       trade_id: mergeId(b.tradeId, existing.trade_id),
       job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       reason_id: mergeId(b.reasonId, existing.reason_id),
@@ -816,7 +845,12 @@ export function createTechSalesRouter() {
     const matchedSale = findLatestSale(b.jobNumber);
     const values = {
       job_number: b.jobNumber || '',
-      credited_technician_id: b.creditedTechnicianId || null,
+      // No explicit value and no matched sale's own credited technician ->
+      // fall back to the original job's technician (via the matched sale's
+      // job_id), the same backstop used for Quote Approved Later/Call Back —
+      // see syncPendingCancellation() in routes/calls.js for the same rule
+      // applied to how this entry type is actually created in the UI today.
+      credited_technician_id: b.creditedTechnicianId || matchedSale?.credited_technician_id || originalJobTechnicianId(matchedSale?.job_id) || null,
       reason_id: b.reasonId || null,
       comments: b.comments || '',
     };
@@ -845,7 +879,13 @@ export function createTechSalesRouter() {
     const b = req.body || {};
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
-      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id),
+      // Same fallback as Quote Approved Later/Call Back's own edit routes —
+      // an edit that clears Credited Technician falls back to the original
+      // job's technician (via this entry's linked sale's job_id), rather
+      // than silently saving null.
+      credited_technician_id:
+        mergeId(b.creditedTechnicianId, existing.credited_technician_id) ||
+        originalJobTechnicianId(existing.sale_id ? get('SELECT job_id FROM sales WHERE id = ?', [existing.sale_id])?.job_id : null),
       reason_id: mergeId(b.reasonId, existing.reason_id),
       comments: b.comments ?? existing.comments,
     };

@@ -253,8 +253,6 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           }
         </AdjustableSection>
 
-        <KnockbackReasonsTracker layout={layout} setDrilldown={setDrilldown} />
-
         <AdjustableSection
           id="trend"
           title="Sales over time (ex GST)"
@@ -409,6 +407,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
             </div>
           )}
         </AdjustableSection>
+
+        <KnockbackReasonsTracker layout={layout} setDrilldown={setDrilldown} />
       </div>
 
       {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}

@@ -544,3 +544,109 @@ test('a record saved with no Technician at all is excluded from the By Technicia
     server.close();
   }
 });
+
+test('Editing a Quote Approved Later entry to clear Credited Technician falls back to the original job\'s technician — it can never silently end up with no technician assigned', async () => {
+  const server = await startTestServer();
+  try {
+    const { tech, plumbing } = await setup(server);
+    await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-QAL-CLEAR-1', lead: 'Not Qualified', knockbackReasonId: null })
+    );
+    const otherTech = (await server.request('POST', '/settings/technicians', { name: 'Other Tech' })).data;
+    const created = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-QAL-CLEAR-1',
+      newJobNumber: 'AROFLO-QAL-CLEAR-1',
+      dateLogged: '2026-10-26',
+      creditedTechnicianId: otherTech.id,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.entry.creditedTechnicianId, otherTech.id);
+
+    // Clearing it via an ordinary edit (e.g. a select reset to blank) must
+    // never save null — it falls back to the original job's own technician.
+    const cleared = await server.request('PATCH', `/tech/quote-approved-later/${created.data.entry.id}`, {
+      creditedTechnicianId: '',
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.data.creditedTechnicianId, tech.id, "falls back to JN-QAL-CLEAR-1's own technician, never blank");
+
+    // An explicit, different technician in the same edit is never overridden
+    // by the fallback — it only applies when nothing is actually provided.
+    const explicit = await server.request('PATCH', `/tech/quote-approved-later/${created.data.entry.id}`, {
+      creditedTechnicianId: otherTech.id,
+    });
+    assert.equal(explicit.data.creditedTechnicianId, otherTech.id);
+  } finally {
+    server.close();
+  }
+});
+
+test('Editing a Call Back entry to clear Credited Technician falls back to the original job\'s technician, or the Call Back\'s own Attending Technician if there is no matching job', async () => {
+  const server = await startTestServer();
+  try {
+    const { tech, plumbing } = await setup(server);
+    await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-CB-CLEAR-1', lead: 'Not Qualified', knockbackReasonId: null })
+    );
+    const otherTech = (await server.request('POST', '/settings/technicians', { name: 'Other CB Tech' })).data;
+
+    // Matches an existing job -> falls back to that job's technician.
+    const withJob = await server.request('POST', '/tech/call-backs', {
+      jobNumber: 'JN-CB-CLEAR-1',
+      visitDate: '2026-10-25',
+      technicianId: otherTech.id,
+      creditedTechnicianId: otherTech.id,
+    });
+    assert.equal(withJob.status, 201);
+    const clearedWithJob = await server.request('PATCH', `/tech/call-backs/${withJob.data.entry.id}`, { creditedTechnicianId: '' });
+    assert.equal(clearedWithJob.data.creditedTechnicianId, tech.id, "falls back to JN-CB-CLEAR-1's own technician");
+
+    // No matching job -> falls back to this call back's own Attending Technician.
+    const noJob = await server.request('POST', '/tech/call-backs', {
+      jobNumber: 'JN-CB-CLEAR-NOMATCH',
+      visitDate: '2026-10-25',
+      technicianId: otherTech.id,
+      creditedTechnicianId: otherTech.id,
+    });
+    assert.equal(noJob.status, 201);
+    const clearedNoJob = await server.request('PATCH', `/tech/call-backs/${noJob.data.entry.id}`, { creditedTechnicianId: '' });
+    assert.equal(clearedNoJob.data.creditedTechnicianId, otherTech.id, "falls back to this call back's own Attending Technician");
+  } finally {
+    server.close();
+  }
+});
+
+test('A record corrected after triggering the missing-technician warning makes that warning disappear automatically — no extra step required', async () => {
+  const server = await startTestServer();
+  try {
+    const { tech, plumbing } = await setup(server);
+    await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-SELFHEAL-1', lead: 'Not Qualified', knockbackReasonId: null })
+    );
+    const { run: dbRun } = await import('../src/db/index.js');
+    const { lastInsertRowid: callBackId } = dbRun(
+      `INSERT INTO call_backs (job_id, job_number, visit_date, attending_technician_id, credited_technician_id, created_by_user_id)
+       VALUES (NULL, ?, ?, NULL, NULL, 1)`,
+      ['JN-SELFHEAL-1', '2026-10-27']
+    );
+
+    const before = (await server.request('GET', '/reports/tech?from=2026-10-01&to=2026-10-31')).data;
+    assert.equal(before.missingTechnicianCount, 1);
+
+    // Correcting the record — exactly what the warning's drill-down links to
+    // (Edit button on the exact flagged row) — makes it disappear on its own.
+    const fixed = await server.request('PATCH', `/tech/call-backs/${callBackId}`, { creditedTechnicianId: tech.id });
+    assert.equal(fixed.status, 200);
+
+    const after = (await server.request('GET', '/reports/tech?from=2026-10-01&to=2026-10-31')).data;
+    assert.equal(after.missingTechnicianCount, 0, 'the warning clears itself the moment the record is correctly assigned');
+  } finally {
+    server.close();
+  }
+});

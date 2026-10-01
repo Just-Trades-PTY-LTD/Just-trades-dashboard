@@ -95,7 +95,7 @@ export function PieCardBody({ data, formatValue, height = 240, colorFor, onSlice
   );
 }
 
-export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220, onBarClick }) {
+export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220, onBarClick, labelWidth = 150 }) {
   if (data.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>No data in this range yet.</div>;
   }
@@ -104,7 +104,7 @@ export function BarCardBody({ data, color = 'var(--chart-teal)', height = 220, o
       <BarChart data={data} layout="vertical" margin={{ left: 20 }}>
         <CartesianGrid stroke="var(--border)" horizontal={false} />
         <XAxis type="number" allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-        <YAxis type="category" dataKey="name" width={150} stroke="var(--ink-muted)" fontSize={11} />
+        <YAxis type="category" dataKey="name" width={labelWidth} stroke="var(--ink-muted)" fontSize={11} />
         <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
         <Bar
           dataKey="value"
