@@ -8,6 +8,7 @@ import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
+import KnockbackReasonsTracker from './KnockbackReasonsTracker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function defaultFilters() {
@@ -251,6 +252,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
             )
           }
         </AdjustableSection>
+
+        <KnockbackReasonsTracker layout={layout} setDrilldown={setDrilldown} />
 
         <AdjustableSection
           id="trend"

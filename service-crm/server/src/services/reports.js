@@ -312,10 +312,11 @@ export function drilldownCalls({ from, to, handledByUserId, metric, category, se
 // ---------------------------------------------------------------------------
 function fetchJobsAll({ from, to, technicianId, tradeId }) {
   const rows = all(
-    `SELECT j.*, t.name AS technician_name, tr.name AS trade_name
+    `SELECT j.*, t.name AS technician_name, tr.name AS trade_name, kr.name AS knockback_reason_name
      FROM jobs j
      LEFT JOIN technicians t ON t.id = j.technician_id
      LEFT JOIN trades tr ON tr.id = j.trade_id
+     LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
      WHERE j.archived = 0`
   );
   return rows.filter(
@@ -640,6 +641,41 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
   return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount };
 }
 
+// A legacy job saved before Reason for Knockback was ever required — shown
+// as this, never guessed at or left to silently vanish from the totals.
+const NOT_RECORDED_REASON = 'Not recorded';
+
+// ---------------------------------------------------------------------------
+// Knockback Reasons tracker — its own report box, entirely independent of
+// the Technician & Sales report's own filters (it carries its own from/to/
+// technicianId/tradeId/reasonId, defaulting to the whole company with no
+// date restriction). Scoped to the exact same "genuine Actual Knockback"
+// population as the bonus-adjustment figures above (genuineKnockbackJobs) —
+// a qualified job with no sale at the visit, regardless of whether it was
+// ever later flipped by the separate, permanent converted_later mechanism
+// (see that function's own comment). This is deliberate: the user asked that
+// "the original knockback reason" stay attached to the original job "for
+// historical reporting" even once its quote is approved later — the
+// separate Converted Later sale is never itself a job and so can never
+// appear here.
+export function computeKnockbackReasonsReport({ from, to, technicianId, tradeId, reasonId } = {}) {
+  const { jobsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
+  let knockbacks = genuineKnockbackJobs(jobsAll);
+  if (reasonId) knockbacks = knockbacks.filter((j) => String(j.knockback_reason_id || '') === String(reasonId));
+
+  const total = knockbacks.length;
+  const counts = new Map();
+  knockbacks.forEach((j) => {
+    const name = j.knockback_reason_name || NOT_RECORDED_REASON;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  const byReason = Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count, percent: pct(count, total) }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+  return { total, byReason };
+}
+
 function tagRows(list, kind) {
   return list.map((r) => ({ kind, id: r.id }));
 }
@@ -803,6 +839,15 @@ export function drilldownTech({ from, to, technicianId, tradeId, metric, categor
       return { rows: list.map((j) => ({ kind: jobKind(j), id: j.id })), label: `${category} — Qualified leads` };
     }
     return { rows: tagSales(salesAll.filter((s) => s.trade_name === category)), label: `${category} — Sales` };
+  }
+  // The Knockback Reasons tracker's own drill-down — note this reads
+  // technicianId/tradeId directly from the box's own filters above (already
+  // applied by fetchTechRaw), never the Technician & Sales report's, since
+  // the two sets of filters are entirely independent. `category` is the
+  // clicked reason's exact display name, including "Not recorded".
+  if (metric === 'knockbackByReason') {
+    const knockbacks = genuineKnockbackJobs(jobsAll).filter((j) => (j.knockback_reason_name || NOT_RECORDED_REASON) === category);
+    return { rows: knockbacks.map((j) => ({ kind: 'new_job_no_sale', id: j.id })), label: `Knockback reasons — ${category}` };
   }
 
   let jobs = jobsAll;

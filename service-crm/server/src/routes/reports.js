@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { computeCallsReport, computeTechReport, drilldownCalls, drilldownTech } from '../services/reports.js';
+import { computeCallsReport, computeKnockbackReasonsReport, computeTechReport, drilldownCalls, drilldownTech } from '../services/reports.js';
 import { buildCallsWorkbook, buildTechWorkbook } from '../lib/xlsxReports.js';
 import { listCalls } from './calls.js';
 import { listTechEntries } from './techSales.js';
@@ -32,6 +32,13 @@ export function createReportsRouter() {
 
   router.get('/tech', (req, res) => {
     res.json(computeTechReport(req.query));
+  });
+
+  // Knockback Reasons tracker — its own report box with entirely independent
+  // filters from the Technician & Sales report above (from/to/technicianId/
+  // tradeId/reasonId all optional; omitted = whole company, no date limit).
+  router.get('/tech/knockback-reasons', (req, res) => {
+    res.json(computeKnockbackReasonsReport(req.query));
   });
 
   // Drill-down: resolve one clickable figure/chart section on a report to

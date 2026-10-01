@@ -89,6 +89,7 @@ export const api = {
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),
     tech: (params) => request('GET', `/reports/tech${qs(params)}`),
+    knockbackReasons: (params) => request('GET', `/reports/tech/knockback-reasons${qs(params)}`),
     callsXlsxUrl: (params) => `/api/reports/calls.xlsx${qs(params)}`,
     techXlsxUrl: (params) => `/api/reports/tech.xlsx${qs(params)}`,
     callsDrilldown: (params) => request('GET', `/reports/calls/drilldown${qs(params)}`),
