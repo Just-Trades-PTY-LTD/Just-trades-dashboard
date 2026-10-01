@@ -26,26 +26,25 @@
      validated with scripts/validate_palette.js from the dataviz skill the
      same way the previous bright set was — same hue anchors, just re-stepped
      for a pastel lightness/chroma. Worst adjacent ΔE 10.3 light / 8.1 dark
-     (target 8, floor 6), worst adjacent normal-vision ΔE 19.7 light / 17.7
+     (target 8, floor 6), worst adjacent normal-vision ΔE 20.0 light / 21.9
      dark (floor 15) — see the chart set below for the full 8-hue ring this
      combines with. Contrast vs the report surface sits in the expected
      pastel WARN band (well under 3:1 for several slots); mitigated the same
      way as before, by always rendering value labels in ink, never in the
-     slice's own colour. Electrical's yellow is pastel but kept at the
-     deeper/warmer end of the band specifically so it stays visibly yellow
-     rather than washing out near-white against the page's white surface —
-     a truly pale lemon pastel drops well under 2:1 contrast and all but
-     disappears. Heating & Cooling's red and Electrical's yellow are also
-     kept clear of --alert/--warn in both modes; because a pastel red/gold
-     naturally sits closer to those status colours' own soft tones than the
-     old vivid versions did, both are stepped deeper in dark mode than a
-     light pastel would otherwise sit (still lighter/softer than the
-     original, just not as pale) — worst ΔE vs status colours 16.9 (red)
-     / 18.7 (yellow) dark, 21.0 / 21.5 light, so neither is ever mistaken for
-     an error or warning. */
+     slice's own colour. Electrical's yellow deliberately trades some of
+     that contrast for a brighter, cleaner "light lemon" look (1.8:1 light —
+     still enough to read clearly against the white surface without the
+     mustard/olive cast a deeper gold gets at higher contrast); dark mode's
+     yellow is correspondingly brightened too so Electrical looks like the
+     same colour family in both modes. Heating & Cooling's red and
+     Electrical's yellow are also kept clear of --alert/--warn in both
+     modes — worst ΔE vs status colours 16.9 (red) / 16.2 (yellow) dark,
+     21.0 / 28.3 light — so neither is ever mistaken for an error or
+     warning; red stays stepped deeper in dark mode than a light pastel
+     would otherwise sit; yellow clears that gap easily once brightened. */
   --trade-plumbing: #6fb0f0;
   --trade-heating-cooling: #ec7472;
-  --trade-electrical: #d4a61c;
+  --trade-electrical: #ddc024;
   --trade-electrical-ink: #1a1a16;
 
   /* Pastel categorical set for non-trade breakdowns (referral sources,
@@ -85,7 +84,7 @@
 
     --trade-plumbing: #5a93d9;
     --trade-heating-cooling: #b8341f;
-    --trade-electrical: #917512;
+    --trade-electrical: #f0e050;
     --trade-electrical-ink: #1a1a16;
 
     --chart-teal: #2ba89c;
