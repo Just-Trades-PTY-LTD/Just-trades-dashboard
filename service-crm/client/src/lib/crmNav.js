@@ -37,7 +37,9 @@ function defaultNav() {
   return {
     module: readLegacy(LEGACY_KEYS.module, 'home'),
     pendingJump: null,
-    calls: { sub: readLegacy(LEGACY_KEYS.callsSub, 'log'), editing: null },
+    // Always floors to the recent contacts list, never a blank/stale "log a
+    // contact" form left over from a previous session — see Calls/index.jsx.
+    calls: { sub: 'history', editing: null },
     tech: { sub: readLegacy(LEGACY_KEYS.techSub, 'log'), editing: null },
     reports: { sub: readLegacy(LEGACY_KEYS.reportsSub, 'calls'), callsDrilldown: null, techDrilldown: null },
     settings: { sub: readLegacy(LEGACY_KEYS.settingsSub, 'lists') },
