@@ -8,7 +8,8 @@ import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
-import KnockbackReasonsTracker from './KnockbackReasonsTracker.jsx';
+import KnockbackReasonsTracker, { defaultKnockbackReasonsFilters } from './KnockbackReasonsTracker.jsx';
+import { useSessionState } from '../../lib/useSessionState.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function defaultFilters() {
@@ -30,6 +31,14 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const layout = useReportLayout('tech');
+  // Owned here (not inside KnockbackReasonsTracker) purely so the "Export to
+  // Excel" link below can carry this box's own current filters alongside the
+  // report's own — see techXlsxUrl() just below and buildTechWorkbook() on
+  // the server, which reads them back out of the same kbr-prefixed params.
+  const [knockbackReasonsFilters, setKnockbackReasonsFilters] = useSessionState(
+    'crm.reports.tech.knockbackReasons.filters',
+    defaultKnockbackReasonsFilters
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -116,7 +125,24 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
-        <a className="btn btn-primary" href={api.reports.techXlsxUrl(applied)} style={{ marginLeft: 'auto' }}>
+        <a
+          className="btn btn-primary"
+          href={api.reports.techXlsxUrl({
+            ...applied,
+            // The Knockback Reasons tracker's own current filters, kept
+            // entirely separate from the report's own above (kbr-prefixed
+            // so neither set can collide with or override the other) — see
+            // routes/reports.js's /tech.xlsx, which reads these back out to
+            // build the two Knockback Reasons sheets from exactly what the
+            // tracker currently shows.
+            kbrFrom: knockbackReasonsFilters.from,
+            kbrTo: knockbackReasonsFilters.to,
+            kbrTechnicianId: knockbackReasonsFilters.technicianId,
+            kbrTradeId: knockbackReasonsFilters.tradeId,
+            kbrReasonId: knockbackReasonsFilters.reasonId,
+          })}
+          style={{ marginLeft: 'auto' }}
+        >
           Export to Excel
         </a>
       </div>
@@ -408,7 +434,12 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           )}
         </AdjustableSection>
 
-        <KnockbackReasonsTracker layout={layout} setDrilldown={setDrilldown} />
+        <KnockbackReasonsTracker
+          layout={layout}
+          setDrilldown={setDrilldown}
+          filters={knockbackReasonsFilters}
+          setFilters={setKnockbackReasonsFilters}
+        />
       </div>
 
       {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}

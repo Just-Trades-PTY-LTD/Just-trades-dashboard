@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
-import { useSessionState } from '../../lib/useSessionState.js';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { BarCardBody } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
-function defaultFilters() {
+export function defaultKnockbackReasonsFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '', reasonId: '' };
 }
 
@@ -19,14 +18,17 @@ function defaultFilters() {
 // unlike the main report, since this is cheap to recompute and the whole
 // point is fast back-and-forth between "whole company" and one technician.
 //
+// `filters`/`setFilters` are owned by TechReport.jsx (not this component)
+// purely so its "Export to Excel" link can carry this box's own current
+// filters alongside the report's own — see that file's techXlsxUrl() call.
+//
 // Counts the exact same "genuine Actual Knockback" population as the
 // Actual Knockbacks figure above (see services/reports.js's
 // computeKnockbackReasonsReport/genuineKnockbackJobs) — a knock-back keeps
 // its original reason here even once its quote is later approved, since
 // that's a separate Converted Later credit, never another knock-back.
-export default function KnockbackReasonsTracker({ layout, setDrilldown }) {
+export default function KnockbackReasonsTracker({ layout, setDrilldown, filters, setFilters }) {
   const settings = useSettings();
-  const [filters, setFilters] = useSessionState('crm.reports.tech.knockbackReasons.filters', defaultFilters);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -78,7 +80,7 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown }) {
               onChange={(v) => patch({ reasonId: v })}
               options={settings.lists.knockback_reason}
             />
-            <button className="btn" type="button" onClick={() => setFilters(defaultFilters())}>
+            <button className="btn" type="button" onClick={() => setFilters(defaultKnockbackReasonsFilters())}>
               Clear filters
             </button>
             {!loading && data && (

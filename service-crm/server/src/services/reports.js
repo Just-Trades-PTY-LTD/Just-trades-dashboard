@@ -673,7 +673,23 @@ export function computeKnockbackReasonsReport({ from, to, technicianId, tradeId,
     .map(([name, count]) => ({ name, count, percent: pct(count, total) }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
-  return { total, byReason };
+  // The exact original knock-back job records behind the figures above —
+  // same population, same filters, so a consumer (e.g. the Excel export)
+  // can never drift from what's displayed. Never a Quote Approved Later/
+  // Converted Later row: genuineKnockbackJobs() only ever returns jobs.
+  const records = knockbacks
+    .map((j) => ({
+      jobNumber: j.job_number,
+      visitDate: j.visit_date,
+      technicianName: j.technician_name || '',
+      tradeName: j.trade_name || '',
+      // "Not recorded" applies only to the knock-back reason itself (an
+      // older job saved before it was required) — never guessed at here.
+      reasonName: j.knockback_reason_name || NOT_RECORDED_REASON,
+    }))
+    .sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.jobNumber.localeCompare(b.jobNumber));
+
+  return { total, byReason, records };
 }
 
 function tagRows(list, kind) {

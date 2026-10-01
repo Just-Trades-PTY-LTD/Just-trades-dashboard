@@ -104,8 +104,23 @@ export function createReportsRouter() {
     const lookups = {
       technicians: idNameMap(all('SELECT id, name FROM technicians')),
       trades: idNameMap(all('SELECT id, name FROM trades')),
+      knockbackReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'knockback_reason'")),
     };
-    const wb = buildTechWorkbook(data, req.query, lookups);
+    // Knockback Reasons tracker — entirely independent filters from the
+    // report above (kbr-prefixed query params), exactly matching whatever
+    // the tracker box currently has applied, so this export's totals always
+    // match what's on screen there. See computeKnockbackReasonsReport() —
+    // same population (genuine Actual Knockback jobs only, never a Quote
+    // Approved Later/Converted Later record) that already backs that box.
+    const knockbackReasonsFilters = {
+      from: req.query.kbrFrom,
+      to: req.query.kbrTo,
+      technicianId: req.query.kbrTechnicianId,
+      tradeId: req.query.kbrTradeId,
+      reasonId: req.query.kbrReasonId,
+    };
+    const knockbackReasonsData = computeKnockbackReasonsReport(knockbackReasonsFilters);
+    const wb = buildTechWorkbook(data, req.query, lookups, knockbackReasonsData, knockbackReasonsFilters);
     await sendWorkbook(res, wb, 'technician-sales-report');
   });
 

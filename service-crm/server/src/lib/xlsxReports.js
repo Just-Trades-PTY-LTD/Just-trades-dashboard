@@ -169,7 +169,7 @@ const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'pendingCancellations', label: 'Pending Cancellations' },
 ];
 
-export function buildTechWorkbook(data, filters, lookups) {
+export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, knockbackReasonsFilters) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Just Trades CRM';
   wb.created = new Date();
@@ -249,6 +249,50 @@ export function buildTechWorkbook(data, filters, lookups) {
     { key: 'value', label: 'Value (ex GST)', value: (r) => money(r.value) },
     { key: 'count', label: 'Sales count' },
   ], data.trend);
+
+  // Knockback Reasons tracker — its own two sheets, driven entirely by that
+  // box's own filters (knockbackReasonsFilters/knockbackReasonsData), never
+  // the Technician & Sales report's filters above. Both sheets are built
+  // from the exact same computeKnockbackReasonsReport() result, so their
+  // totals can never drift apart from each other or from what the tracker
+  // itself currently shows on screen.
+  if (knockbackReasonsData) {
+    const kf = knockbackReasonsFilters || {};
+    const kbrExtra = [
+      `Technician: ${kf.technicianId ? lookups?.technicians?.get(String(kf.technicianId)) || `#${kf.technicianId}` : 'All'}`,
+      `Trade: ${kf.tradeId ? lookups?.trades?.get(String(kf.tradeId)) || `#${kf.tradeId}` : 'All'}`,
+      `Reason: ${kf.reasonId ? lookups?.knockbackReasons?.get(String(kf.reasonId)) || `#${kf.reasonId}` : 'All'}`,
+    ];
+    const kbrFilterLines = filterSummaryLines({ from: kf.from, to: kf.to, extra: kbrExtra });
+
+    const kbrSummary = wb.addWorksheet('Knockback Reasons Summary');
+    addTitleBlock(kbrSummary, 'Knockback Reasons — Summary', kbrFilterLines);
+    addDataTable(
+      kbrSummary,
+      [
+        { key: 'name', label: 'Reason', width: 36 },
+        { key: 'count', label: 'Count' },
+        { key: 'percent', label: '% of knock-backs', value: (r) => `${r.percent}%` },
+      ],
+      knockbackReasonsData.byReason
+    );
+    kbrSummary.addRow([]);
+    kbrSummary.addRow(['Total', knockbackReasonsData.total]);
+
+    const kbrRecords = wb.addWorksheet('Knockback Records');
+    addTitleBlock(kbrRecords, 'Knockback Reasons — Records', kbrFilterLines);
+    addDataTable(
+      kbrRecords,
+      [
+        { key: 'jobNumber', label: 'Job number', width: 18 },
+        { key: 'visitDate', label: 'Date', width: 14 },
+        { key: 'technicianName', label: 'Technician', width: 22 },
+        { key: 'tradeName', label: 'Trade', width: 18 },
+        { key: 'reasonName', label: 'Knockback reason', width: 32 },
+      ],
+      knockbackReasonsData.records
+    );
+  }
 
   return wb;
 }
