@@ -29,7 +29,18 @@ function emptyFilters() {
   return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false };
 }
 
-export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded }) {
+// forceKnockbackLabel: set only when this list is the Technician & Sales
+// report's "Actual Knockbacks" drill-down (see DrilldownModal.jsx). Every row
+// there is, by that figure's own definition, a genuine Actual Knockback —
+// regardless of the separate, permanent knock-back→converted flip a later
+// Quote Approved Later sale on the same Job Number may have since set on it
+// (see reports.js's computeConvertedLaterAdjustment(), which deliberately
+// ignores that flip). Outside this one drill-down, that flip is still
+// meaningful, accurate information about the job and is shown as normal;
+// only here would showing "Converted later" instead of "Knock back" make an
+// Actual Knockback record look like it belongs to the separate Converted
+// Later figure instead.
+export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded, forceKnockbackLabel }) {
   const settings = useSettings();
   const [filters, setFilters] = usePersistentFilters('crm.tech.historyFilters', emptyFilters, embedded);
   const [expandedId, setExpandedId] = useState(null);
@@ -249,10 +260,12 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                       </td>
                       <td>{e.suburb || '—'}</td>
                       <td>
-                        {e.kind === 'new_job_no_sale' && !e.convertedLater && (
+                        {e.kind === 'new_job_no_sale' && (!e.convertedLater || forceKnockbackLabel) && (
                           <span className="badge badge-warn">Knock back{e.knockbackReasonName ? `: ${e.knockbackReasonName}` : ''}</span>
                         )}
-                        {e.kind === 'new_job_no_sale' && e.convertedLater && <span className="badge badge-success">Converted later</span>}
+                        {e.kind === 'new_job_no_sale' && e.convertedLater && !forceKnockbackLabel && (
+                          <span className="badge badge-success">Converted later</span>
+                        )}
                         {(e.kind === 'new_job_sale_made' || e.kind === 'quote_approved_later') && e.invoiceNumber && (
                           <span className="badge badge-success">
                             {money(e.saleValueExGst)} ex GST — inv {e.invoiceNumber}

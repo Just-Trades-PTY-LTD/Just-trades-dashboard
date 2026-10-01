@@ -108,7 +108,16 @@ export default function DrilldownModal({ kind, params, jumpToJN, onClose }) {
           ) : kind === 'calls' ? (
             <CallHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} onChanged={load} jumpToJN={jumpToJN} setNotice={setNotice} embedded />
           ) : (
-            <JobHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} onChanged={load} jumpToJN={jumpToJN} setNotice={setNotice} embedded />
+            <JobHistory
+              rows={data?.rows || []}
+              loading={false}
+              onEdit={setEditingRecord}
+              onChanged={load}
+              jumpToJN={jumpToJN}
+              setNotice={setNotice}
+              embedded
+              forceKnockbackLabel={params.metric === 'actualKnockbacks'}
+            />
           )}
         </div>
       </div>

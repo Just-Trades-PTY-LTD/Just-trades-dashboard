@@ -335,6 +335,67 @@ test('Drill-downs: Actual Knockbacks and Converted Later each show the right rec
   }
 });
 
+test('Actual Knockbacks drill-down never includes the separate Converted Later record, even when a Quote Approved Later sale references the same knockback\'s own Job Number (the permanent knock-back→converted flip)', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, knockbackReasonId, techA } = await setup(server);
+    const jn = 'JN-FLIP-SAME-JN';
+    const job = await knockback(server, { technicianId: techA.id, visitDate: '2026-03-03', tradeId: plumbing.id, jobTypeId, knockbackReasonId, jobNumber: jn });
+    assert.equal(job.convertedLater, false);
+
+    // This Quote Approved Later references the KNOCKBACK's own Job Number
+    // (unlike the convertedLaterCredit() helper's anchor pattern used
+    // elsewhere) — this is what triggers the separate, permanent
+    // knock-back→converted flip on the original job (see
+    // findConvertibleKnockback() in techSales.js), on top of the new bonus
+    // credit computed below.
+    const qal = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: jn,
+      newJobNumber: 'AROFLO-FLIP-SAME-JN',
+      dateLogged: '2026-03-04',
+      creditedTechnicianId: techA.id,
+      invoiceNumber: 'INV-FLIP-SAME-JN',
+      invoiceDate: '2026-03-04',
+      saleValueExGst: 500,
+    });
+    assert.equal(qal.status, 201);
+
+    const from = '2026-03-02';
+    const to = '2026-03-08';
+    const report = (await server.request('GET', `/reports/tech?from=${from}&to=${to}`)).data;
+    assert.equal(report.company.actualKnockbacks, 1);
+    assert.equal(report.company.convertedLaterCredits, 1);
+    assert.equal(report.company.adjustedKnockbacks, 0);
+
+    // The original job is now permanently flagged converted_later=true by
+    // the separate flip — confirmed directly so this test would catch a
+    // regression in either mechanism, not just in the drill-down below.
+    const entries = (await server.request('GET', '/tech/entries')).data;
+    const jobAfter = entries.find((e) => e.jobNumber === jn && e.kind === 'new_job_no_sale');
+    assert.equal(jobAfter.convertedLater, true, 'sanity check: the permanent flip did fire for this scenario');
+
+    const actualDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=actualKnockbacks`)).data;
+    assert.equal(actualDrill.count, 1, 'the original knock-back record remains counted, exactly once');
+    assert.equal(actualDrill.rows[0].kind, 'new_job_no_sale');
+    assert.equal(actualDrill.rows[0].id, job.id);
+    assert.ok(
+      !actualDrill.rows.some((r) => r.kind === 'quote_approved_later'),
+      'the separate Converted Later record must never appear alongside it'
+    );
+    // The row still carries convertedLater — the frontend relies on this to
+    // know it must show "Knock back", never "Converted later", specifically
+    // inside this drill-down (see JobHistory.jsx's forceKnockbackLabel).
+    assert.equal(actualDrill.rows[0].convertedLater, true);
+
+    const creditDrill = (await server.request('GET', `/reports/tech/drilldown?from=${from}&to=${to}&metric=convertedLaterCredits`)).data;
+    assert.equal(creditDrill.count, 1);
+    assert.equal(creditDrill.rows[0].kind, 'quote_approved_later');
+    assert.equal(creditDrill.rows[0].id, qal.data.entry.id);
+  } finally {
+    server.close();
+  }
+});
+
 test("Tyler's worked example: a genuine conversion and a separate 'extra invoice' sale are distinguished correctly", async () => {
   const server = await startTestServer();
   try {
