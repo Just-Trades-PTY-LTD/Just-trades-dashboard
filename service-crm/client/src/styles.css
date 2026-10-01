@@ -21,37 +21,45 @@
   /* Trade identity colours — fixed hues, same trade = same colour everywhere
      these appear (summary cards, breakdowns, charts, legends). Deliberately
      separate tokens from --accent (the app's general button/link colour) so
-     brightening these for reports never changes the rest of the UI.
-     Validated with scripts/validate_palette.js from the dataviz skill: CVD
-     separation and normal-vision floor pass with lots of room to spare
-     (worst ΔE 22.3 all-pairs). Plumbing's blue and Electrical's yellow are
-     both deliberately lighter/brighter than the skill's usual categorical
-     band, so they read as a genuinely bright blue and a true vibrant yellow
-     rather than muted/mustard — the only check that formally fails is the
-     structural lightness-band rule, which exists for palette-wide
-     consistency, not readability; contrast and colour-blind separation are
-     both fine (mitigated where needed by the direct value labels these
-     charts already carry, always rendered in ink, never in the slice's own
-     colour). Heating & Cooling's red is kept clear of --alert/--warn (worst
-     ΔE 18.0 light / 14.8 dark) so it is never mistaken for an error or
-     warning. */
-  --trade-plumbing: #3b82f6;
-  --trade-heating-cooling: #ff0809;
-  --trade-electrical: #facc15;
+     restyling these for reports never changes the rest of the UI.
+     A soft pastel palette: lighter, lower-chroma versions of each hue,
+     validated with scripts/validate_palette.js from the dataviz skill the
+     same way the previous bright set was — same hue anchors, just re-stepped
+     for a pastel lightness/chroma. Worst adjacent ΔE 10.3 light / 8.1 dark
+     (target 8, floor 6), worst adjacent normal-vision ΔE 19.7 light / 17.7
+     dark (floor 15) — see the chart set below for the full 8-hue ring this
+     combines with. Contrast vs the report surface sits in the expected
+     pastel WARN band (well under 3:1 for several slots); mitigated the same
+     way as before, by always rendering value labels in ink, never in the
+     slice's own colour. Electrical's yellow is pastel but kept at the
+     deeper/warmer end of the band specifically so it stays visibly yellow
+     rather than washing out near-white against the page's white surface —
+     a truly pale lemon pastel drops well under 2:1 contrast and all but
+     disappears. Heating & Cooling's red and Electrical's yellow are also
+     kept clear of --alert/--warn in both modes; because a pastel red/gold
+     naturally sits closer to those status colours' own soft tones than the
+     old vivid versions did, both are stepped deeper in dark mode than a
+     light pastel would otherwise sit (still lighter/softer than the
+     original, just not as pale) — worst ΔE vs status colours 16.9 (red)
+     / 18.7 (yellow) dark, 21.0 / 21.5 light, so neither is ever mistaken for
+     an error or warning. */
+  --trade-plumbing: #6fb0f0;
+  --trade-heating-cooling: #ec7472;
+  --trade-electrical: #d4a61c;
   --trade-electrical-ink: #1a1a16;
 
-  /* Bright categorical set for non-trade breakdowns (referral sources,
+  /* Pastel categorical set for non-trade breakdowns (referral sources,
      cancellation/knock-back reasons, metric series). Fixed order — combined
-     with the trade colours above into one validated 8-hue ring in
+     with the trade colours above into one validated 8-hue pastel ring in
      Charts.jsx's PIE_COLORS (adjacent pairs, including the wrap from last
      back to first, all clear the colour-blind and normal-vision floors in
      both modes) so that categories rendered next to each other never share
-     a colour family. */
-  --chart-teal: #00ccbc;
-  --chart-orange: #eb6834;
-  --chart-violet: #4a3aa7;
-  --chart-magenta: #e87ba4;
-  --chart-green: #008300;
+     a colour family or read as near-identical pastels. */
+  --chart-teal: #3dc2b4;
+  --chart-orange: #f0975a;
+  --chart-violet: #9884dd;
+  --chart-magenta: #ec8fb9;
+  --chart-green: #5cb563;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -75,16 +83,16 @@
     --info: #7cbdec;
     --info-tint: #1c2c38;
 
-    --trade-plumbing: #60a5fa;
-    --trade-heating-cooling: #e60003;
-    --trade-electrical: #fde047;
+    --trade-plumbing: #5a93d9;
+    --trade-heating-cooling: #b8341f;
+    --trade-electrical: #917512;
     --trade-electrical-ink: #1a1a16;
 
-    --chart-teal: #199e70;
-    --chart-orange: #d95926;
-    --chart-violet: #9085e9;
-    --chart-magenta: #d55181;
-    --chart-green: #008300;
+    --chart-teal: #2ba89c;
+    --chart-orange: #cc7538;
+    --chart-violet: #9884dd;
+    --chart-magenta: #cc6896;
+    --chart-green: #4a9c51;
   }
 }
 
