@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Applies a saved Settings → Appearance theme choice (src/lib/theme.js)
+      // before React loads, so the page paints in the right theme straight
+      // away instead of flashing the OS-default one first. No-op (falls
+      // through to the CSS prefers-color-scheme default) if nothing's been
+      // explicitly chosen yet, or storage access fails (private browsing).
+      try {
+        var crmTheme = localStorage.getItem('crm.theme');
+        if (crmTheme === 'light' || crmTheme === 'dark') {
+          document.documentElement.setAttribute('data-theme', crmTheme);
+        }
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
