@@ -6,6 +6,7 @@ const ENTRY_TYPE_LABELS = {
   new_job_no_sale: 'New Job — No Sale',
   new_job_sale_made: 'New Job — Sale Made',
   quote_approved_later: 'Existing Job — Quote Approved Later',
+  existing_job_upsell: 'Existing Job — Upsell',
   call_back: 'Call Back',
   pending_cancellation: 'Pending Cancellation',
 };

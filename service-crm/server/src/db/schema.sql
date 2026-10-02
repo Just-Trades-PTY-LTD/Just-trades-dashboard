@@ -149,6 +149,18 @@ CREATE TABLE IF NOT EXISTS sales (
   invoice_date TEXT NOT NULL,
   sale_value_ex_gst REAL NOT NULL DEFAULT 0,
   comments TEXT NOT NULL DEFAULT '',
+  -- Existing Job — Upsell: a different technician adding extra work onto a
+  -- job's existing invoice (source stays 'quote_approved_later' — this is
+  -- genuinely a later addition against an existing job, same family — this
+  -- flag is the only thing that distinguishes it). Never its own Total/
+  -- Qualified Job, never Converted Later, never touches Adjusted Knockbacks —
+  -- see services/reports.js's quoteApprovedLaterSales(), which excludes it.
+  is_upsell INTEGER NOT NULL DEFAULT 0,
+  -- The original job's suburb, copied in at creation for an Upsell entry
+  -- (every other source leaves this blank) so it can be displayed and
+  -- corrected independently without ever touching the original job's own
+  -- suburb.
+  suburb TEXT NOT NULL DEFAULT '',
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

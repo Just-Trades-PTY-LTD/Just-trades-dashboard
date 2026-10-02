@@ -7,9 +7,11 @@ import {
   findConvertibleKnockback,
   findDuplicateInvoice,
   findDuplicateNewJobNumber,
+  findDuplicateUpsell,
   findOriginalBookingCall,
   findOriginalJob,
   findLatestSale,
+  findSaleForInvoice,
   isTechnicianActive,
   normKey,
 } from '../services/lookup.js';
@@ -41,6 +43,7 @@ const SALE_TRACKED_FIELDS = [
   'invoice_date',
   'sale_value_ex_gst',
   'comments',
+  'suburb',
 ];
 const CALL_BACK_TRACKED_FIELDS = [
   'job_number',
@@ -157,8 +160,8 @@ function jobToEntry(j) {
 
 function saleToEntry(s) {
   return {
-    kind: 'quote_approved_later',
-    entryLabel: 'Existing Job — Quote Approved Later',
+    kind: s.is_upsell ? 'existing_job_upsell' : 'quote_approved_later',
+    entryLabel: s.is_upsell ? 'Existing Job — Upsell' : 'Existing Job — Quote Approved Later',
     id: s.id,
     archived: !!s.archived,
     dateShown: s.date_logged,
@@ -167,10 +170,10 @@ function saleToEntry(s) {
     creditedTechnicianId: s.credited_technician_id,
     creditedTechnicianName: s.credited_technician_name,
     // The *original* visit's Job Number — used for matching/linking/
-    // attribution (see /quote-approved-later below). Distinct from
-    // newJobNumber, the separate AroFlo JN created for the approved work,
-    // which is reference/search only and blank ('') on any legacy record
-    // saved before this field existed.
+    // attribution (see /quote-approved-later and /existing-job-upsell
+    // below). Distinct from newJobNumber, the separate AroFlo JN created for
+    // the approved work on a true Quote Approved Later — never populated for
+    // an Upsell, which has no such second JN.
     jobNumber: s.job_number,
     newJobNumber: s.new_job_number || '',
     tradeId: s.trade_id,
@@ -180,6 +183,10 @@ function saleToEntry(s) {
     invoiceNumber: s.invoice_number,
     invoiceDate: s.invoice_date,
     saleValueExGst: s.sale_value_ex_gst,
+    // Only ever populated for an Upsell (its own, independently-editable
+    // copy of the original job's suburb) — blank for every other source,
+    // same convention as newJobNumber above.
+    suburb: s.suburb || '',
     comments: s.comments,
     createdAt: s.created_at,
   };
@@ -234,6 +241,7 @@ const ENTITY_TYPE_BY_KIND = {
   new_job_no_sale: 'job',
   new_job_sale_made: 'job',
   quote_approved_later: 'sale',
+  existing_job_upsell: 'sale',
   call_back: 'call_back',
   pending_cancellation: 'pending_cancellation',
 };
@@ -316,6 +324,10 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
       : 0;
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
     else if (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') e.canDelete = !jobIdsWithSales.has(e.id);
+    // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
+    // callers below — it's never called for this entry type), so it can
+    // never be the sale a job's converted_by_sale_id points back to.
+    else if (e.kind === 'existing_job_upsell') e.canDelete = true;
     else e.canDelete = true;
   });
 
@@ -679,7 +691,10 @@ export function createTechSalesRouter() {
   });
 
   router.patch('/quote-approved-later/:id', (req, res) => {
-    const existing = get('SELECT * FROM sales WHERE id = ? AND source = ?', [req.params.id, 'quote_approved_later']);
+    // is_upsell = 0 so this route can never be used to edit an Upsell entry
+    // (which shares the same `source` value) — see /existing-job-upsell/:id
+    // below for that row's own edit route.
+    const existing = get('SELECT * FROM sales WHERE id = ? AND source = ? AND is_upsell = 0', [req.params.id, 'quote_approved_later']);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
     // Editing is never blocked by the "must match" or "both required" rules
@@ -727,6 +742,171 @@ export function createTechSalesRouter() {
         next.invoice_date,
         next.sale_value_ex_gst,
         next.comments,
+        req.params.id,
+      ]
+    );
+    recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
+    res.json(saleToEntry(saleRow(req.params.id)));
+  });
+
+  // ---- Existing Job — Upsell ----
+  // A different technician adding extra work onto a job's EXISTING invoice —
+  // never a new invoice, never a new job. Deliberately its own route rather
+  // than a variant of Quote Approved Later above: it must never trigger that
+  // flow's "flip a knock-back to converted" behaviour (findConvertibleKnockback
+  // is never called below) and must link against an invoice ALREADY on
+  // record, not a freely-entered one.
+  router.post('/existing-job-upsell', (req, res) => {
+    const b = req.body || {};
+    const missing = [];
+    if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Job Number');
+    if (!b.invoiceNumber || !String(b.invoiceNumber).trim()) missing.push('Invoice Number');
+    // Credited Technician is who actually made the upsell — mandatory on
+    // creation (never on edit, matching every other entry type here) so it
+    // can never silently fall into an "Unassigned" bucket in reports.
+    if (!b.creditedTechnicianId) missing.push('Credited Technician');
+    if (missing.length) {
+      return res.status(400).json({
+        error: `Please complete the following required field${missing.length > 1 ? 's' : ''} before saving: ${missing.join(', ')}.`,
+      });
+    }
+    // Must reference a job that's actually on record — exact Job Number
+    // match only, same rule as Quote Approved Later above.
+    const matchedJob = findOriginalJob(b.jobNumber);
+    if (!matchedJob) {
+      return res.status(400).json({
+        error: `No existing job found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference a Job Number that was already logged as a New Job entry.`,
+      });
+    }
+    // Must reference an invoice that's actually on record for that job — an
+    // Upsell adds value onto an EXISTING invoice, never a new one. Excludes
+    // other Upsell rows (see findSaleForInvoice): it must link to the
+    // genuine original sale, not another upsell that happens to share the
+    // same invoice number.
+    const matchedSale = findSaleForInvoice(b.jobNumber, b.invoiceNumber);
+    if (!matchedSale) {
+      return res.status(400).json({
+        error: `No existing invoice ${b.invoiceNumber} found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference an invoice that's already on record for that job.`,
+      });
+    }
+    // Duplicate protection: the exact same upsell (same job, same invoice,
+    // same technician) accidentally entered twice. A different technician,
+    // or the same technician on a different invoice/date for this job, is
+    // never blocked by this.
+    const dupeUpsell = findDuplicateUpsell(b.jobNumber, b.invoiceNumber, b.creditedTechnicianId);
+    if (dupeUpsell) {
+      return res.status(400).json({
+        error: `${b.creditedTechnicianId == dupeUpsell.credited_technician_id ? 'This technician' : 'A technician'} already has an Upsell logged for invoice ${b.invoiceNumber} on Job Number ${b.jobNumber}.`,
+      });
+    }
+
+    const saleValues = {
+      job_number: b.jobNumber || '',
+      credited_technician_id: b.creditedTechnicianId || null,
+      // The original job's Trade, Job Type and Suburb are auto-populated
+      // below where possible, but stay editable — an explicit value in the
+      // request always wins over the matched job's own value, and none of
+      // this ever touches the original job row itself.
+      trade_id: b.tradeId || matchedJob.trade_id || null,
+      job_type_id: b.jobTypeId || matchedJob.job_type_id || null,
+      invoice_number: b.invoiceNumber || '',
+      // The matched invoice's own date is the sensible default for "relevant
+      // invoice date" — still editable in case it needs correcting.
+      invoice_date: b.invoiceDate || matchedSale.invoice_date || '',
+      // The ADDITIONAL upsell value ex GST only — never the full invoice
+      // value again (the original sale's own sale_value_ex_gst is never
+      // read or added here).
+      sale_value_ex_gst: Number(b.saleValueExGst) || 0,
+      comments: b.comments || '',
+      suburb: b.suburb || matchedJob.suburb || '',
+    };
+    const saleId = transaction(() => {
+      const { lastInsertRowid } = run(
+        `INSERT INTO sales (job_id, job_number, source, is_upsell, date_logged, credited_technician_id, trade_id, job_type_id,
+          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id)
+         VALUES (?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          matchedJob.id,
+          saleValues.job_number,
+          b.dateLogged,
+          saleValues.credited_technician_id,
+          saleValues.trade_id,
+          saleValues.job_type_id,
+          saleValues.invoice_number,
+          saleValues.invoice_date,
+          saleValues.sale_value_ex_gst,
+          saleValues.comments,
+          saleValues.suburb,
+          req.user.id,
+        ]
+      );
+      recordAudit({ entityType: 'sale', entityId: lastInsertRowid, before: null, after: saleValues, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
+      // Deliberately never calls findConvertibleKnockback/flips converted_later
+      // here — an Upsell must never count as Converted Later or touch the
+      // original job's own knock-back/conversion state in any way.
+      return lastInsertRowid;
+    });
+
+    res.status(201).json({ entry: saleToEntry(saleRow(saleId)) });
+  });
+
+  router.patch('/existing-job-upsell/:id', (req, res) => {
+    const existing = get('SELECT * FROM sales WHERE id = ? AND is_upsell = 1', [req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Entry not found.' });
+    const b = req.body || {};
+    // Re-checked on edit only when the job/invoice/technician combination is
+    // actually changing — the same "must match an existing invoice" /
+    // "no duplicate" rules as creation, exactly mirroring how Quote Approved
+    // Later's own edit route re-checks its duplicate New Job Number rule
+    // above only when that field is actually being changed.
+    const nextJobNumber = b.jobNumber ?? existing.job_number;
+    const nextInvoiceNumber = b.invoiceNumber ?? existing.invoice_number;
+    const nextCreditedTechnicianId = mergeId(b.creditedTechnicianId, existing.credited_technician_id) || originalJobTechnicianId(existing.job_id);
+    if (b.jobNumber !== undefined || b.invoiceNumber !== undefined) {
+      const matchedSale = findSaleForInvoice(nextJobNumber, nextInvoiceNumber);
+      if (!matchedSale) {
+        return res.status(400).json({
+          error: `No existing invoice ${nextInvoiceNumber} found for Job Number ${nextJobNumber}. "Existing Job — Upsell" must reference an invoice that's already on record for that job.`,
+        });
+      }
+    }
+    if (b.jobNumber !== undefined || b.invoiceNumber !== undefined || b.creditedTechnicianId !== undefined) {
+      const dupeUpsell = findDuplicateUpsell(nextJobNumber, nextInvoiceNumber, nextCreditedTechnicianId, req.params.id);
+      if (dupeUpsell) {
+        return res.status(400).json({
+          error: `${nextCreditedTechnicianId == dupeUpsell.credited_technician_id ? 'This technician' : 'A technician'} already has an Upsell logged for invoice ${nextInvoiceNumber} on Job Number ${nextJobNumber}.`,
+        });
+      }
+    }
+    const next = {
+      job_number: nextJobNumber,
+      // Same fallback as Quote Approved Later's own edit route — an edit
+      // that clears Credited Technician falls back to the original job's
+      // technician, never silently saving null.
+      credited_technician_id: nextCreditedTechnicianId,
+      trade_id: mergeId(b.tradeId, existing.trade_id),
+      job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
+      invoice_number: nextInvoiceNumber,
+      invoice_date: b.invoiceDate ?? existing.invoice_date,
+      sale_value_ex_gst: b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : existing.sale_value_ex_gst,
+      comments: b.comments ?? existing.comments,
+      suburb: b.suburb ?? existing.suburb,
+    };
+    const dateLogged = b.dateLogged ?? existing.date_logged;
+    run(
+      `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
+        sale_value_ex_gst=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
+      [
+        next.job_number,
+        dateLogged,
+        next.credited_technician_id,
+        next.trade_id,
+        next.job_type_id,
+        next.invoice_number,
+        next.invoice_date,
+        next.sale_value_ex_gst,
+        next.comments,
+        next.suburb,
         req.params.id,
       ]
     );
@@ -904,6 +1084,7 @@ export function createTechSalesRouter() {
     new_job_no_sale: 'jobs',
     new_job_sale_made: 'jobs',
     quote_approved_later: 'sales',
+    existing_job_upsell: 'sales',
     call_back: 'call_backs',
     pending_cancellation: 'pending_cancellations',
   };

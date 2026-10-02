@@ -21,6 +21,10 @@ export function createLookupRouter() {
       hadSaleAtVisit: !!job.had_sale_at_visit,
       convertedLater: !!job.converted_later,
       knockback: !!job.knockback,
+      // Used by Existing Job — Upsell to auto-populate its own (independently
+      // editable) Suburb from the original job — every other consumer of
+      // this lookup ignores it.
+      suburb: job.suburb || '',
     });
   });
 

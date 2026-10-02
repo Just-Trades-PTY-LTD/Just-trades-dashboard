@@ -82,13 +82,53 @@ export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
  * any (excluding excludeSaleId, for editing). Scoped strictly to
  * source='quote_approved_later' sales — it must never block an unrelated
  * record (a New Job, Call Back, Pending Cancellation, or another sale's own
- * job_number) from legitimately referencing that same AroFlo JN later. */
+ * job_number) from legitimately referencing that same AroFlo JN later.
+ * Excludes Upsell rows (is_upsell=1) too — they never carry a New Job Number
+ * at all, and this check is only about the genuine Quote Approved Later
+ * flow. */
 export function findDuplicateNewJobNumber(newJobNumber, excludeSaleId) {
   const key = normKey(newJobNumber);
   if (!key) return null;
   return get(
-    `SELECT * FROM sales WHERE archived = 0 AND source = 'quote_approved_later' AND lower(trim(new_job_number)) = ? AND id != ? LIMIT 1`,
+    `SELECT * FROM sales WHERE archived = 0 AND source = 'quote_approved_later' AND is_upsell = 0 AND lower(trim(new_job_number)) = ? AND id != ? LIMIT 1`,
     [key, excludeSaleId || 0]
+  );
+}
+
+/** The genuine original sale (never another Upsell row) already on record for
+ * this exact Job Number + Invoice Number pair — what an "Existing Job —
+ * Upsell" entry must link against, since it adds value onto an *existing*
+ * invoice rather than creating a new one. Null means no such invoice is on
+ * file for that job yet, which blocks creating the Upsell (see
+ * routes/techSales.js). */
+export function findSaleForInvoice(jobNumber, invoiceNumber) {
+  const jnKey = normKey(jobNumber);
+  const invKey = normKey(invoiceNumber);
+  if (!jnKey || !invKey) return null;
+  return get(
+    `SELECT * FROM sales
+     WHERE archived = 0 AND is_upsell = 0 AND lower(trim(job_number)) = ? AND lower(trim(invoice_number)) = ?
+     ORDER BY id DESC LIMIT 1`,
+    [jnKey, invKey]
+  );
+}
+
+/** An active Upsell already recorded for this exact Job Number + Invoice
+ * Number + Credited Technician combination (excluding excludeSaleId, for
+ * editing) — "the exact same upsell" accidentally entered twice. Deliberately
+ * narrow: a different technician upselling onto the same invoice, or the same
+ * technician logging a second, separate upsell on a different invoice/date
+ * for that job, are both legitimate and never blocked by this. */
+export function findDuplicateUpsell(jobNumber, invoiceNumber, creditedTechnicianId, excludeSaleId) {
+  const jnKey = normKey(jobNumber);
+  const invKey = normKey(invoiceNumber);
+  if (!jnKey || !invKey || !creditedTechnicianId) return null;
+  return get(
+    `SELECT * FROM sales
+     WHERE archived = 0 AND is_upsell = 1 AND lower(trim(job_number)) = ? AND lower(trim(invoice_number)) = ?
+       AND credited_technician_id = ? AND id != ?
+     LIMIT 1`,
+    [jnKey, invKey, creditedTechnicianId, excludeSaleId || 0]
   );
 }
 

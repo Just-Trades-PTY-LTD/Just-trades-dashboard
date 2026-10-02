@@ -11,6 +11,7 @@ const ENTRY_TYPES = [
   { id: 'new_job_no_sale', name: 'New Job — No Sale' },
   { id: 'new_job_sale_made', name: 'New Job — Sale Made' },
   { id: 'quote_approved_later', name: 'Existing Job — Quote Approved Later' },
+  { id: 'existing_job_upsell', name: 'Existing Job — Upsell' },
   { id: 'call_back', name: 'Call Back' },
   { id: 'pending_cancellation', name: 'Pending Cancellation' },
 ];
@@ -269,6 +270,11 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                         {(e.kind === 'new_job_sale_made' || e.kind === 'quote_approved_later') && e.invoiceNumber && (
                           <span className="badge badge-success">
                             {money(e.saleValueExGst)} ex GST — inv {e.invoiceNumber}
+                          </span>
+                        )}
+                        {e.kind === 'existing_job_upsell' && (
+                          <span className="badge badge-success">
+                            Upsell: {money(e.saleValueExGst)} ex GST — inv {e.invoiceNumber}
                           </span>
                         )}
                         {e.kind === 'call_back' && <span className="badge badge-info">{e.reasonName || 'Call back'}</span>}

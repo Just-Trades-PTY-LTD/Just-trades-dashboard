@@ -34,9 +34,10 @@ export const TECH_COLUMNS = [
   { key: 'newJobNumber', label: 'New job number' },
   { key: 'tradeName', label: 'Trade' },
   { key: 'jobTypeName', label: 'Job type' },
-  // Only ever populated for a New Job entry (No Sale or Sale Made) — blank
-  // for every other entry type, which reference an existing job rather than
-  // carrying their own Suburb.
+  // Only ever populated for a New Job entry (No Sale or Sale Made) or an
+  // Existing Job — Upsell entry (its own, independently-editable copy of
+  // the original job's suburb) — blank for every other entry type, which
+  // reference an existing job rather than carrying their own Suburb.
   { key: 'suburb', label: 'Suburb' },
   { key: 'lead', label: 'Lead' },
   { key: 'inspectionSheet', label: 'Inspection sheet' },

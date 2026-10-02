@@ -145,6 +145,11 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
   { key: 'qualifiedJobs', label: 'Qual. leads' },
   { key: 'sales', label: 'Sales' },
+  // Reported separately from Sales/Value above — never folded into either
+  // figure's own count, never treated as an attended job (see
+  // services/reports.js's computeMetrics()).
+  { key: 'upsellsCount', label: 'Upsells' },
+  { key: 'upsellValueExGst', label: 'Upsell Value (ex GST)', value: (r) => money(r.upsellValueExGst), numFmt: CURRENCY_FORMAT, width: 18 },
   { key: 'callBacks', label: 'Call backs' },
   { key: 'pendingCancellations', label: 'Pending cancel.' },
 ];
@@ -167,6 +172,11 @@ const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'bonusConversionRate', label: 'Conversion %', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
   { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), numFmt: CURRENCY_FORMAT, width: 16 },
   { key: 'avgSaleExGst', label: 'Average Sale', value: (r) => money(r.avgSaleExGst), numFmt: CURRENCY_FORMAT, width: 14 },
+  // Reported separately — see services/reports.js's computeMetrics(): Value
+  // (ex GST) above already includes Upsell Value, Average Sale deliberately
+  // never does.
+  { key: 'upsellsCount', label: 'Upsells' },
+  { key: 'upsellValueExGst', label: 'Upsell Value (ex GST)', value: (r) => money(r.upsellValueExGst), numFmt: CURRENCY_FORMAT, width: 18 },
   { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
   { key: 'callBacks', label: 'Call Backs' },
   { key: 'pendingCancellations', label: 'Pending Cancellations' },
@@ -199,6 +209,11 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     ['Conversion %', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
     ['Total sale value (ex GST)', money(c.totalSaleExGst), CURRENCY_FORMAT],
     ['Average sale (ex GST)', money(c.avgSaleExGst), CURRENCY_FORMAT],
+    // Reported separately — see services/reports.js's computeMetrics(): Total
+    // sale value above already includes Upsell value, Average sale
+    // deliberately never does.
+    ['Upsells', c.upsellsCount],
+    ['Upsell value (ex GST)', money(c.upsellValueExGst), CURRENCY_FORMAT],
     ['Unqualified Jobs', c.unqualifiedJobs],
     ['Call backs', c.callBacks],
     ['Pending cancellations', c.pendingCancellations],

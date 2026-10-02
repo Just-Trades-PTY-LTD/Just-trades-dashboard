@@ -12,6 +12,7 @@ const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
   ['new_job_sale_made', 'New Job — Sale Made'],
   ['quote_approved_later', 'Existing Job — Quote Approved Later'],
+  ['existing_job_upsell', 'Existing Job — Upsell'],
   ['call_back', 'Call Back'],
   // Pending Cancellation is no longer creatable here — it's logged through
   // Calls (Cancellation → Pending Cancellation) and links to the existing
@@ -101,6 +102,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const isNewJob = form.kind === 'new_job_no_sale' || form.kind === 'new_job_sale_made';
   const isSaleMade = form.kind === 'new_job_sale_made';
   const isExistingJob = form.kind === 'quote_approved_later';
+  const isUpsell = form.kind === 'existing_job_upsell';
   const isCallBack = form.kind === 'call_back';
   const isPendingCancellation = form.kind === 'pending_cancellation';
   const showInstallFields = form.workCompletion === 'Install scheduled — different day';
@@ -113,8 +115,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const knockbackReasonIsOther = knockbackReason?.name === 'Other';
 
   const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
-  const showJobLookup = isExistingJob || isCallBack || isPendingCancellation;
+  const showJobLookup = isExistingJob || isUpsell || isCallBack || isPendingCancellation;
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', jobLookupMode);
+  // The existing invoice already on record for this Job Number — shown
+  // alongside the Invoice Number field below purely as a reference (what's
+  // already on file for this job), never used to block submission itself —
+  // the server is the authority on whether the typed Invoice Number actually
+  // matches (see findSaleForInvoice in routes/techSales.js).
+  const upsellInvoiceLookup = useJobLookup(isUpsell ? form.jobNumber : '', 'sale');
   // A brand-new job entered under a Job Number that already belongs to
   // another active job — surfaced as a warning as soon as it's typed, and
   // blocked at submit (see validate() below) rather than silently creating a
@@ -141,6 +149,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       if (lookupResult.technicianId && !form.creditedTechnicianId) fill.creditedTechnicianId = lookupResult.technicianId;
       if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
       if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
+      if (Object.keys(fill).length) patch(fill);
+    } else if (isUpsell) {
+      // Deliberately never auto-fills Credited Technician — that's who made
+      // the upsell, which is often (the whole point of this entry type) a
+      // different technician than the one who originally attended the job.
+      const fill = {};
+      if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
+      if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
+      if (lookupResult.suburb && !form.suburb) fill.suburb = lookupResult.suburb;
       if (Object.keys(fill).length) patch(fill);
     } else if (isPendingCancellation) {
       if (lookupResult.creditedTechnicianId && !form.creditedTechnicianId) patch({ creditedTechnicianId: lookupResult.creditedTechnicianId });
@@ -228,6 +245,22 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         missing.push('Credited Technician');
         fields.add('creditedTechnicianId');
       }
+    } else if (isUpsell) {
+      if (!form.jobNumber || !form.jobNumber.trim()) {
+        missing.push('Job Number');
+        fields.add('jobNumber');
+      }
+      if (!form.invoiceNumber || !form.invoiceNumber.trim()) {
+        missing.push('Invoice Number');
+        fields.add('invoiceNumber');
+      }
+      // Credited Technician is who actually made the upsell — mandatory on
+      // creation so it can never silently fall into an "Unassigned" bucket
+      // in reports.
+      if (!form.creditedTechnicianId) {
+        missing.push('Credited Technician');
+        fields.add('creditedTechnicianId');
+      }
     } else if (isCallBack) {
       if (!form.jobNumber || !form.jobNumber.trim()) {
         missing.push('Job Number');
@@ -305,6 +338,22 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           comments: form.comments,
         };
         res = editing ? { entry: await api.tech.updateQuoteApprovedLater(editing.id, body) } : await api.tech.createQuoteApprovedLater(body);
+      } else if (isUpsell) {
+        const body = {
+          jobNumber: form.jobNumber,
+          invoiceNumber: form.invoiceNumber,
+          dateLogged: form.dateLogged,
+          creditedTechnicianId: form.creditedTechnicianId || null,
+          tradeId: form.tradeId || null,
+          jobTypeId: form.jobTypeId || null,
+          invoiceDate: form.invoiceDate,
+          // The ADDITIONAL upsell value ex GST only — never the full invoice
+          // value again.
+          saleValueExGst: form.saleValueExGst,
+          suburb: form.suburb,
+          comments: form.comments,
+        };
+        res = editing ? { entry: await api.tech.updateUpsell(editing.id, body) } : await api.tech.createUpsell(body);
       } else if (isCallBack) {
         const body = {
           jobNumber: form.jobNumber,
@@ -362,6 +411,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           Use this for a delayed quote approval, or to add an extra invoice to a job that already had a sale.
         </div>
       )}
+      {isUpsell && (
+        <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 6 }}>
+          A different technician added extra work onto a job's existing invoice. Record only the additional upsell value (ex GST) —
+          never the full invoice value again. This never creates another Total/Qualified Job, Knock-back or Converted Later credit,
+          and never changes the original job or technician's own figures.
+        </div>
+      )}
       {isCallBack && (
         <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 6 }}>
           A return visit on work already completed — this does not count as a new job, lead, or sale.
@@ -395,6 +451,25 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
               The new AroFlo Job Number created for the approved work — reference and searching only, does not link to a job or
               count as a Total/Qualified Job.
+            </div>
+          </div>
+        </div>
+      ) : isUpsell ? (
+        <div className="grid-form" style={{ marginTop: 14 }}>
+          <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
+            <label>Job Number *</label>
+            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <JobLookupBox jobNumber={form.jobNumber} mode="job" result={lookupResult} />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The existing job the upsell was made on — used to locate the original job and auto-fill Trade/Job Type/Suburb below.
+            </div>
+          </div>
+          <div className={`field${invalidFields.has('invoiceNumber') ? ' invalid' : ''}`}>
+            <label>Invoice Number *</label>
+            <input className="mono" value={form.invoiceNumber} onChange={(e) => patch({ invoiceNumber: e.target.value })} />
+            <JobLookupBox jobNumber={form.jobNumber} mode="sale" result={upsellInvoiceLookup} />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The existing invoice the upsell has been added to — must already be on record for this Job Number.
             </div>
           </div>
         </div>
@@ -462,20 +537,30 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         </div>
       )}
 
-      {(isExistingJob || isPendingCancellation) && (
+      {(isExistingJob || isUpsell || isPendingCancellation) && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <DateField label="Date entered" value={form.dateLogged} onChange={(v) => patch({ dateLogged: v })} />
+          <DateField
+            label={isUpsell ? 'Date upsell logged' : 'Date entered'}
+            value={form.dateLogged}
+            onChange={(v) => patch({ dateLogged: v })}
+          />
           <SelectField
-            label={isExistingJob ? 'Credited technician *' : 'Credited technician'}
+            label={isExistingJob || isUpsell ? 'Credited technician *' : 'Credited technician'}
             value={form.creditedTechnicianId}
             onChange={(v) => patch({ creditedTechnicianId: v })}
             options={withInactiveLabel(settings.technicians)}
             invalid={invalidFields.has('creditedTechnicianId')}
           />
+          {isUpsell && (
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: -8 }}>
+              The technician who actually made the upsell — so they receive the correct credit, even though a different technician
+              may have originally attended this job.
+            </div>
+          )}
         </div>
       )}
 
-      {(isNewJob || isExistingJob || isCallBack) && (
+      {(isNewJob || isExistingJob || isUpsell || isCallBack) && (
         <div className="grid-form" style={{ marginTop: 14 }}>
           <SelectField
             label={isNewJob ? 'Trade *' : 'Trade'}
@@ -501,6 +586,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               options={LEAD_OPTIONS}
               invalid={invalidFields.has('lead')}
             />
+          )}
+          {isUpsell && (
+            <div className="field">
+              <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
+            </div>
           )}
         </div>
       )}
@@ -583,6 +673,24 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 8 }}>
             Bonus and sales reporting are based on this ex-GST amount and the invoice creation date — never the visit date.
+          </div>
+        </div>
+      )}
+
+      {isUpsell && (
+        <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Upsell — added to the existing invoice above</div>
+          <div className="grid-form">
+            <DateField label="Relevant invoice date" value={form.invoiceDate} onChange={(v) => patch({ invoiceDate: v })} />
+            <NumberField
+              label="Upsell value (ex GST) ($) *"
+              value={form.saleValueExGst}
+              onChange={(v) => patch({ saleValueExGst: v })}
+            />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 8 }}>
+            Record only the ADDITIONAL upsell value ex GST — never the full invoice value again. This is included in the technician's
+            overall credited Value (ex GST), but is never counted as a Sale (invoice) or in their Average Sale.
           </div>
         </div>
       )}

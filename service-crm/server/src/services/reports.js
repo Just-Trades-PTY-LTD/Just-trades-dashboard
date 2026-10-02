@@ -327,13 +327,20 @@ function fetchJobsAll({ from, to, technicianId, tradeId }) {
   );
 }
 
+// Never includes an Existing Job — Upsell row (is_upsell=1) — an upsell
+// deliberately shares its invoice number with the genuine original sale it
+// adds to, and this function's own de-dup-by-invoice-number step below would
+// otherwise treat the two as duplicates of each other and silently drop one
+// (almost always the original sale, since the upsell is logged later and
+// this keeps "the most recently logged one"). See fetchUpsellsAll() for the
+// entirely separate population Upsells are counted from instead.
 function fetchSalesAll({ from, to, technicianId, tradeId }) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
      LEFT JOIN technicians t ON t.id = s.credited_technician_id
      LEFT JOIN trades tr ON tr.id = s.trade_id
-     WHERE s.archived = 0 AND s.invoice_number != ''
+     WHERE s.archived = 0 AND s.invoice_number != '' AND s.is_upsell = 0
      ORDER BY s.id DESC`
   );
   const filtered = rows.filter(
@@ -354,6 +361,29 @@ function fetchSalesAll({ from, to, technicianId, tradeId }) {
     }
   });
   return out;
+}
+
+// Existing Job — Upsell rows only. Deliberately never de-duplicated by
+// invoice number the way fetchSalesAll() is above: an upsell legitimately
+// shares its invoice with the original sale (that's the whole point), and
+// two different technicians — or the same technician twice, on different
+// occasions — can each add a distinct, genuine upsell onto that same
+// invoice, so every row here counts, however many happen to share an
+// invoice number.
+function fetchUpsellsAll({ from, to, technicianId, tradeId }) {
+  const rows = all(
+    `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
+     FROM sales s
+     LEFT JOIN technicians t ON t.id = s.credited_technician_id
+     LEFT JOIN trades tr ON tr.id = s.trade_id
+     WHERE s.archived = 0 AND s.is_upsell = 1`
+  );
+  return rows.filter(
+    (s) =>
+      inRange(s.invoice_date, from, to) &&
+      (!technicianId || s.credited_technician_id === Number(technicianId)) &&
+      (!tradeId || s.trade_id === Number(tradeId))
+  );
 }
 
 function fetchCallBacksAll({ from, to, technicianId, tradeId }) {
@@ -392,6 +422,7 @@ function fetchTechRaw(filters) {
   return {
     jobsAll: fetchJobsAll(filters),
     salesAll: fetchSalesAll(filters),
+    upsellsAll: fetchUpsellsAll(filters),
     callBacksAll: fetchCallBacksAll(filters),
     pendingCancelsAll: fetchPendingCancelsAll(filters),
   };
@@ -447,8 +478,12 @@ function genuineKnockbackJobs(jobs) {
   return jobs.filter((j) => j.lead === 'Qualified' && !j.had_sale_at_visit);
 }
 
+// Excludes Upsell rows defensively even though fetchSalesAll() already keeps
+// them out of whatever `sales` array is normally passed in here — an Upsell
+// is never Converted Later and must never contribute a credit, regardless of
+// which array this is called with.
 function quoteApprovedLaterSales(sales) {
-  return sales.filter((s) => s.source === 'quote_approved_later');
+  return sales.filter((s) => s.source === 'quote_approved_later' && !s.is_upsell);
 }
 
 // Buckets genuine qualified-no-sale jobs and quote-approved-later sales by
@@ -528,10 +563,17 @@ function computeConvertedLaterAdjustment(jobs, sales) {
   };
 }
 
-function computeMetrics(jobs, sales, callbacks, pendingCancels) {
+// `upsells` defaults to [] so every existing caller (there were none before
+// Upsell existed) keeps working unchanged; every figure below is exactly what
+// it always was whenever there are no upsells in scope.
+function computeMetrics(jobs, sales, callbacks, pendingCancels, upsells = []) {
   const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
   const conversionCount = saleMade.length + convertedLater.length;
-  const totalSaleExGst = sales.reduce((s, x) => s + num(x.sale_value_ex_gst), 0);
+  // Original (non-upsell) sales only — this is what Sales (invoices) and
+  // Average Sale are both still built from, so neither figure moves just
+  // because a different technician upsold onto one of these invoices.
+  const originalSaleExGst = sales.reduce((s, x) => s + num(x.sale_value_ex_gst), 0);
+  const upsellValueExGst = upsells.reduce((s, x) => s + num(x.sale_value_ex_gst), 0);
   return {
     jobsAttended: jobs.length,
     qualifiedJobs: qualifiedJobs.length,
@@ -540,12 +582,27 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels) {
     knockbackRate: pct(knockbacks.length, qualifiedJobs.length),
     convertedLaterCount: convertedLater.length,
     conversionRate: pct(conversionCount, qualifiedJobs.length),
+    // Sales (invoices) — unaffected by Upsells: an upsell is additional value
+    // on an *existing* invoice, never a new one, so it's never counted here.
     sales: sales.length,
-    totalSaleExGst,
-    // Total sale value divided by qualified jobs only (not total jobs, and
-    // not just the jobs that resulted in a sale) — a per-technician/
-    // per-trade productivity figure scoped to genuine sales opportunities.
-    avgSaleExGst: qualifiedJobs.length ? totalSaleExGst / qualifiedJobs.length : 0,
+    // Value (ex GST) — the technician/trade's total credited revenue,
+    // DELIBERATELY including Upsell value: real credited revenue, even
+    // though it came from work on a job/invoice that isn't "theirs". See
+    // avgSaleExGst below, which excludes it for exactly the opposite reason.
+    totalSaleExGst: originalSaleExGst + upsellValueExGst,
+    // Average Sale — original (non-upsell) sale value only, divided by
+    // qualified jobs only (not total jobs, and not just the jobs that
+    // resulted in a sale): a per-technician/per-trade productivity figure
+    // scoped to genuine sales opportunities THIS technician/trade actually
+    // had. Upsell value is deliberately excluded from the numerator here —
+    // including it would inflate this average using revenue earned on a job
+    // that was never one of these qualified jobs to begin with.
+    avgSaleExGst: qualifiedJobs.length ? originalSaleExGst / qualifiedJobs.length : 0,
+    // Upsells — shown as their own figures (see TechReport.jsx), never
+    // folded into Sales (invoices) or Average Sale, and never treated as an
+    // attended job or a qualified lead.
+    upsellsCount: upsells.length,
+    upsellValueExGst,
     callBacks: callbacks.length,
     pendingCancellations: pendingCancels.length,
     inspectionRate: pct(jobs.filter((j) => j.inspection_sheet === 'Yes').length, jobs.length),
@@ -555,12 +612,12 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels) {
 
 export function computeTechReport({ from, to, technicianId, tradeId, granularity = 'week' } = {}) {
   const filters = { from, to, technicianId, tradeId };
-  const { jobsAll, salesAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
 
   const company = {
-    ...computeMetrics(jobsAll, salesAll, callBacksAll, pendingCancelsAll),
+    ...computeMetrics(jobsAll, salesAll, callBacksAll, pendingCancelsAll, upsellsAll),
     ...computeConvertedLaterAdjustment(jobsAll, salesAll),
   };
 
@@ -570,7 +627,8 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
       jobsAll.filter((j) => j.trade_id === trade.id),
       salesAll.filter((s) => s.trade_id === trade.id),
       callBacksAll.filter((c) => c.trade_id === trade.id),
-      pendingCancelsAll.filter((p) => p.trade_id === trade.id)
+      pendingCancelsAll.filter((p) => p.trade_id === trade.id),
+      upsellsAll.filter((u) => u.trade_id === trade.id)
     ),
   }));
 
@@ -585,12 +643,18 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
   const missingTechnicianCount =
     jobsAll.filter((j) => !j.technician_name).length +
     salesAll.filter((s) => !s.credited_technician_name).length +
+    upsellsAll.filter((u) => !u.credited_technician_name).length +
     callBacksAll.filter((c) => !c.credited_technician_name).length +
     pendingCancelsAll.filter((p) => !p.credited_technician_name).length;
 
   const techNameSet = new Set();
   jobsAll.forEach((j) => j.technician_name && techNameSet.add(j.technician_name));
   salesAll.forEach((s) => s.credited_technician_name && techNameSet.add(s.credited_technician_name));
+  // A technician whose only activity in range is an Upsell on someone else's
+  // job (no job/sale/call back/pending cancellation of their own) must still
+  // appear as their own row in By Technician, so their Upsells/Upsell Value
+  // is visible rather than silently absent.
+  upsellsAll.forEach((u) => u.credited_technician_name && techNameSet.add(u.credited_technician_name));
   callBacksAll.forEach((c) => c.credited_technician_name && techNameSet.add(c.credited_technician_name));
   pendingCancelsAll.forEach((p) => p.credited_technician_name && techNameSet.add(p.credited_technician_name));
 
@@ -600,24 +664,32 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
     // credited to, not the job's own attending technician — usually the
     // same person, but an explicit override on that sale is respected here
     // exactly as it is everywhere else (see quote-approved-later's
-    // creditedTechnicianId).
+    // creditedTechnicianId). An Upsell works the same way — scoped to
+    // whichever technician actually made the upsell, never the original
+    // job's own attending technician.
     const techSales = salesAll.filter((s) => (s.credited_technician_name || 'Unassigned') === name);
+    const techUpsells = upsellsAll.filter((u) => (u.credited_technician_name || 'Unassigned') === name);
     return {
       name,
       ...computeMetrics(
         techJobs,
         techSales,
         callBacksAll.filter((c) => (c.credited_technician_name || 'Unassigned') === name),
-        pendingCancelsAll.filter((p) => (p.credited_technician_name || 'Unassigned') === name)
+        pendingCancelsAll.filter((p) => (p.credited_technician_name || 'Unassigned') === name),
+        techUpsells
       ),
       ...computeConvertedLaterAdjustment(techJobs, techSales),
     };
   });
 
+  // Upsell value is folded into each trade's total the same way it is into
+  // each technician's own Value (ex GST) above — see computeMetrics().
   const salesByTradePie = trades
     .map((trade) => ({
       name: trade.name,
-      value: salesAll.filter((s) => s.trade_id === trade.id).reduce((sum, s) => sum + num(s.sale_value_ex_gst), 0),
+      value:
+        salesAll.filter((s) => s.trade_id === trade.id).reduce((sum, s) => sum + num(s.sale_value_ex_gst), 0) +
+        upsellsAll.filter((u) => u.trade_id === trade.id).reduce((sum, u) => sum + num(u.sale_value_ex_gst), 0),
     }))
     .filter((d) => d.value > 0);
 
@@ -635,6 +707,15 @@ export function computeTechReport({ from, to, technicianId, tradeId, granularity
     if (!trendMap[k]) trendMap[k] = { period: k, value: 0, count: 0 };
     trendMap[k].value += num(s.sale_value_ex_gst);
     trendMap[k].count += 1;
+  });
+  // Upsell value is added into the same period's value (consistent with
+  // Value (ex GST) including it everywhere else), but never into `count` —
+  // an upsell is never a new sale/invoice.
+  upsellsAll.forEach((u) => {
+    if (!u.invoice_date) return;
+    const k = bucketKey(u.invoice_date, granularity);
+    if (!trendMap[k]) trendMap[k] = { period: k, value: 0, count: 0 };
+    trendMap[k].value += num(u.sale_value_ex_gst);
   });
   const trend = Object.values(trendMap).sort((a, b) => a.period.localeCompare(b.period));
 
@@ -706,6 +787,13 @@ function tagSales(list) {
   return list.map((s) => (s.source === 'sale_made_at_visit' ? { kind: 'new_job_sale_made', id: s.job_id } : { kind: 'quote_approved_later', id: s.id }));
 }
 
+// Existing Job — Upsell rows are always their own entry kind (never folded
+// into a job's own entry the way a sale-at-visit is) — see
+// routes/techSales.js's saleToEntry().
+function tagUpsells(list) {
+  return list.map((u) => ({ kind: 'existing_job_upsell', id: u.id }));
+}
+
 // Selects the subset of (already date/technician/trade/scope-restricted)
 // job/sale/callback/pending-cancellation arrays for one named figure —
 // shared between the top-level KPI cards and the "By trade"/"By technician"
@@ -713,7 +801,7 @@ function tagSales(list) {
 // Returns { rows: [{kind,id}], label, outcomes? } tagged by source table
 // (jobs span two kinds depending on whether a sale was made at the visit),
 // or null for an unrecognised field.
-function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
+function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }, field) {
   const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
   const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
   const tagJobs = (list) => list.map((j) => ({ kind: jobKind(j), id: j.id }));
@@ -731,10 +819,19 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
       return { rows: tagJobs(convertedLater), label: 'Converted later' };
     case 'sales':
       return { rows: tagSales(sales), label: 'Sales (invoices)' };
+    // Value (ex GST) includes Upsell value (see computeMetrics()), so its
+    // drill-down shows both the original sales and the upsells that make it
+    // up. Average Sale deliberately excludes Upsell value from its own
+    // calculation, so its drill-down shows only the original sales it's
+    // actually averaging.
     case 'totalSaleExGst':
-      return { rows: tagSales(sales), label: 'Total sale value (ex GST)' };
+      return { rows: [...tagSales(sales), ...tagUpsells(upsells)], label: 'Total sale value (ex GST)' };
     case 'avgSaleExGst':
       return { rows: tagSales(sales), label: 'Average sale (ex GST)' };
+    case 'upsellsCount':
+      return { rows: tagUpsells(upsells), label: 'Upsells' };
+    case 'upsellValueExGst':
+      return { rows: tagUpsells(upsells), label: 'Upsell value (ex GST)' };
     case 'conversionRate':
       return {
         rows: tagJobs(qualifiedJobs),
@@ -800,6 +897,7 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
         rows: [
           ...tagJobs(jobs.filter((j) => !j.technician_name)),
           ...tagSales(sales.filter((s) => !s.credited_technician_name)),
+          ...tagUpsells(upsells.filter((u) => !u.credited_technician_name)),
           ...tagRows(callbacks.filter((c) => !c.credited_technician_name), 'call_back'),
           ...tagRows(pendingCancels.filter((p) => !p.credited_technician_name), 'pending_cancellation'),
         ],
@@ -839,10 +937,15 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels }, field) {
 // computed in computeTechReport() above. Returns null for a metric this
 // report has no accurate record-level answer for.
 export function drilldownTech({ from, to, technicianId, tradeId, metric, category, series, scopeTrade, scopeTechnician }) {
-  const { jobsAll, salesAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
 
   if (metric === 'salesByTradePie') {
-    return { rows: tagSales(salesAll.filter((s) => s.trade_name === category)), label: `Sale value by trade — ${category}` };
+    // This pie's own dollar value includes Upsell value for this trade (see
+    // computeTechReport's salesByTradePie) — its drill-down shows both.
+    return {
+      rows: [...tagSales(salesAll.filter((s) => s.trade_name === category)), ...tagUpsells(upsellsAll.filter((u) => u.trade_name === category))],
+      label: `Sale value by trade — ${category}`,
+    };
   }
   if (metric === 'jobsOppSalesByTrade') {
     const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
@@ -868,24 +971,27 @@ export function drilldownTech({ from, to, technicianId, tradeId, metric, categor
 
   let jobs = jobsAll;
   let sales = salesAll;
+  let upsells = upsellsAll;
   let callbacks = callBacksAll;
   let pendingCancels = pendingCancelsAll;
   let scopeLabel = '';
   if (scopeTrade) {
     jobs = jobs.filter((j) => j.trade_name === scopeTrade);
     sales = sales.filter((s) => s.trade_name === scopeTrade);
+    upsells = upsells.filter((u) => u.trade_name === scopeTrade);
     callbacks = callbacks.filter((c) => c.trade_name === scopeTrade);
     pendingCancels = pendingCancels.filter((p) => p.trade_name === scopeTrade);
     scopeLabel = `${scopeTrade} — `;
   } else if (scopeTechnician) {
     jobs = jobs.filter((j) => (j.technician_name || 'Unassigned') === scopeTechnician);
     sales = sales.filter((s) => (s.credited_technician_name || 'Unassigned') === scopeTechnician);
+    upsells = upsells.filter((u) => (u.credited_technician_name || 'Unassigned') === scopeTechnician);
     callbacks = callbacks.filter((c) => (c.credited_technician_name || 'Unassigned') === scopeTechnician);
     pendingCancels = pendingCancels.filter((p) => (p.credited_technician_name || 'Unassigned') === scopeTechnician);
     scopeLabel = `${scopeTechnician} — `;
   }
 
-  const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels }, metric);
+  const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells }, metric);
   if (!picked) return null;
   return { ...picked, label: `${scopeLabel}${picked.label}` };
 }

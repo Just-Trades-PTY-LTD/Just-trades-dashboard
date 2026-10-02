@@ -92,6 +92,13 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
     ],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
     ['Average sale (ex GST)', money(company.avgSaleExGst), 'avgSaleExGst'],
+    // Reported separately from Sales/Value above — never folded into either
+    // figure's own count, never treated as an attended job or a qualified
+    // lead (see services/reports.js's computeMetrics()). Total sale value
+    // above already includes Upsell value; Average sale deliberately never
+    // does.
+    ['Upsells', company.upsellsCount, 'upsellsCount'],
+    ['Upsell value (ex GST)', money(company.upsellValueExGst), 'upsellValueExGst'],
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
     ['Call backs', company.callBacks, 'callBacks'],
     ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],
@@ -312,6 +319,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     <th>Conversion %</th>
                     <th>Qual. leads</th>
                     <th>Sales</th>
+                    <th>Upsells</th>
+                    <th>Upsell Value (ex GST)</th>
                     <th>Call backs</th>
                     <th>Pending cancel.</th>
                   </tr>
@@ -334,6 +343,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ['conversionRate', `${r.conversionRate}%`],
                         ['qualifiedJobs', r.qualifiedJobs],
                         ['sales', r.sales],
+                        ['upsellsCount', r.upsellsCount],
+                        ['upsellValueExGst', money(r.upsellValueExGst)],
                         ['callBacks', r.callBacks],
                         ['pendingCancellations', r.pendingCancellations],
                       ].map(([field, val]) => (
@@ -374,6 +385,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     </th>
                     <th>Value (ex GST)</th>
                     <th>Average Sale</th>
+                    <th>Upsells</th>
+                    <th>Upsell Value (ex GST)</th>
                     <th>Unqualified Jobs</th>
                     <th>Call Backs</th>
                     <th>Pending Cancellations</th>
@@ -403,6 +416,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ],
                         ['totalSaleExGst', money(r.totalSaleExGst)],
                         ['avgSaleExGst', money(r.avgSaleExGst)],
+                        ['upsellsCount', r.upsellsCount],
+                        ['upsellValueExGst', money(r.upsellValueExGst)],
                         ['unqualifiedJobs', r.unqualifiedJobs],
                         ['callBacks', r.callBacks],
                         ['pendingCancellations', r.pendingCancellations],

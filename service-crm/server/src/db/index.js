@@ -110,6 +110,34 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    // Purely additive: a brand-new boolean-in-spirit column (INTEGER NOT NULL
+    // DEFAULT 0). Every existing sale row — whatever its source — simply ends
+    // up with is_upsell = 0 ("not an upsell"), which is already exactly what
+    // every one of them is; no existing sale's source, value, technician or
+    // any other column is read or written by this migration.
+    id: 'sales_is_upsell',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(sales)').all().some((c) => c.name === 'is_upsell');
+      if (!hasColumn) {
+        database.exec('ALTER TABLE sales ADD COLUMN is_upsell INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
+  {
+    // Purely additive: a brand-new nullable-in-spirit column (TEXT NOT NULL
+    // DEFAULT ''), mirroring jobs_suburb above. Every existing sale simply
+    // ends up with suburb = '' ("none recorded") — no existing sale's other
+    // columns are touched, and this field is only ever populated going
+    // forward by a brand-new Existing Job — Upsell entry.
+    id: 'sales_suburb',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(sales)').all().some((c) => c.name === 'suburb');
+      if (!hasColumn) {
+        database.exec("ALTER TABLE sales ADD COLUMN suburb TEXT NOT NULL DEFAULT ''");
+      }
+    },
+  },
 ];
 
 // One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;
