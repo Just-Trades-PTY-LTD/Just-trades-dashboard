@@ -60,6 +60,11 @@ export function currentAdelaideWeek() {
   return { from: fmt(monday), to: fmt(sunday) };
 }
 
+// Display formatting only — never rounds the value anywhere it's stored or
+// calculated from; cents are preserved (standard rounding to 2 decimal
+// places, via toLocaleString's own fraction-digit rounding) rather than
+// dropped, and every amount always shows both decimal places (e.g. $374.00)
+// so whole-dollar and cents amounts read consistently.
 export function money(v) {
-  return `$${Math.round(v || 0).toLocaleString()}`;
+  return `$${(Number(v) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

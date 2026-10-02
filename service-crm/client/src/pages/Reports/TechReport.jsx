@@ -16,14 +16,6 @@ function defaultFilters() {
   return { ...currentAdelaideWeek(), technicianId: '', tradeId: '' };
 }
 
-// Cents matter for this one figure (it's a per-job average, rarely a round
-// number) — used only in the single KPI card, which has room for it. The
-// denser by-trade/by-technician tables below keep whole-dollar money() to
-// avoid crowding an already wide row of columns.
-function moneyCents(v) {
-  return `$${(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   const settings = useSettings();
   const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
@@ -99,7 +91,7 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
       'Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.',
     ],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
-    ['Average sale (ex GST)', moneyCents(company.avgSaleExGst), 'avgSaleExGst'],
+    ['Average sale (ex GST)', money(company.avgSaleExGst), 'avgSaleExGst'],
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
     ['Call backs', company.callBacks, 'callBacks'],
     ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],

@@ -1,3 +1,5 @@
+import { CURRENCY_FORMAT, money } from './xlsxHelpers.js';
+
 export const CALL_COLUMNS = [
   { key: 'archived', label: 'Archived' },
   { key: 'callAt', label: 'Date/time' },
@@ -44,7 +46,10 @@ export const TECH_COLUMNS = [
   { key: 'convertedLater', label: 'Converted later' },
   { key: 'invoiceNumber', label: 'Invoice number' },
   { key: 'invoiceDate', label: 'Invoice date' },
-  { key: 'saleValueExGst', label: 'Sale value (ex GST)' },
+  // Blank (not $0.00) for any entry with no sale at all — e.g. a knock-back
+  // or a call back never carries a sale value, and that absence must stay
+  // visibly blank rather than implying a zero-dollar sale happened.
+  { key: 'saleValueExGst', label: 'Sale value (ex GST)', value: (r) => (r.saleValueExGst === '' || r.saleValueExGst == null ? '' : money(r.saleValueExGst)), numFmt: CURRENCY_FORMAT },
   { key: 'reasonName', label: 'Call back / cancellation reason' },
   { key: 'comments', label: 'Comments' },
 ];

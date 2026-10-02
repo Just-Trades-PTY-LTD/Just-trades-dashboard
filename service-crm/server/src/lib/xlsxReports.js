@@ -1,17 +1,20 @@
 import ExcelJS from 'exceljs';
-import { HEADER_FILL, HEADER_FONT, addTitleBlock, addSectionHeading, addDataTable, filterSummaryLines } from './xlsxHelpers.js';
+import { HEADER_FILL, HEADER_FONT, CURRENCY_FORMAT, money, addTitleBlock, addSectionHeading, addDataTable, filterSummaryLines } from './xlsxHelpers.js';
 
-function money(v) {
-  return Number(v || 0);
-}
-
+// Rows are [label, value] for a plain figure, or [label, value, numFmt] when
+// the value cell needs a display format (e.g. CURRENCY_FORMAT) — these KPI
+// rows mix counts, percentages and money in the same two generic columns,
+// so the format has to travel with the row rather than the column.
 function addKpiTable(sheet, rows) {
   const header = sheet.addRow(['Figure', 'Value']);
   header.eachCell((c) => {
     c.fill = HEADER_FILL;
     c.font = HEADER_FONT;
   });
-  rows.forEach(([label, value]) => sheet.addRow([label, value]));
+  rows.forEach(([label, value, numFmt]) => {
+    const row = sheet.addRow([label, value]);
+    if (numFmt) row.getCell(2).numFmt = numFmt;
+  });
   sheet.getColumn(1).width = 34;
   sheet.getColumn(2).width = 20;
   sheet.addRow([]);
@@ -135,8 +138,8 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
 const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'label', label: nameLabel, width: 22 },
   { key: 'jobsAttended', label: 'Jobs' },
-  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
-  { key: 'avgSaleExGst', label: 'Avg sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
+  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), numFmt: CURRENCY_FORMAT, width: 16 },
+  { key: 'avgSaleExGst', label: 'Avg sale', value: (r) => money(r.avgSaleExGst), numFmt: CURRENCY_FORMAT, width: 14 },
   { key: 'knockbacks', label: 'Knock backs' },
   { key: 'convertedLaterCount', label: 'Converted later' },
   { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
@@ -162,8 +165,8 @@ const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'actualKnockbacks', label: 'Actual Knockbacks' },
   { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks' },
   { key: 'bonusConversionRate', label: 'Conversion %', value: (r) => `${(r.bonusConversionRate ?? 0).toFixed(2)}%` },
-  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), width: 16 },
-  { key: 'avgSaleExGst', label: 'Average Sale', value: (r) => Number((r.avgSaleExGst || 0).toFixed(2)), width: 14 },
+  { key: 'totalSaleExGst', label: 'Value (ex GST)', value: (r) => money(r.totalSaleExGst), numFmt: CURRENCY_FORMAT, width: 16 },
+  { key: 'avgSaleExGst', label: 'Average Sale', value: (r) => money(r.avgSaleExGst), numFmt: CURRENCY_FORMAT, width: 14 },
   { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
   { key: 'callBacks', label: 'Call Backs' },
   { key: 'pendingCancellations', label: 'Pending Cancellations' },
@@ -194,8 +197,8 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     ['Actual Knockbacks', c.actualKnockbacks],
     ['Adjusted Knockbacks', c.adjustedKnockbacks],
     ['Conversion %', `${(c.bonusConversionRate ?? 0).toFixed(2)}%`],
-    ['Total sale value (ex GST)', money(c.totalSaleExGst)],
-    ['Average sale (ex GST)', Number((c.avgSaleExGst || 0).toFixed(2))],
+    ['Total sale value (ex GST)', money(c.totalSaleExGst), CURRENCY_FORMAT],
+    ['Average sale (ex GST)', money(c.avgSaleExGst), CURRENCY_FORMAT],
     ['Unqualified Jobs', c.unqualifiedJobs],
     ['Call backs', c.callBacks],
     ['Pending cancellations', c.pendingCancellations],
@@ -230,7 +233,7 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   addSectionHeading(charts, 'Sale value by trade (ex GST)');
   addDataTable(charts, [
     { key: 'name', label: 'Trade', width: 22 },
-    { key: 'value', label: 'Value (ex GST)', value: (r) => money(r.value) },
+    { key: 'value', label: 'Value (ex GST)', value: (r) => money(r.value), numFmt: CURRENCY_FORMAT },
   ], data.salesByTradePie);
   charts.addRow([]);
 
@@ -246,7 +249,7 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   addSectionHeading(charts, 'Sales over time (ex GST)');
   addDataTable(charts, [
     { key: 'period', label: 'Period', width: 14 },
-    { key: 'value', label: 'Value (ex GST)', value: (r) => money(r.value) },
+    { key: 'value', label: 'Value (ex GST)', value: (r) => money(r.value), numFmt: CURRENCY_FORMAT },
     { key: 'count', label: 'Sales count' },
   ], data.trend);
 
