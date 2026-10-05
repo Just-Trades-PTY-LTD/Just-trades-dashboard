@@ -21,6 +21,13 @@ export function createLookupRouter() {
       hadSaleAtVisit: !!job.had_sale_at_visit,
       convertedLater: !!job.converted_later,
       knockback: !!job.knockback,
+      // Used by Call Back to auto-populate its own Credited (original work)
+      // Technician with whoever actually completed the original work — the
+      // job's own attending technician normally, or its separate Install
+      // Technician when the job itself says the work was completed on a
+      // different day. Every other consumer of this lookup ignores these.
+      workCompletion: job.work_completion || '',
+      installTechnicianId: job.install_technician_id || null,
       // Used by Existing Job — Upsell to auto-populate its own (independently
       // editable) Suburb from the original job — every other consumer of
       // this lookup ignores it.

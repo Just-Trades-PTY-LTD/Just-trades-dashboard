@@ -115,8 +115,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const knockbackReasonIsOther = knockbackReason?.name === 'Other';
 
   const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
-  const showJobLookup = isExistingJob || isUpsell || isCallBack || isPendingCancellation;
+  const showJobLookup = isExistingJob || isUpsell || isPendingCancellation;
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', jobLookupMode);
+  // Call Back's own Original Job Number lookup — kept separate from the
+  // generic one above (rather than folded into showJobLookup) because Call
+  // Back gets its own dedicated field block below, matching Quote Approved
+  // Later/Upsell's own pattern.
+  const callBackJobLookup = useJobLookup(isCallBack ? form.jobNumber : '', 'job');
   // The existing invoice already on record for this Job Number — shown
   // alongside the Invoice Number field below purely as a reference (what's
   // already on file for this job), never used to block submission itself —
@@ -144,7 +149,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // needs correcting.
   useEffect(() => {
     if (!lookupResult || !lookupResult.found) return;
-    if (isExistingJob || isCallBack) {
+    if (isExistingJob) {
       const fill = {};
       if (lookupResult.technicianId && !form.creditedTechnicianId) fill.creditedTechnicianId = lookupResult.technicianId;
       if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
@@ -164,6 +169,28 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult]);
+
+  // Call Back's own Credited (original work) Technician: who actually
+  // completed the original work, not necessarily who's credited with the
+  // sale — the matched job's own attending technician normally, or its
+  // separate Install Technician when that job's own Work Completion says the
+  // work happened on a different day (falling back to the attending
+  // technician if no install technician was ever recorded). Trade/Job Type
+  // auto-fill the same way every other entry type's does. Still only ever
+  // fills a currently-blank field, and still fully editable afterwards.
+  useEffect(() => {
+    if (!isCallBack || !callBackJobLookup?.found) return;
+    const fill = {};
+    if (!form.creditedTechnicianId) {
+      const completedOnDifferentDay = callBackJobLookup.workCompletion === 'Install scheduled — different day';
+      const workTechnicianId = (completedOnDifferentDay && callBackJobLookup.installTechnicianId) || callBackJobLookup.technicianId;
+      if (workTechnicianId) fill.creditedTechnicianId = workTechnicianId;
+    }
+    if (callBackJobLookup.tradeId && !form.tradeId) fill.tradeId = callBackJobLookup.tradeId;
+    if (callBackJobLookup.jobTypeId && !form.jobTypeId) fill.jobTypeId = callBackJobLookup.jobTypeId;
+    if (Object.keys(fill).length) patch(fill);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callBackJobLookup, isCallBack]);
 
   // Suburb: auto-populated from the matched call above, but only when there's
   // actually a suburb on it to use — a matching call with none recorded (or
@@ -263,7 +290,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       }
     } else if (isCallBack) {
       if (!form.jobNumber || !form.jobNumber.trim()) {
-        missing.push('Job Number');
+        missing.push('Original Job Number');
         fields.add('jobNumber');
       }
       if (!form.technicianId) {
@@ -357,6 +384,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       } else if (isCallBack) {
         const body = {
           jobNumber: form.jobNumber,
+          newJobNumber: form.newJobNumber,
           visitDate: form.visitDate,
           technicianId: form.technicianId || null,
           creditedTechnicianId: form.creditedTechnicianId || null,
@@ -473,6 +501,31 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             </div>
           </div>
         </div>
+      ) : isCallBack ? (
+        <div className="grid-form" style={{ marginTop: 14 }}>
+          <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
+            <label>Original Job Number *</label>
+            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <JobLookupBox jobNumber={form.jobNumber} mode="job" result={callBackJobLookup} />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The job that caused this callback — used to auto-fill Trade/Job Type/Credited Technician below. Still allowed to save
+              even if no match is found yet (e.g. the original job hasn't been logged here).
+            </div>
+          </div>
+          <div className="field">
+            <label>New Callback Job Number</label>
+            <input
+              className="mono"
+              placeholder="e.g. 20458"
+              value={form.newJobNumber}
+              onChange={(e) => patch({ newJobNumber: e.target.value })}
+            />
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              The new AroFlo Job Number created once the callback attendance is booked — leave blank if not known yet. Reference and
+              searching only, does not link to a job or count as a Total/Qualified Job.
+            </div>
+          </div>
+        </div>
       ) : (
         showJobLookup && (
           <div className="grid-form" style={{ marginTop: 14 }}>
@@ -527,13 +580,22 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             options={settings.activeTechniciansFor(form.technicianId)}
             invalid={invalidFields.has('technicianId')}
           />
-          <SelectField
-            label="Credited technician (original work) *"
-            value={form.creditedTechnicianId}
-            onChange={(v) => patch({ creditedTechnicianId: v })}
-            options={withInactiveLabel(settings.technicians)}
-            invalid={invalidFields.has('creditedTechnicianId')}
-          />
+          <div className="field">
+            <SelectField
+              label="Credited technician (original work) *"
+              value={form.creditedTechnicianId}
+              onChange={(v) => patch({ creditedTechnicianId: v })}
+              options={withInactiveLabel(settings.technicians)}
+              invalid={invalidFields.has('creditedTechnicianId')}
+            />
+            {callBackJobLookup?.found && (
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                {callBackJobLookup.workCompletion === 'Install scheduled — different day'
+                  ? 'Auto-filled with whoever completed the original work on a different day (not necessarily who made the sale) — still editable if it needs correcting.'
+                  : "Auto-filled from the original job's own technician — still editable if it needs correcting."}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

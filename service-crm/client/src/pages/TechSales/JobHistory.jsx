@@ -62,6 +62,16 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
     setFilters((f) => ({ ...f, ...p }));
   }
 
+  // Filters this same table down to everything sharing a Job Number — used
+  // by the "View original job"/"View linked callback" links below, so
+  // clicking either one shows both the Call Back and its linked original job
+  // side by side. Clears any active Entry type filter too, so the target is
+  // never hidden by it. Not offered inside an embedded (report drill-down)
+  // list, whose fixed row set may not include the linked record at all.
+  function viewByJobNumber(jn) {
+    patch({ jobNumber: jn, entryType: '' });
+  }
+
   const filtered = rows.filter((e) => {
     if (!filters.includeArchived && e.archived) return false;
     if (filters.from && (e.dateShown || '') < filters.from) return false;
@@ -70,8 +80,8 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
     if (filters.tradeId && String(e.tradeId) !== String(filters.tradeId)) return false;
     if (filters.entryType && e.kind !== filters.entryType) return false;
     if (filters.jobNumber) {
-      // Matches either JN on a Quote Approved Later entry — the original
-      // job it's linked against, or its own separate New Job Number.
+      // Matches either JN on a Quote Approved Later or Call Back entry — the
+      // original job it's linked against, or its own separate New Job Number.
       const q = filters.jobNumber.trim().toLowerCase();
       const matchesOriginal = (e.jobNumber || '').trim().toLowerCase() === q;
       const matchesNew = (e.newJobNumber || '').trim().toLowerCase() === q;
@@ -219,7 +229,7 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                 <th>Entry type</th>
                 <th>Technician</th>
                 <th>JN</th>
-                <th title="Only shown for Existing Job — Quote Approved Later: the separate AroFlo Job Number created for the approved work">New JN</th>
+                <th title="Only shown for Existing Job — Quote Approved Later or Call Back: the separate AroFlo Job Number created for the approved work / once the callback attendance is booked">New JN</th>
                 <th>Trade / job type</th>
                 <th>Suburb</th>
                 <th>Outcome</th>
@@ -253,8 +263,22 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                             </button>
                           </div>
                         )}
+                        {!embedded && e.kind === 'call_back' && e.jobId && (
+                          <div>
+                            <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewByJobNumber(e.jobNumber)}>
+                              View original job →
+                            </button>
+                          </div>
+                        )}
+                        {!embedded && (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') && e.relatedCallBackCount > 0 && (
+                          <div>
+                            <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewByJobNumber(e.jobNumber)}>
+                              {e.relatedCallBackCount} linked callback{e.relatedCallBackCount > 1 ? 's' : ''} →
+                            </button>
+                          </div>
+                        )}
                       </td>
-                      <td className="mono">{e.kind === 'quote_approved_later' ? e.newJobNumber || '—' : ''}</td>
+                      <td className="mono">{e.kind === 'quote_approved_later' || e.kind === 'call_back' ? e.newJobNumber || '—' : ''}</td>
                       <td>
                         {e.tradeName}
                         {e.jobTypeName ? ` — ${e.jobTypeName}` : ''}

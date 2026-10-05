@@ -132,6 +132,23 @@ export function findDuplicateUpsell(jobNumber, invoiceNumber, creditedTechnician
   );
 }
 
+/** An active Call Back already using this New Callback Job Number, if any
+ * (excluding excludeId, for editing). Scoped strictly to call_backs.
+ * new_job_number — it must never block an unrelated record (a New Job, Quote
+ * Approved Later, Pending Cancellation, or another call back's own
+ * job_number/Original Job Number) from legitimately referencing that same
+ * AroFlo JN, and it must never flag a call back against its own linked
+ * original job as a "duplicate" merely because they're related — those are
+ * two entirely different columns. */
+export function findDuplicateCallBackJobNumber(newJobNumber, excludeId) {
+  const key = normKey(newJobNumber);
+  if (!key) return null;
+  return get(
+    `SELECT * FROM call_backs WHERE archived = 0 AND lower(trim(new_job_number)) = ? AND id != ? LIMIT 1`,
+    [key, excludeId || 0]
+  );
+}
+
 // A deactivated technician/user must never be newly assigned to work — this
 // is the backend backstop for that rule, since the picker they'd normally be
 // chosen from already excludes them. It only applies to assigning NEW work

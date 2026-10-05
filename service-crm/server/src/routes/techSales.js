@@ -5,6 +5,7 @@ import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
 import {
   findConvertibleKnockback,
+  findDuplicateCallBackJobNumber,
   findDuplicateInvoice,
   findDuplicateNewJobNumber,
   findDuplicateUpsell,
@@ -47,6 +48,7 @@ const SALE_TRACKED_FIELDS = [
 ];
 const CALL_BACK_TRACKED_FIELDS = [
   'job_number',
+  'new_job_number',
   'attending_technician_id',
   'credited_technician_id',
   'trade_id',
@@ -108,6 +110,26 @@ function callBackRow(id) {
 function originalJobTechnicianId(jobId) {
   if (!jobId) return null;
   return get('SELECT technician_id FROM jobs WHERE id = ?', [jobId])?.technician_id || null;
+}
+
+// Call Back's own Credited (original work) Technician fallback — who
+// actually completed the original work, not necessarily who's credited with
+// the sale. The job itself says which: its own attending technician by
+// default, or its separate Install Technician when the job's own
+// "Work completion" says the work happened on a different day (falling back
+// to the attending technician if no install technician was ever recorded).
+// Deliberately its own function, never folded into originalJobTechnicianId()
+// above — that one is relied on by Quote Approved Later/Upsell/Pending
+// Cancellation for "who gets credited for the sale", which is always the
+// job's own attending technician regardless of install-day nuance.
+function originalWorkTechnicianId(jobId) {
+  if (!jobId) return null;
+  const job = get('SELECT technician_id, work_completion, install_technician_id FROM jobs WHERE id = ?', [jobId]);
+  if (!job) return null;
+  if (job.work_completion === 'Install scheduled — different day' && job.install_technician_id) {
+    return job.install_technician_id;
+  }
+  return job.technician_id || null;
 }
 
 function pendingCancellationRow(id) {
@@ -204,7 +226,15 @@ function callBackToEntry(cb) {
     technicianName: cb.attending_technician_name,
     creditedTechnicianId: cb.credited_technician_id,
     creditedTechnicianName: cb.credited_technician_name,
+    // The ORIGINAL job's Job Number — used for matching/linking (see
+    // /call-backs below). Distinct from newJobNumber, the separate AroFlo JN
+    // created once the callback attendance is actually booked.
     jobNumber: cb.job_number,
+    newJobNumber: cb.new_job_number || '',
+    // Set only when job_number actually matched an existing job at save time
+    // — used purely so the UI can offer a "View original job" link; never
+    // itself written to or read for any figure.
+    jobId: cb.job_id || null,
     tradeId: cb.trade_id,
     tradeName: cb.trade_name,
     jobTypeId: cb.job_type_id,
@@ -288,9 +318,9 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
     }
     if (tradeId) entries = entries.filter((e) => e.tradeId === Number(tradeId));
     if (entryType) entries = entries.filter((e) => e.kind === entryType);
-    // Matches either JN on a Quote Approved Later entry — the original job
-    // number it's linked against, or its own separate New Job Number — so a
-    // search for either one locates the same entry.
+    // Matches either JN on a Quote Approved Later or Call Back entry — the
+    // original job number it's linked against, or its own separate New Job
+    // Number — so a search for either one locates the same entry.
     if (jobNumber) {
       const key = normKey(jobNumber);
       entries = entries.filter((e) => normKey(e.jobNumber) === key || (e.newJobNumber && normKey(e.newJobNumber) === key));
@@ -322,6 +352,13 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
     e.relatedCallsCount = e.jobNumber
       ? get('SELECT COUNT(*) AS n FROM calls WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
       : 0;
+    // Only a New Job entry can have a linked Call Back pointing back at it
+    // (by Original Job Number) — used purely to offer a "View linked
+    // callback" link in the UI, mirroring relatedCallsCount above.
+    e.relatedCallBackCount =
+      (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') && e.jobNumber
+        ? get('SELECT COUNT(*) AS n FROM call_backs WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
+        : 0;
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
     else if (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
@@ -918,7 +955,7 @@ export function createTechSalesRouter() {
   router.post('/call-backs', (req, res) => {
     const b = req.body || {};
     if (!b.jobNumber || !String(b.jobNumber).trim()) {
-      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
+      return res.status(400).json({ error: 'Please enter the Original Job Number before saving.' });
     }
     // Attending Technician and Credited Technician are both mandatory on
     // creation (never on edit, so a legacy entry saved before this check
@@ -937,14 +974,30 @@ export function createTechSalesRouter() {
     if (!isTechnicianActive(b.technicianId)) {
       return res.status(400).json({ error: 'This technician has been deactivated and cannot be assigned to a new call back.' });
     }
+    // The New Callback Job Number is optional even on creation (the callback
+    // may be logged before it's actually booked), but once given, each one
+    // must still be its own — scoped strictly to call_backs.new_job_number
+    // (see findDuplicateCallBackJobNumber), so this can never be tripped by
+    // the Original Job Number it's linked against.
+    if (b.newJobNumber && String(b.newJobNumber).trim()) {
+      const dupe = findDuplicateCallBackJobNumber(b.newJobNumber);
+      if (dupe) {
+        return res.status(400).json({
+          error: `New Callback Job Number ${b.newJobNumber} is already used on another Call Back (Original JN ${dupe.job_number}). Each New Callback Job Number can only be used once.`,
+        });
+      }
+    }
     const matchedJob = findOriginalJob(b.jobNumber);
     // The original job's Trade and Job Type are auto-populated below where
     // possible, but stay editable — an explicit value in the request always
     // wins over the matched job's own value. A Call Back is never blocked
-    // for lack of a match, though — it isn't required to reference an
-    // existing job the way Quote Approved Later is.
+    // for lack of a match, though — unlike Quote Approved Later/Upsell, it
+    // isn't required to reference an existing job: it may be logged before
+    // that job is even in the system yet (left simply unlinked, job_id NULL,
+    // until it is).
     const values = {
       job_number: b.jobNumber || '',
+      new_job_number: b.newJobNumber || '',
       attending_technician_id: b.technicianId || null,
       credited_technician_id: b.creditedTechnicianId || null,
       trade_id: b.tradeId || matchedJob?.trade_id || null,
@@ -953,12 +1006,13 @@ export function createTechSalesRouter() {
       comments: b.comments || '',
     };
     const { lastInsertRowid } = run(
-      `INSERT INTO call_backs (job_id, job_number, visit_date, attending_technician_id, credited_technician_id,
+      `INSERT INTO call_backs (job_id, job_number, new_job_number, visit_date, attending_technician_id, credited_technician_id,
         trade_id, job_type_id, reason_id, comments, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         matchedJob?.id || null,
         values.job_number,
+        values.new_job_number,
         b.visitDate,
         values.attending_technician_id,
         values.credited_technician_id,
@@ -977,19 +1031,35 @@ export function createTechSalesRouter() {
     const existing = get('SELECT * FROM call_backs WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
+    // Re-checked on edit only when the New Callback Job Number is actually
+    // changing — never blocked re-saving a record with its own unchanged
+    // value — exactly mirroring Quote Approved Later's own New Job Number
+    // edit-time check.
+    if (b.newJobNumber !== undefined && String(b.newJobNumber).trim()) {
+      const dupe = findDuplicateCallBackJobNumber(b.newJobNumber, req.params.id);
+      if (dupe) {
+        return res.status(400).json({
+          error: `New Callback Job Number ${b.newJobNumber} is already used on another Call Back (Original JN ${dupe.job_number}). Each New Callback Job Number can only be used once.`,
+        });
+      }
+    }
     const attending_technician_id = mergeId(b.technicianId, existing.attending_technician_id);
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
+      new_job_number: b.newJobNumber ?? existing.new_job_number,
       attending_technician_id,
       // Same fallback as Quote Approved Later's own edit route — an edit
-      // that clears Credited Technician falls back to the linked original
-      // job's technician first (job_id can legitimately be null, since a
-      // Call Back is never required to match an existing job), then this
-      // same call back's own Attending Technician, which is always present.
-      // Never applied when an explicit value is given.
+      // that clears Credited Technician falls back to whoever actually
+      // completed the linked original job's work (its own attending
+      // technician, or its separate Install Technician when that job says
+      // the work was completed on a different day — see
+      // originalWorkTechnicianId()), then this same call back's own
+      // Attending Technician, which is always present. job_id can
+      // legitimately be null, since a Call Back is never required to match
+      // an existing job. Never applied when an explicit value is given.
       credited_technician_id:
         mergeId(b.creditedTechnicianId, existing.credited_technician_id) ||
-        originalJobTechnicianId(existing.job_id) ||
+        originalWorkTechnicianId(existing.job_id) ||
         attending_technician_id,
       trade_id: mergeId(b.tradeId, existing.trade_id),
       job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
@@ -998,10 +1068,11 @@ export function createTechSalesRouter() {
     };
     const visitDate = b.visitDate ?? existing.visit_date;
     run(
-      `UPDATE call_backs SET job_number=?, visit_date=?, attending_technician_id=?, credited_technician_id=?,
+      `UPDATE call_backs SET job_number=?, new_job_number=?, visit_date=?, attending_technician_id=?, credited_technician_id=?,
         trade_id=?, job_type_id=?, reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
       [
         next.job_number,
+        next.new_job_number,
         visitDate,
         next.attending_technician_id,
         next.credited_technician_id,

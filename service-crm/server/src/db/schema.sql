@@ -172,7 +172,20 @@ CREATE TABLE IF NOT EXISTS call_backs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   archived INTEGER NOT NULL DEFAULT 0,
   job_id INTEGER REFERENCES jobs(id),
+  -- The ORIGINAL job's Job Number — used to locate/link the original job and
+  -- drive the auto-populated Trade/Job Type/Credited Technician below.
+  -- Mandatory, but (unlike Quote Approved Later's own Original Job Number)
+  -- never required to actually match an existing job: a Call Back can be
+  -- logged before the original job is in the system, and is simply left
+  -- unlinked (job_id NULL) until it is.
   job_number TEXT NOT NULL,
+  -- The separate, brand new AroFlo Job Number created once the callback
+  -- attendance is actually booked — distinct from job_number above. Optional
+  -- even at creation (may not be known yet), reference/search only: never
+  -- linked to a job row, never counted as a Total/Qualified Job. Blank for
+  -- every record saved before this field existed. Mirrors sales.new_job_number
+  -- (see that column's own comment) applied to the same two-JN design here.
+  new_job_number TEXT NOT NULL DEFAULT '',
   visit_date TEXT NOT NULL,
   attending_technician_id INTEGER REFERENCES technicians(id),
   credited_technician_id INTEGER REFERENCES technicians(id),

@@ -138,6 +138,20 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    // Purely additive: a brand-new nullable-in-spirit column (TEXT NOT NULL
+    // DEFAULT ''), mirroring sales_new_job_number above. Every existing call
+    // back simply ends up with new_job_number = '' ("not booked yet" / "none
+    // recorded") — no existing call back's job_number, job_id, technician or
+    // any other column is read or written by this migration.
+    id: 'call_backs_new_job_number',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(call_backs)').all().some((c) => c.name === 'new_job_number');
+      if (!hasColumn) {
+        database.exec("ALTER TABLE call_backs ADD COLUMN new_job_number TEXT NOT NULL DEFAULT ''");
+      }
+    },
+  },
 ];
 
 // One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;
