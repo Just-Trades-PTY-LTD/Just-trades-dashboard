@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
+import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
+import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
 import {
   findConvertibleKnockback,
@@ -61,13 +62,15 @@ const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_
 function jobRow(id) {
   return get(
     `SELECT j.*, t.name AS technician_name, it.name AS install_technician_name,
-      tr.name AS trade_name, jt.name AS job_type_name, kr.name AS knockback_reason_name
+      tr.name AS trade_name, jt.name AS job_type_name, kr.name AS knockback_reason_name,
+      cu.name AS created_by_name
      FROM jobs j
      LEFT JOIN technicians t ON t.id = j.technician_id
      LEFT JOIN technicians it ON it.id = j.install_technician_id
      LEFT JOIN trades tr ON tr.id = j.trade_id
      LEFT JOIN job_types jt ON jt.id = j.job_type_id
      LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
+     LEFT JOIN users cu ON cu.id = j.created_by_user_id
      WHERE j.id = ?`,
     [id]
   );
@@ -75,11 +78,13 @@ function jobRow(id) {
 
 function saleRow(id) {
   return get(
-    `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name
+    `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name,
+      cu.name AS created_by_name
      FROM sales s
      LEFT JOIN technicians t ON t.id = s.credited_technician_id
      LEFT JOIN trades tr ON tr.id = s.trade_id
      LEFT JOIN job_types jt ON jt.id = s.job_type_id
+     LEFT JOIN users cu ON cu.id = s.created_by_user_id
      WHERE s.id = ?`,
     [id]
   );
@@ -88,13 +93,15 @@ function saleRow(id) {
 function callBackRow(id) {
   return get(
     `SELECT cb.*, at.name AS attending_technician_name, ct.name AS credited_technician_name,
-      tr.name AS trade_name, jt.name AS job_type_name, r.name AS reason_name
+      tr.name AS trade_name, jt.name AS job_type_name, r.name AS reason_name,
+      cu.name AS created_by_name
      FROM call_backs cb
      LEFT JOIN technicians at ON at.id = cb.attending_technician_id
      LEFT JOIN technicians ct ON ct.id = cb.credited_technician_id
      LEFT JOIN trades tr ON tr.id = cb.trade_id
      LEFT JOIN job_types jt ON jt.id = cb.job_type_id
      LEFT JOIN list_items r ON r.id = cb.reason_id
+     LEFT JOIN users cu ON cu.id = cb.created_by_user_id
      WHERE cb.id = ?`,
     [id]
   );
@@ -134,11 +141,13 @@ function originalWorkTechnicianId(jobId) {
 
 function pendingCancellationRow(id) {
   return get(
-    `SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name, r.name AS reason_name
+    `SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name, r.name AS reason_name,
+      cu.name AS created_by_name
      FROM pending_cancellations pc
      LEFT JOIN technicians t ON t.id = pc.credited_technician_id
      LEFT JOIN trades tr ON tr.id = pc.trade_id
      LEFT JOIN list_items r ON r.id = pc.reason_id
+     LEFT JOIN users cu ON cu.id = pc.created_by_user_id
      WHERE pc.id = ?`,
     [id]
   );
@@ -155,6 +164,13 @@ function jobToEntry(j) {
     visitDate: j.visit_date,
     technicianId: j.technician_id,
     technicianName: j.technician_name,
+    // Who actually completed the work — the attending technician normally,
+    // or the separate Install Technician when Work Completion says the job
+    // was finished on a different day (never a guess: falls back to the
+    // attending technician if no install technician was ever recorded).
+    // Used by the "Technician who completed the work" filter.
+    completingTechnicianId:
+      j.work_completion === 'Install scheduled — different day' && j.install_technician_id ? j.install_technician_id : j.technician_id,
     jobNumber: j.job_number,
     tradeId: j.trade_id,
     tradeName: j.trade_name,
@@ -176,7 +192,10 @@ function jobToEntry(j) {
     saleValueExGst: sale?.sale_value_ex_gst ?? '',
     comments: j.comments,
     suburb: j.suburb || '',
+    createdByUserId: j.created_by_user_id,
+    createdByName: j.created_by_name || '',
     createdAt: j.created_at,
+    updatedAt: j.updated_at,
   };
 }
 
@@ -191,6 +210,9 @@ function saleToEntry(s) {
     technicianName: s.credited_technician_name,
     creditedTechnicianId: s.credited_technician_id,
     creditedTechnicianName: s.credited_technician_name,
+    // Who gets credited for this work — always the credited technician for
+    // a sale row. Used by the "Technician who completed the work" filter.
+    completingTechnicianId: s.credited_technician_id,
     // The *original* visit's Job Number — used for matching/linking/
     // attribution (see /quote-approved-later and /existing-job-upsell
     // below). Distinct from newJobNumber, the separate AroFlo JN created for
@@ -210,7 +232,10 @@ function saleToEntry(s) {
     // same convention as newJobNumber above.
     suburb: s.suburb || '',
     comments: s.comments,
+    createdByUserId: s.created_by_user_id,
+    createdByName: s.created_by_name || '',
     createdAt: s.created_at,
+    updatedAt: s.updated_at,
   };
 }
 
@@ -226,6 +251,11 @@ function callBackToEntry(cb) {
     technicianName: cb.attending_technician_name,
     creditedTechnicianId: cb.credited_technician_id,
     creditedTechnicianName: cb.credited_technician_name,
+    // "Who completed the work" for a Call Back is its own Credited
+    // (original work) Technician — already specifically chosen for this
+    // reason (see originalWorkTechnicianId()), never the Attending
+    // Technician, who is simply whoever is attending THIS callback visit.
+    completingTechnicianId: cb.credited_technician_id,
     // The ORIGINAL job's Job Number — used for matching/linking (see
     // /call-backs below). Distinct from newJobNumber, the separate AroFlo JN
     // created once the callback attendance is actually booked.
@@ -242,7 +272,10 @@ function callBackToEntry(cb) {
     reasonId: cb.reason_id,
     reasonName: cb.reason_name,
     comments: cb.comments,
+    createdByUserId: cb.created_by_user_id,
+    createdByName: cb.created_by_name || '',
     createdAt: cb.created_at,
+    updatedAt: cb.updated_at,
   };
 }
 
@@ -257,13 +290,17 @@ function pendingCancellationToEntry(pc) {
     technicianName: pc.credited_technician_name,
     creditedTechnicianId: pc.credited_technician_id,
     creditedTechnicianName: pc.credited_technician_name,
+    completingTechnicianId: pc.credited_technician_id,
     jobNumber: pc.job_number,
     tradeId: pc.trade_id,
     tradeName: pc.trade_name,
     reasonId: pc.reason_id,
     reasonName: pc.reason_name,
     comments: pc.comments,
+    createdByUserId: pc.created_by_user_id,
+    createdByName: pc.created_by_name || '',
     createdAt: pc.created_at,
+    updatedAt: pc.updated_at,
   };
 }
 
@@ -276,40 +313,77 @@ const ENTITY_TYPE_BY_KIND = {
   pending_cancellation: 'pending_cancellation',
 };
 
-export function listTechEntries({ from, to, technicianId, tradeId, entryType, jobNumber, includeArchived } = {}) {
+// `status` ('active' | 'archived' | 'all') is the tri-state Active/archived
+// filter the Advanced Filters panel uses — it takes priority over the older
+// `includeArchived` boolean (kept working unchanged for existing callers).
+export function listTechEntries({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  entryType,
+  jobNumber,
+  originalJobNumber,
+  newJobNumber,
+  suburb,
+  completingTechnicianId,
+  saleMade,
+  knockback,
+  knockbackReasonId,
+  workCompletion,
+  convertedLater,
+  hasCallBack,
+  hasPendingCancellation,
+  hasUpsell,
+  createdByUserId,
+  status,
+  q,
+  includeArchived,
+} = {}) {
   const showArchived = includeArchived === 'true';
 
     let entries = [
       ...all(`SELECT j.*, t.name AS technician_name, it.name AS install_technician_name, tr.name AS trade_name,
-                jt.name AS job_type_name, kr.name AS knockback_reason_name
+                jt.name AS job_type_name, kr.name AS knockback_reason_name, cu.name AS created_by_name
               FROM jobs j
               LEFT JOIN technicians t ON t.id = j.technician_id
               LEFT JOIN technicians it ON it.id = j.install_technician_id
               LEFT JOIN trades tr ON tr.id = j.trade_id
               LEFT JOIN job_types jt ON jt.id = j.job_type_id
-              LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id`).map(jobToEntry),
-      ...all(`SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name
+              LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
+              LEFT JOIN users cu ON cu.id = j.created_by_user_id`).map(jobToEntry),
+      ...all(`SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name,
+                cu.name AS created_by_name
               FROM sales s
               LEFT JOIN technicians t ON t.id = s.credited_technician_id
               LEFT JOIN trades tr ON tr.id = s.trade_id
               LEFT JOIN job_types jt ON jt.id = s.job_type_id
+              LEFT JOIN users cu ON cu.id = s.created_by_user_id
               WHERE s.source = 'quote_approved_later'`).map(saleToEntry),
       ...all(`SELECT cb.*, at.name AS attending_technician_name, ct.name AS credited_technician_name,
-                tr.name AS trade_name, jt.name AS job_type_name, r.name AS reason_name
+                tr.name AS trade_name, jt.name AS job_type_name, r.name AS reason_name, cu.name AS created_by_name
               FROM call_backs cb
               LEFT JOIN technicians at ON at.id = cb.attending_technician_id
               LEFT JOIN technicians ct ON ct.id = cb.credited_technician_id
               LEFT JOIN trades tr ON tr.id = cb.trade_id
               LEFT JOIN job_types jt ON jt.id = cb.job_type_id
-              LEFT JOIN list_items r ON r.id = cb.reason_id`).map(callBackToEntry),
-      ...all(`SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name, r.name AS reason_name
+              LEFT JOIN list_items r ON r.id = cb.reason_id
+              LEFT JOIN users cu ON cu.id = cb.created_by_user_id`).map(callBackToEntry),
+      ...all(`SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name, r.name AS reason_name,
+                cu.name AS created_by_name
               FROM pending_cancellations pc
               LEFT JOIN technicians t ON t.id = pc.credited_technician_id
               LEFT JOIN trades tr ON tr.id = pc.trade_id
-              LEFT JOIN list_items r ON r.id = pc.reason_id`).map(pendingCancellationToEntry),
+              LEFT JOIN list_items r ON r.id = pc.reason_id
+              LEFT JOIN users cu ON cu.id = pc.created_by_user_id`).map(pendingCancellationToEntry),
     ];
 
-    if (!showArchived) entries = entries.filter((e) => !e.archived);
+    if (status === 'archived') entries = entries.filter((e) => e.archived);
+    else if (status === 'all') {
+      // no archived filter — every record regardless of status
+    } else if (status === 'active') entries = entries.filter((e) => !e.archived);
+    else if (!showArchived) entries = entries.filter((e) => !e.archived);
     if (from) entries = entries.filter((e) => (e.dateShown || '') >= from);
     if (to) entries = entries.filter((e) => (e.dateShown || '') <= to);
     if (technicianId) {
@@ -317,13 +391,72 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
       entries = entries.filter((e) => e.technicianId === tid || e.creditedTechnicianId === tid);
     }
     if (tradeId) entries = entries.filter((e) => e.tradeId === Number(tradeId));
+    if (jobTypeId) entries = entries.filter((e) => e.jobTypeId === Number(jobTypeId));
     if (entryType) entries = entries.filter((e) => e.kind === entryType);
     // Matches either JN on a Quote Approved Later or Call Back entry — the
     // original job number it's linked against, or its own separate New Job
-    // Number — so a search for either one locates the same entry.
+    // Number — so a search for either one locates the same entry. This is
+    // the combined "Job number" quick filter; originalJobNumber/newJobNumber
+    // below are the Advanced Filters panel's own, more precise pair.
     if (jobNumber) {
       const key = normKey(jobNumber);
       entries = entries.filter((e) => normKey(e.jobNumber) === key || (e.newJobNumber && normKey(e.newJobNumber) === key));
+    }
+    if (originalJobNumber) {
+      const key = normKey(originalJobNumber);
+      entries = entries.filter((e) => normKey(e.jobNumber) === key);
+    }
+    if (newJobNumber) {
+      const key = normKey(newJobNumber);
+      entries = entries.filter((e) => e.newJobNumber && normKey(e.newJobNumber) === key);
+    }
+    if (suburb) {
+      const key = normKey(suburb);
+      entries = entries.filter((e) => normKey(e.suburb) === key);
+    }
+    if (completingTechnicianId) {
+      const tid = Number(completingTechnicianId);
+      entries = entries.filter((e) => e.completingTechnicianId === tid);
+    }
+    if (createdByUserId) {
+      const uid = Number(createdByUserId);
+      entries = entries.filter((e) => e.createdByUserId === uid);
+    }
+    // Sale Made: Yes/No — whether this record carries an invoice at all,
+    // regardless of entry kind (a New Job — Sale Made, a Quote Approved
+    // Later, and an Upsell all carry one; a No Sale job, Call Back and
+    // Pending Cancellation never do).
+    if (saleMade === 'yes') entries = entries.filter((e) => !!e.invoiceNumber);
+    else if (saleMade === 'no') entries = entries.filter((e) => !e.invoiceNumber);
+    const isJobKind = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
+    // Knockback/Converted Later/Call Back/Pending Cancellation/Upsell below
+    // are all concepts that only ever apply to a New Job entry — "No" is
+    // scoped to job-kind rows explicitly (never silently pulling in an
+    // unrelated Call Back/Quote Approved Later/etc. row just because it
+    // trivially doesn't have the flag either).
+    if (knockback === 'yes') entries = entries.filter((e) => e.knockback === true);
+    else if (knockback === 'no') entries = entries.filter((e) => isJobKind(e) && e.knockback === false);
+    if (knockbackReasonId) entries = entries.filter((e) => Number(e.knockbackReasonId) === Number(knockbackReasonId));
+    if (workCompletion) entries = entries.filter((e) => e.workCompletion === workCompletion);
+    if (convertedLater === 'yes') entries = entries.filter((e) => e.convertedLater === true);
+    else if (convertedLater === 'no') entries = entries.filter((e) => isJobKind(e) && e.convertedLater === false);
+    // hasCallBack/hasPendingCancellation/hasUpsell are filtered further down,
+    // after relatedCallBackCount/relatedPendingCancellationCount/
+    // relatedUpsellCount are computed below — those need a DB lookup per
+    // entry, so (like historyCount) they're only ever computed once, after
+    // every other filter has already narrowed the set down.
+    // Free-text keyword search — job number (either JN), suburb and
+    // comments, the only free-text fields these records actually carry
+    // (there is no customer name or phone number stored anywhere here).
+    if (q && String(q).trim()) {
+      const key = String(q).trim().toLowerCase();
+      entries = entries.filter(
+        (e) =>
+          (e.jobNumber || '').toLowerCase().includes(key) ||
+          (e.newJobNumber || '').toLowerCase().includes(key) ||
+          (e.suburb || '').toLowerCase().includes(key) ||
+          (e.comments || '').toLowerCase().includes(key)
+      );
     }
 
   entries.sort((a, b) => (b.dateShown || '').localeCompare(a.dateShown || '') || b.id - a.id);
@@ -334,8 +467,10 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
     (idsByType[t] ||= []).push(e.id);
   });
   const countsByType = {};
+  const lastEditedByType = {};
   Object.entries(idsByType).forEach(([t, ids]) => {
     countsByType[t] = getHistoryCounts(t, ids);
+    lastEditedByType[t] = getLastEditedInfo(t, ids);
   });
   // A job row can't be deleted while a sales row still references it by
   // job_id (always true for "New Job — Sale Made", and also true for a
@@ -349,24 +484,50 @@ export function listTechEntries({ from, to, technicianId, tradeId, entryType, jo
   entries.forEach((e) => {
     const t = ENTITY_TYPE_BY_KIND[e.kind];
     e.historyCount = countsByType[t]?.[e.id] || 0;
+    const le = lastEditedByType[t]?.[e.id];
+    e.lastEditedByName = le?.by || '';
+    e.lastEditedAt = le?.at || '';
     e.relatedCallsCount = e.jobNumber
       ? get('SELECT COUNT(*) AS n FROM calls WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
       : 0;
-    // Only a New Job entry can have a linked Call Back pointing back at it
-    // (by Original Job Number) — used purely to offer a "View linked
-    // callback" link in the UI, mirroring relatedCallsCount above.
+    const isJobEntry = e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
+    // Only a New Job entry can have a linked Call Back/Pending Cancellation/
+    // Upsell pointing back at it (by Original Job Number) — used both for
+    // the "has one? Yes/No" filters below and to offer "View linked
+    // callback"-style links in the UI, mirroring relatedCallsCount above.
     e.relatedCallBackCount =
-      (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') && e.jobNumber
+      isJobEntry && e.jobNumber
         ? get('SELECT COUNT(*) AS n FROM call_backs WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
         : 0;
+    e.relatedPendingCancellationCount =
+      isJobEntry && e.jobNumber
+        ? get('SELECT COUNT(*) AS n FROM pending_cancellations WHERE archived = 0 AND lower(trim(job_number)) = ?', [normKey(e.jobNumber)]).n
+        : 0;
+    e.relatedUpsellCount =
+      isJobEntry && e.jobNumber
+        ? get("SELECT COUNT(*) AS n FROM sales WHERE archived = 0 AND is_upsell = 1 AND lower(trim(job_number)) = ?", [normKey(e.jobNumber)]).n
+        : 0;
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
-    else if (e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made') e.canDelete = !jobIdsWithSales.has(e.id);
+    else if (isJobEntry) e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
     // callers below — it's never called for this entry type), so it can
     // never be the sale a job's converted_by_sale_id points back to.
     else if (e.kind === 'existing_job_upsell') e.canDelete = true;
     else e.canDelete = true;
   });
+
+  // Deferred from the main filter block above — these three need
+  // relatedCallBackCount/relatedPendingCancellationCount/relatedUpsellCount,
+  // only just computed. Scoped the same way as Knockback/Converted Later
+  // above: "No" only ever matches a job-kind row explicitly, never an
+  // unrelated Call Back/Quote Approved Later/etc. row.
+  const isJobKindEntry = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
+  if (hasCallBack === 'yes') entries = entries.filter((e) => e.relatedCallBackCount > 0);
+  else if (hasCallBack === 'no') entries = entries.filter((e) => isJobKindEntry(e) && e.relatedCallBackCount === 0);
+  if (hasPendingCancellation === 'yes') entries = entries.filter((e) => e.relatedPendingCancellationCount > 0);
+  else if (hasPendingCancellation === 'no') entries = entries.filter((e) => isJobKindEntry(e) && e.relatedPendingCancellationCount === 0);
+  if (hasUpsell === 'yes') entries = entries.filter((e) => e.relatedUpsellCount > 0);
+  else if (hasUpsell === 'no') entries = entries.filter((e) => isJobKindEntry(e) && e.relatedUpsellCount === 0);
 
   return entries;
 }
@@ -385,10 +546,13 @@ export function createTechSalesRouter() {
     const lookups = {
       technicians: new Map(all('SELECT id, name FROM technicians').map((t) => [String(t.id), t.name])),
       trades: new Map(all('SELECT id, name FROM trades').map((t) => [String(t.id), t.name])),
+      jobTypes: new Map(all('SELECT id, name FROM job_types').map((t) => [String(t.id), t.name])),
+      staff: new Map(all('SELECT id, name FROM users').map((u) => [String(u.id), u.name])),
+      knockbackReasons: new Map(all("SELECT id, name FROM list_items WHERE category = 'knockback_reason'").map((r) => [String(r.id), r.name])),
     };
     const wb = buildJobHistoryWorkbook(rows, req.query, lookups);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="technician-sales-history-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="technician-sales-history-${adelaideDateStamp()}.xlsx"`);
     await wb.xlsx.write(res);
     res.end();
   });

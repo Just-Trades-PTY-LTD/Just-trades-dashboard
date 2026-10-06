@@ -1,14 +1,29 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { usePersistentFilters } from '../../lib/usePersistentFilters.js';
-import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
+import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
-import { contactMethodLabel } from '../../lib/contactMethods.js';
+import { contactMethodLabel, CONTACT_METHOD_OPTIONS } from '../../lib/contactMethods.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
+const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
 const NOTES_PREVIEW_LENGTH = 60;
+
+// Every Advanced Filters field, blank by default. Kept separate from the
+// always-visible quick filters below purely so "how many are active" can be
+// counted and so Clear All only ever touches these, never the quick ones.
+const EMPTY_ADVANCED = {
+  suburb: '',
+  tradeId: '',
+  jobTypeId: '',
+  direction: '',
+  booked: '',
+  createdByUserId: '',
+  cancellationType: '',
+  status: '',
+};
 
 function notesPreview(notes) {
   if (!notes) return null;
@@ -17,12 +32,18 @@ function notesPreview(notes) {
 }
 
 function emptyFilters() {
-  return { from: '', to: '', handledByUserId: '', callType: '', jobNumber: '', includeArchived: false };
+  return { from: '', to: '', handledByUserId: '', callType: '', jobNumber: '', includeArchived: false, q: '', ...EMPTY_ADVANCED };
 }
 
 export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded }) {
   const settings = useSettings();
   const [filters, setFilters] = usePersistentFilters('crm.calls.historyFilters', emptyFilters, embedded);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Advanced Filters fields are "draft until applied" — typing here never
+  // changes what's shown until "Apply Filters" is clicked, unlike the quick
+  // filters above (and the keyword search), which stay live/instant exactly
+  // as they always have.
+  const [draft, setDraft] = useState(EMPTY_ADVANCED);
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -41,13 +62,62 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
     setFilters((f) => ({ ...f, ...p }));
   }
 
+  function toggleAdvanced() {
+    if (!advancedOpen) {
+      // Opening the panel seeds the draft from whatever's currently applied,
+      // so re-opening it never silently discards an already-applied value.
+      setDraft({ ...EMPTY_ADVANCED, ...Object.fromEntries(Object.keys(EMPTY_ADVANCED).map((k) => [k, filters[k]])) });
+    }
+    setAdvancedOpen((o) => !o);
+  }
+
+  function applyAdvanced() {
+    patch(draft);
+  }
+
+  function clearAdvanced() {
+    setDraft(EMPTY_ADVANCED);
+    patch(EMPTY_ADVANCED);
+  }
+
+  const advancedActiveCount = Object.keys(EMPTY_ADVANCED).filter((k) => filters[k] && filters[k] !== '').length;
+
+  // Suburb options for the Advanced Filters dropdown — drawn from this
+  // page's own already-loaded records (never a separate/duplicate settings
+  // list), so it only ever lists suburbs that actually appear in Call
+  // History, never an unrelated one from the Settings suburbs master list.
+  const suburbOptions = useMemo(() => {
+    const set = new Set(rows.map((c) => (c.suburb || '').trim()).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
   const filtered = rows.filter((c) => {
-    if (!filters.includeArchived && c.archived) return false;
+    if (filters.status === 'archived') {
+      if (!c.archived) return false;
+    } else if (filters.status === 'all') {
+      // no status filter — every record regardless of archived state
+    } else if (filters.status === 'active') {
+      if (c.archived) return false;
+    } else if (!filters.includeArchived && c.archived) {
+      return false;
+    }
     if (filters.from && (c.callAt || '') < filters.from) return false;
     if (filters.to && (c.callAt || '') > `${filters.to}T23:59`) return false;
     if (filters.handledByUserId && String(c.handledByUserId) !== String(filters.handledByUserId)) return false;
     if (filters.callType && c.callType !== filters.callType) return false;
     if (filters.jobNumber && c.jobNumber.trim().toLowerCase() !== filters.jobNumber.trim().toLowerCase()) return false;
+    if (filters.suburb && (c.suburb || '').trim().toLowerCase() !== filters.suburb.trim().toLowerCase()) return false;
+    if (filters.tradeId && String(c.tradeId) !== String(filters.tradeId)) return false;
+    if (filters.jobTypeId && String(c.jobTypeId) !== String(filters.jobTypeId)) return false;
+    if (filters.direction && c.direction !== filters.direction) return false;
+    if (filters.booked && c.booked !== filters.booked) return false;
+    if (filters.createdByUserId && String(c.createdByUserId) !== String(filters.createdByUserId)) return false;
+    if (filters.cancellationType && c.cancellationType !== filters.cancellationType) return false;
+    if (filters.q && filters.q.trim()) {
+      const key = filters.q.trim().toLowerCase();
+      const haystack = `${c.jobNumber || ''} ${c.suburb || ''} ${c.notes || ''}`.toLowerCase();
+      if (!haystack.includes(key)) return false;
+    }
     return true;
   });
 
@@ -116,33 +186,102 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
           </div>
         )
       ) : (
-        <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
-          <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-          <FilterSelect
-            label="Staff"
-            value={filters.handledByUserId}
-            onChange={(v) => patch({ handledByUserId: v })}
-            options={withInactiveLabel(settings.staffAll)}
-          />
-          <FilterSelect label="Call type" value={filters.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
-          <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
-          <div style={{ paddingBottom: 8 }}>
-            <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
-          </div>
-          <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
-            Clear filters
-          </button>
-          {selectedIds.size > 0 && (
-            <button className="btn btn-primary" type="button" onClick={archiveSelected}>
-              Archive selected ({selectedIds.size})
+        <>
+          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
+            <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
+            <FilterSelect
+              label="Staff"
+              value={filters.handledByUserId}
+              onChange={(v) => patch({ handledByUserId: v })}
+              options={withInactiveLabel(settings.staffAll)}
+            />
+            <FilterSelect label="Call type" value={filters.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
+            <TextField label="Job number" value={filters.jobNumber} onChange={(v) => patch({ jobNumber: v })} mono maxWidth={160} />
+            <TextField
+              label="Keyword search"
+              placeholder="Job #, suburb, notes…"
+              value={filters.q}
+              onChange={(v) => patch({ q: v })}
+              maxWidth={200}
+            />
+            <div style={{ paddingBottom: 8 }}>
+              <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
+            </div>
+            <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
+              Clear filters
             </button>
+            <AdvancedFiltersToggle open={advancedOpen} onToggle={toggleAdvanced} activeCount={advancedActiveCount} />
+            {selectedIds.size > 0 && (
+              <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+                Archive selected ({selectedIds.size})
+              </button>
+            )}
+            <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.calls.exportXlsxUrl(filters)}>
+              Export to Excel
+            </a>
+            <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
+          </div>
+
+          {advancedOpen && (
+            <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
+              <div className="grid-form">
+                <FilterSelect label="Suburb" value={draft.suburb} onChange={(v) => setDraft((d) => ({ ...d, suburb: v }))} options={suburbOptions} />
+                <FilterSelect
+                  label="Trade"
+                  value={draft.tradeId}
+                  onChange={(v) => setDraft((d) => ({ ...d, tradeId: v, jobTypeId: '' }))}
+                  options={settings.trades}
+                />
+                <FilterSelect
+                  label="Job type"
+                  value={draft.jobTypeId}
+                  onChange={(v) => setDraft((d) => ({ ...d, jobTypeId: v }))}
+                  options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
+                />
+                <FilterSelect
+                  label="Contact Method"
+                  value={draft.direction}
+                  onChange={(v) => setDraft((d) => ({ ...d, direction: v }))}
+                  options={CONTACT_METHOD_OPTIONS}
+                />
+                <FilterSelect label="Booked" value={draft.booked} onChange={(v) => setDraft((d) => ({ ...d, booked: v }))} options={['Yes', 'No']} />
+                <FilterSelect
+                  label="Created By"
+                  value={draft.createdByUserId}
+                  onChange={(v) => setDraft((d) => ({ ...d, createdByUserId: v }))}
+                  options={withInactiveLabel(settings.staffAll)}
+                />
+                <FilterSelect
+                  label="Cancellation type"
+                  value={draft.cancellationType}
+                  onChange={(v) => setDraft((d) => ({ ...d, cancellationType: v }))}
+                  options={CANCELLATION_TYPES}
+                />
+                <SelectField
+                  label="Status"
+                  value={draft.status}
+                  onChange={(v) => setDraft((d) => ({ ...d, status: v }))}
+                  options={[
+                    { id: 'active', name: 'Active only' },
+                    { id: 'archived', name: 'Archived only' },
+                    { id: 'all', name: 'All (active + archived)' },
+                  ]}
+                  placeholder="Same as Include archived above"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <button className="btn btn-primary" type="button" onClick={applyAdvanced}>
+                  Apply Filters
+                </button>
+                <button className="btn" type="button" onClick={clearAdvanced}>
+                  Clear All
+                </button>
+              </div>
+            </div>
           )}
-          <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.calls.exportXlsxUrl(filters)}>
-            Export to Excel
-          </a>
-          <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} calls</div>
-        </div>
+        </>
       )}
 
       <div className="panel table-scroll">

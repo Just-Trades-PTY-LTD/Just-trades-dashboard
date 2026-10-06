@@ -40,3 +40,33 @@ export function mondayOf(dateStr) {
 export function adelaideGeneratedAtLabel(date = new Date()) {
   return date.toLocaleString('en-AU', { timeZone: ADELAIDE_TZ, dateStyle: 'medium', timeStyle: 'short' });
 }
+
+// "YYYY-MM-DD" for the current moment in Adelaide local time — used for
+// export filenames, so "today's date" in a downloaded file always matches
+// the Adelaide-based user's own calendar date, regardless of which timezone
+// the server process itself happens to run in (en-CA formats y-m-d).
+export function adelaideDateStamp(date = new Date()) {
+  return date.toLocaleDateString('en-CA', { timeZone: ADELAIDE_TZ });
+}
+
+// Converts a SQLite `datetime('now')`-produced UTC string ("YYYY-MM-DD
+// HH:MM:SS") to an Adelaide-local display string. Unlike every *business*
+// date/time this CRM stores (call_at, visit_date, invoice_date, ...), which
+// are already Adelaide wall-clock strings captured straight from the
+// browser's own clock (see the file-level comment above), every table's own
+// created_at/updated_at and audit_log.changed_at are stamped by the SQLite
+// server process itself via datetime('now') — genuinely UTC — so these, and
+// only these, need an actual timezone conversion before being shown to a
+// user. Returns '' for a blank input, and the raw string back (rather than
+// throwing or showing "Invalid Date") if it's ever something unparseable.
+export function utcToAdelaideDisplay(utcString) {
+  if (!utcString) return '';
+  // SQLite's datetime('now') has no timezone marker; appending 'Z' (after
+  // swapping in the 'T' ISO needs) tells Date() to parse it as UTC rather
+  // than whichever local timezone the server process itself happens to run
+  // in (this one runs in UTC anyway, but must never depend on that).
+  const iso = `${utcString.trim().replace(' ', 'T')}Z`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return utcString;
+  return d.toLocaleString('en-AU', { timeZone: ADELAIDE_TZ, dateStyle: 'medium', timeStyle: 'short' });
+}

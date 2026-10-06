@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { recordAudit, getHistory, getHistoryCounts } from '../lib/audit.js';
+import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
 import { findLatestSale, findOriginalJob, isUserActive } from '../services/lookup.js';
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
+import { adelaideDateStamp } from '../lib/adelaideTime.js';
 
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
 
@@ -124,10 +125,17 @@ function toRow(c) {
     suburb: c.suburb,
     notes: c.notes,
     followUp: !!c.follow_up,
+    createdByUserId: c.created_by_user_id,
     createdByName: c.created_by_name,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     historyCount: c.historyCount || 0,
+    // Derived separately, post-toRow(), from audit_log (see
+    // getLastEditedInfo in listCalls() below) — never a direct column, since
+    // there's no updated_by_user_id anywhere. Blank for a record with no
+    // audit history at all (see that function's own comment).
+    lastEditedByName: '',
+    lastEditedAt: '',
   };
 }
 
@@ -146,10 +154,38 @@ const SELECT_SQL = `
   LEFT JOIN list_items cbr ON cbr.id = c.call_back_reason_id
 `;
 
-export function listCalls({ from, to, handledByUserId, callType, jobNumber, includeArchived } = {}) {
+// `status` ('active' | 'archived' | 'all') is the tri-state Active/archived
+// filter the Advanced Filters panel uses — it takes priority over the older
+// `includeArchived` boolean (kept working unchanged for existing callers,
+// e.g. reports.js's callsDrilldown(), which never pass `status` at all).
+export function listCalls({
+  from,
+  to,
+  handledByUserId,
+  callType,
+  jobNumber,
+  suburb,
+  tradeId,
+  jobTypeId,
+  direction,
+  booked,
+  createdByUserId,
+  cancellationType,
+  status,
+  q,
+  includeArchived,
+} = {}) {
   const where = [];
   const params = [];
-  if (!includeArchived || includeArchived === 'false') where.push('c.archived = 0');
+  if (status === 'archived') {
+    where.push('c.archived = 1');
+  } else if (status === 'all') {
+    // no archived filter — every record regardless of status
+  } else if (status === 'active') {
+    where.push('c.archived = 0');
+  } else if (!includeArchived || includeArchived === 'false') {
+    where.push('c.archived = 0');
+  }
   if (from) {
     where.push('c.call_at >= ?');
     params.push(from);
@@ -170,13 +206,53 @@ export function listCalls({ from, to, handledByUserId, callType, jobNumber, incl
     where.push('lower(trim(c.job_number)) = ?');
     params.push(String(jobNumber).trim().toLowerCase());
   }
+  if (suburb) {
+    where.push('lower(trim(c.suburb)) = ?');
+    params.push(String(suburb).trim().toLowerCase());
+  }
+  if (tradeId) {
+    where.push('c.trade_id = ?');
+    params.push(tradeId);
+  }
+  if (jobTypeId) {
+    where.push('c.job_type_id = ?');
+    params.push(jobTypeId);
+  }
+  if (direction) {
+    where.push('c.direction = ?');
+    params.push(direction);
+  }
+  if (booked) {
+    where.push('c.booked = ?');
+    params.push(booked);
+  }
+  if (createdByUserId) {
+    where.push('c.created_by_user_id = ?');
+    params.push(createdByUserId);
+  }
+  if (cancellationType) {
+    where.push('c.cancellation_type = ?');
+    params.push(cancellationType);
+  }
+  // Free-text keyword search — job number, suburb and notes, the only
+  // free-text fields this record actually carries (there is no customer
+  // name or phone number stored anywhere on a call).
+  if (q && String(q).trim()) {
+    const key = `%${String(q).trim().toLowerCase()}%`;
+    where.push('(lower(c.job_number) LIKE ? OR lower(c.suburb) LIKE ? OR lower(c.notes) LIKE ?)');
+    params.push(key, key, key);
+  }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const rows = all(`${SELECT_SQL} ${whereSql} ORDER BY c.call_at DESC`, params);
   const counts = getHistoryCounts('call', rows.map((r) => r.id));
+  const lastEdited = getLastEditedInfo('call', rows.map((r) => r.id));
   return rows.map((r) => {
     const row = toRow(r);
     row.historyCount = counts[r.id] || 0;
     row.linkedJob = r.job_number ? !!findOriginalJob(r.job_number) : false;
+    const le = lastEdited[r.id];
+    row.lastEditedByName = le?.by || '';
+    row.lastEditedAt = le?.at || '';
     return row;
   });
 }
@@ -191,10 +267,14 @@ export function createCallsRouter() {
 
   router.get('/export.xlsx', async (req, res) => {
     const rows = listCalls(req.query);
-    const staffLookup = new Map(all('SELECT id, name FROM users').map((u) => [String(u.id), u.name]));
-    const wb = buildCallHistoryWorkbook(rows, req.query, staffLookup);
+    const lookups = {
+      staff: new Map(all('SELECT id, name FROM users').map((u) => [String(u.id), u.name])),
+      trades: new Map(all('SELECT id, name FROM trades').map((t) => [String(t.id), t.name])),
+      jobTypes: new Map(all('SELECT id, name FROM job_types').map((t) => [String(t.id), t.name])),
+    };
+    const wb = buildCallHistoryWorkbook(rows, req.query, lookups);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="call-history-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="call-history-${adelaideDateStamp()}.xlsx"`);
     await wb.xlsx.write(res);
     res.end();
   });

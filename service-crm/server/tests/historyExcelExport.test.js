@@ -62,7 +62,7 @@ test('Call History Excel export respects active filters and includes full notes 
 
     assert.match(text, /Period: 2026-05-01/);
     assert.match(text, /Call type: Lead/);
-    assert.match(text, /Include archived: No/);
+    assert.match(text, /Status: Active only/);
     assert.match(text, /1 call exported/);
     assert.match(text, new RegExp(longNote.slice(0, 40)), 'the full, untruncated note text must appear in the export');
     assert.ok(!text.includes('…'), 'the export must not contain a truncated preview ellipsis');
@@ -98,7 +98,7 @@ test('Call History Excel export can include archived calls when requested', asyn
     await wb.xlsx.load(res.buffer);
     const sheet = wb.getWorksheet('Call History');
     const text = sheet.getSheetValues().flat().filter(Boolean).join(' | ');
-    assert.match(text, /Include archived: Yes/);
+    assert.match(text, /Status: All \(active \+ archived\)/);
     assert.match(text, /1 call exported/);
   } finally {
     server.close();

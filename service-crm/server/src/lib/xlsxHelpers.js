@@ -59,3 +59,23 @@ export function filterSummaryLines({ from, to, extra = [] }) {
   const period = from || to ? `Period: ${from ? from : 'earliest'} – ${to ? to : 'latest'}` : 'Period: all dates';
   return [period, ...extra, `Generated: ${adelaideGeneratedAtLabel()}`];
 }
+
+// A dedicated "Filters" worksheet listing every active filter the export was
+// generated from, by name — not just the handful already summarised in the
+// main sheet's title block. `rows` is [label, value] pairs, in the same
+// order the Advanced Filters panel presents them; every filter not actually
+// applied still appears, reading "All" (or "No" for a Yes/No filter left
+// blank), so the sheet is always a complete, unambiguous record of exactly
+// what this export does and doesn't include.
+export function addFiltersSheet(wb, rows) {
+  const sheet = wb.addWorksheet('Filters');
+  const header = sheet.addRow(['Filter', 'Value']);
+  header.eachCell((c) => {
+    c.fill = HEADER_FILL;
+    c.font = HEADER_FONT;
+  });
+  rows.forEach(([label, value]) => sheet.addRow([label, value]));
+  sheet.getColumn(1).width = 28;
+  sheet.getColumn(2).width = 40;
+  return sheet;
+}

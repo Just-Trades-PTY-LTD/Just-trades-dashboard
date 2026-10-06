@@ -1,4 +1,5 @@
 import { CURRENCY_FORMAT, money } from './xlsxHelpers.js';
+import { utcToAdelaideDisplay } from './adelaideTime.js';
 
 export const CALL_COLUMNS = [
   { key: 'archived', label: 'Archived' },
@@ -17,6 +18,16 @@ export const CALL_COLUMNS = [
   { key: 'jobNumber', label: 'Job number' },
   { key: 'suburb', label: 'Suburb' },
   { key: 'notes', label: 'Notes' },
+  { key: 'createdByName', label: 'Created by' },
+  // created_at/changed_at are stamped by SQLite's datetime('now') — genuinely
+  // UTC, unlike callAt/dateShown above (already Adelaide wall-clock strings
+  // straight from the browser) — see utcToAdelaideDisplay()'s own comment.
+  { key: 'createdAt', label: 'Created date/time (Adelaide)', value: (r) => utcToAdelaideDisplay(r.createdAt) },
+  // Blank for any record with zero audit_log history at all (e.g. one
+  // inserted directly, bypassing the app, before audit logging existed) —
+  // see lib/audit.js's getLastEditedInfo(). Never a guess.
+  { key: 'lastEditedByName', label: 'Last edited by' },
+  { key: 'lastEditedAt', label: 'Last edited date/time (Adelaide)', value: (r) => utcToAdelaideDisplay(r.lastEditedAt) },
 ];
 
 export const TECH_COLUMNS = [
@@ -25,7 +36,11 @@ export const TECH_COLUMNS = [
   { key: 'dateShown', label: 'Date' },
   { key: 'technicianName', label: 'Technician' },
   { key: 'creditedTechnicianName', label: 'Credited technician' },
-  { key: 'jobNumber', label: 'Job number' },
+  // For a Quote Approved Later/Upsell/Call Back entry, this is the ORIGINAL
+  // job's Job Number (used to locate/link it) — "New job number" below is
+  // the separate one, where that entry type has one. For a New Job entry
+  // this is simply its own Job Number (there's no second JN to distinguish).
+  { key: 'jobNumber', label: 'Original job number' },
   // Only ever populated for a Quote Approved Later entry (the separate,
   // brand new AroFlo Job Number created for the approved work) or a Call
   // Back (the separate AroFlo Job Number created once the callback
@@ -54,4 +69,15 @@ export const TECH_COLUMNS = [
   { key: 'saleValueExGst', label: 'Sale value (ex GST)', value: (r) => (r.saleValueExGst === '' || r.saleValueExGst == null ? '' : money(r.saleValueExGst)), numFmt: CURRENCY_FORMAT },
   { key: 'reasonName', label: 'Call back / cancellation reason' },
   { key: 'comments', label: 'Comments' },
+  { key: 'createdByName', label: 'Created by' },
+  // created_at/changed_at are stamped by SQLite's datetime('now') — genuinely
+  // UTC, unlike dateShown/invoiceDate above (already Adelaide wall-clock
+  // strings straight from the browser) — see utcToAdelaideDisplay()'s own
+  // comment.
+  { key: 'createdAt', label: 'Created date/time (Adelaide)', value: (r) => utcToAdelaideDisplay(r.createdAt) },
+  // Blank for any record with zero audit_log history at all (e.g. one
+  // inserted directly, bypassing the app, before audit logging existed) —
+  // see lib/audit.js's getLastEditedInfo(). Never a guess.
+  { key: 'lastEditedByName', label: 'Last edited by' },
+  { key: 'lastEditedAt', label: 'Last edited date/time (Adelaide)', value: (r) => utcToAdelaideDisplay(r.lastEditedAt) },
 ];

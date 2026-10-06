@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { usePersistentFilters } from '../../lib/usePersistentFilters.js';
 import { money } from '../../lib/dates.js';
-import { DateField, FilterSelect, TextField, Checkbox } from '../../components/Fields.jsx';
+import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
@@ -16,6 +16,37 @@ const ENTRY_TYPES = [
   { id: 'pending_cancellation', name: 'Pending Cancellation' },
 ];
 
+const WORK_COMPLETION_OPTIONS = [
+  { id: 'Completed on this visit', name: 'Completed on this visit' },
+  { id: 'Install scheduled — different day', name: 'Install scheduled — different day' },
+];
+
+const YES_NO_OPTIONS = [
+  { id: 'yes', name: 'Yes' },
+  { id: 'no', name: 'No' },
+];
+
+// Every Advanced Filters field, blank by default — kept separate from the
+// always-visible quick filters so "how many are active" can be counted and
+// Clear All only ever touches these.
+const EMPTY_ADVANCED = {
+  originalJobNumber: '',
+  newJobNumber: '',
+  suburb: '',
+  jobTypeId: '',
+  completingTechnicianId: '',
+  saleMade: '',
+  knockback: '',
+  knockbackReasonId: '',
+  workCompletion: '',
+  convertedLater: '',
+  hasCallBack: '',
+  hasPendingCancellation: '',
+  hasUpsell: '',
+  createdByUserId: '',
+  status: '',
+};
+
 // Same preview length/behaviour as Call History's comments preview — full
 // text is always still available via title (hover) and the Edit form.
 const NOTES_PREVIEW_LENGTH = 60;
@@ -27,8 +58,10 @@ function notesPreview(notes) {
 }
 
 function emptyFilters() {
-  return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false };
+  return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false, q: '', ...EMPTY_ADVANCED };
 }
+
+const isJobKind = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
 
 // forceKnockbackLabel: set only when this list is the Technician & Sales
 // report's "Actual Knockbacks" drill-down (see DrilldownModal.jsx). Every row
@@ -44,6 +77,12 @@ function emptyFilters() {
 export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded, forceKnockbackLabel }) {
   const settings = useSettings();
   const [filters, setFilters] = usePersistentFilters('crm.tech.historyFilters', emptyFilters, embedded);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Advanced Filters fields are "draft until applied" — typing here never
+  // changes what's shown until "Apply Filters" is clicked, unlike the quick
+  // filters above (and the keyword search), which stay live/instant exactly
+  // as they always have.
+  const [draft, setDraft] = useState(EMPTY_ADVANCED);
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
@@ -62,6 +101,32 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
     setFilters((f) => ({ ...f, ...p }));
   }
 
+  function toggleAdvanced() {
+    if (!advancedOpen) {
+      setDraft({ ...EMPTY_ADVANCED, ...Object.fromEntries(Object.keys(EMPTY_ADVANCED).map((k) => [k, filters[k]])) });
+    }
+    setAdvancedOpen((o) => !o);
+  }
+
+  function applyAdvanced() {
+    patch(draft);
+  }
+
+  function clearAdvanced() {
+    setDraft(EMPTY_ADVANCED);
+    patch(EMPTY_ADVANCED);
+  }
+
+  const advancedActiveCount = Object.keys(EMPTY_ADVANCED).filter((k) => filters[k] && filters[k] !== '').length;
+
+  // Suburb options for the Advanced Filters dropdown — drawn from this
+  // page's own already-loaded records (never a separate/duplicate settings
+  // list), so it only ever lists suburbs that actually appear in Job History.
+  const suburbOptions = useMemo(() => {
+    const set = new Set(rows.map((e) => (e.suburb || '').trim()).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
   // Filters this same table down to everything sharing a Job Number — used
   // by the "View original job"/"View linked callback" links below, so
   // clicking either one shows both the Call Back and its linked original job
@@ -73,19 +138,60 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
   }
 
   const filtered = rows.filter((e) => {
-    if (!filters.includeArchived && e.archived) return false;
+    if (filters.status === 'archived') {
+      if (!e.archived) return false;
+    } else if (filters.status === 'all') {
+      // no status filter — every record regardless of archived state
+    } else if (filters.status === 'active') {
+      if (e.archived) return false;
+    } else if (!filters.includeArchived && e.archived) {
+      return false;
+    }
     if (filters.from && (e.dateShown || '') < filters.from) return false;
     if (filters.to && (e.dateShown || '') > filters.to) return false;
     if (filters.technicianId && String(e.technicianId) !== String(filters.technicianId) && String(e.creditedTechnicianId) !== String(filters.technicianId)) return false;
     if (filters.tradeId && String(e.tradeId) !== String(filters.tradeId)) return false;
+    if (filters.jobTypeId && String(e.jobTypeId) !== String(filters.jobTypeId)) return false;
     if (filters.entryType && e.kind !== filters.entryType) return false;
     if (filters.jobNumber) {
       // Matches either JN on a Quote Approved Later or Call Back entry — the
-      // original job it's linked against, or its own separate New Job Number.
+      // original job it's linked against, or its own separate New Job
+      // Number. This is the combined quick filter; Original/New below are
+      // the Advanced Filters panel's own, more precise pair.
       const q = filters.jobNumber.trim().toLowerCase();
       const matchesOriginal = (e.jobNumber || '').trim().toLowerCase() === q;
       const matchesNew = (e.newJobNumber || '').trim().toLowerCase() === q;
       if (!matchesOriginal && !matchesNew) return false;
+    }
+    if (filters.originalJobNumber && (e.jobNumber || '').trim().toLowerCase() !== filters.originalJobNumber.trim().toLowerCase()) return false;
+    if (filters.newJobNumber && (e.newJobNumber || '').trim().toLowerCase() !== filters.newJobNumber.trim().toLowerCase()) return false;
+    if (filters.suburb && (e.suburb || '').trim().toLowerCase() !== filters.suburb.trim().toLowerCase()) return false;
+    if (filters.completingTechnicianId && String(e.completingTechnicianId) !== String(filters.completingTechnicianId)) return false;
+    if (filters.createdByUserId && String(e.createdByUserId) !== String(filters.createdByUserId)) return false;
+    if (filters.saleMade === 'yes' && !e.invoiceNumber) return false;
+    if (filters.saleMade === 'no' && e.invoiceNumber) return false;
+    // Knockback/Converted Later/Call Back/Pending Cancellation/Upsell below
+    // are all concepts that only ever apply to a New Job entry — "No" is
+    // scoped to job-kind rows explicitly (never silently pulling in an
+    // unrelated Call Back/Quote Approved Later/etc. row just because it
+    // trivially doesn't have the flag either) — mirrors listTechEntries()
+    // server-side exactly, so the screen and the Excel export always agree.
+    if (filters.knockback === 'yes' && e.knockback !== true) return false;
+    if (filters.knockback === 'no' && !(isJobKind(e) && e.knockback === false)) return false;
+    if (filters.knockbackReasonId && Number(e.knockbackReasonId) !== Number(filters.knockbackReasonId)) return false;
+    if (filters.workCompletion && e.workCompletion !== filters.workCompletion) return false;
+    if (filters.convertedLater === 'yes' && e.convertedLater !== true) return false;
+    if (filters.convertedLater === 'no' && !(isJobKind(e) && e.convertedLater === false)) return false;
+    if (filters.hasCallBack === 'yes' && !(e.relatedCallBackCount > 0)) return false;
+    if (filters.hasCallBack === 'no' && !(isJobKind(e) && e.relatedCallBackCount === 0)) return false;
+    if (filters.hasPendingCancellation === 'yes' && !(e.relatedPendingCancellationCount > 0)) return false;
+    if (filters.hasPendingCancellation === 'no' && !(isJobKind(e) && e.relatedPendingCancellationCount === 0)) return false;
+    if (filters.hasUpsell === 'yes' && !(e.relatedUpsellCount > 0)) return false;
+    if (filters.hasUpsell === 'no' && !(isJobKind(e) && e.relatedUpsellCount === 0)) return false;
+    if (filters.q && filters.q.trim()) {
+      const key = filters.q.trim().toLowerCase();
+      const haystack = `${e.jobNumber || ''} ${e.newJobNumber || ''} ${e.suburb || ''} ${e.comments || ''}`.toLowerCase();
+      if (!haystack.includes(key)) return false;
     }
     return true;
   });
@@ -170,41 +276,164 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
           </div>
         )
       ) : (
-        <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
-          <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
-          <FilterSelect
-            label="Technician"
-            value={filters.technicianId}
-            onChange={(v) => patch({ technicianId: v })}
-            options={withInactiveLabel(settings.technicians)}
-          />
-          <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
-          <FilterSelect label="Entry type" value={filters.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
-          <TextField
-            label="Job number"
-            placeholder="Original or New JN"
-            value={filters.jobNumber}
-            onChange={(v) => patch({ jobNumber: v })}
-            mono
-            maxWidth={160}
-          />
-          <div style={{ paddingBottom: 8 }}>
-            <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
-          </div>
-          <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
-            Clear filters
-          </button>
-          {selectedKeys.size > 0 && (
-            <button className="btn btn-primary" type="button" onClick={archiveSelected}>
-              Archive selected ({selectedKeys.size})
+        <>
+          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
+            <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
+            <FilterSelect
+              label="Technician"
+              value={filters.technicianId}
+              onChange={(v) => patch({ technicianId: v })}
+              options={withInactiveLabel(settings.technicians)}
+            />
+            <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
+            <FilterSelect label="Entry type" value={filters.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
+            <TextField
+              label="Job number"
+              placeholder="Original or New JN"
+              value={filters.jobNumber}
+              onChange={(v) => patch({ jobNumber: v })}
+              mono
+              maxWidth={160}
+            />
+            <TextField
+              label="Keyword search"
+              placeholder="Job #, suburb, comments…"
+              value={filters.q}
+              onChange={(v) => patch({ q: v })}
+              maxWidth={200}
+            />
+            <div style={{ paddingBottom: 8 }}>
+              <Checkbox label="Include archived" checked={filters.includeArchived} onChange={(v) => patch({ includeArchived: v })} />
+            </div>
+            <button className="btn" type="button" onClick={() => setFilters(emptyFilters())}>
+              Clear filters
             </button>
+            <AdvancedFiltersToggle open={advancedOpen} onToggle={toggleAdvanced} activeCount={advancedActiveCount} />
+            {selectedKeys.size > 0 && (
+              <button className="btn btn-primary" type="button" onClick={archiveSelected}>
+                Archive selected ({selectedKeys.size})
+              </button>
+            )}
+            <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.tech.entriesXlsxUrl(filters)}>
+              Export to Excel
+            </a>
+            <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} entries</div>
+          </div>
+
+          {advancedOpen && (
+            <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
+              <div className="grid-form">
+                <TextField
+                  label="Original Job Number"
+                  value={draft.originalJobNumber}
+                  onChange={(v) => setDraft((d) => ({ ...d, originalJobNumber: v }))}
+                  mono
+                />
+                <TextField
+                  label="New Job Number"
+                  value={draft.newJobNumber}
+                  onChange={(v) => setDraft((d) => ({ ...d, newJobNumber: v }))}
+                  mono
+                />
+                <FilterSelect label="Suburb" value={draft.suburb} onChange={(v) => setDraft((d) => ({ ...d, suburb: v }))} options={suburbOptions} />
+                <FilterSelect
+                  label="Job type"
+                  value={draft.jobTypeId}
+                  onChange={(v) => setDraft((d) => ({ ...d, jobTypeId: v }))}
+                  options={filters.tradeId ? settings.jobTypesFor(filters.tradeId) : []}
+                />
+                <FilterSelect
+                  label="Technician who completed the work"
+                  value={draft.completingTechnicianId}
+                  onChange={(v) => setDraft((d) => ({ ...d, completingTechnicianId: v }))}
+                  options={withInactiveLabel(settings.technicians)}
+                />
+                <SelectField
+                  label="Sale Made"
+                  value={draft.saleMade}
+                  onChange={(v) => setDraft((d) => ({ ...d, saleMade: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <SelectField
+                  label="Knockback"
+                  value={draft.knockback}
+                  onChange={(v) => setDraft((d) => ({ ...d, knockback: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <FilterSelect
+                  label="Knockback reason"
+                  value={draft.knockbackReasonId}
+                  onChange={(v) => setDraft((d) => ({ ...d, knockbackReasonId: v }))}
+                  options={settings.lists.knockback_reason}
+                />
+                <SelectField
+                  label="Work completed"
+                  value={draft.workCompletion}
+                  onChange={(v) => setDraft((d) => ({ ...d, workCompletion: v }))}
+                  options={WORK_COMPLETION_OPTIONS}
+                  placeholder="All"
+                />
+                <SelectField
+                  label="Converted Later"
+                  value={draft.convertedLater}
+                  onChange={(v) => setDraft((d) => ({ ...d, convertedLater: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <SelectField
+                  label="Call Back"
+                  value={draft.hasCallBack}
+                  onChange={(v) => setDraft((d) => ({ ...d, hasCallBack: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <SelectField
+                  label="Pending Cancellation"
+                  value={draft.hasPendingCancellation}
+                  onChange={(v) => setDraft((d) => ({ ...d, hasPendingCancellation: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <SelectField
+                  label="Upsell"
+                  value={draft.hasUpsell}
+                  onChange={(v) => setDraft((d) => ({ ...d, hasUpsell: v }))}
+                  options={YES_NO_OPTIONS}
+                  placeholder="All"
+                />
+                <FilterSelect
+                  label="Created By"
+                  value={draft.createdByUserId}
+                  onChange={(v) => setDraft((d) => ({ ...d, createdByUserId: v }))}
+                  options={withInactiveLabel(settings.staffAll)}
+                />
+                <SelectField
+                  label="Status"
+                  value={draft.status}
+                  onChange={(v) => setDraft((d) => ({ ...d, status: v }))}
+                  options={[
+                    { id: 'active', name: 'Active only' },
+                    { id: 'archived', name: 'Archived only' },
+                    { id: 'all', name: 'All (active + archived)' },
+                  ]}
+                  placeholder="Same as Include archived above"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <button className="btn btn-primary" type="button" onClick={applyAdvanced}>
+                  Apply Filters
+                </button>
+                <button className="btn" type="button" onClick={clearAdvanced}>
+                  Clear All
+                </button>
+              </div>
+            </div>
           )}
-          <a className="btn btn-primary" style={{ marginLeft: 'auto' }} href={api.tech.entriesXlsxUrl(filters)}>
-            Export to Excel
-          </a>
-          <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{filtered.length} entries</div>
-        </div>
+        </>
       )}
 
       <div className="panel table-scroll">

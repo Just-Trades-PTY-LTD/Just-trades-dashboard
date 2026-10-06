@@ -51,6 +51,31 @@ export function getHistoryCounts(entityType, ids) {
   return map;
 }
 
+/** Batch "Last Edited By / Last Edited At" for a set of records of one
+ * entity type — there's no dedicated updated_by column on any table, so
+ * this is derived from each record's own most recent audit_log row (which
+ * already exists for its creation, since recordAudit() writes one on every
+ * create too). A record with zero audit_log rows at all (e.g. one inserted
+ * directly, bypassing the app, before audit logging existed) is simply
+ * absent from the returned map — the caller shows "—", never a guess. */
+export function getLastEditedInfo(entityType, ids) {
+  if (!ids.length) return {};
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = all(
+    `SELECT a.entity_id, a.changed_at, u.name AS changed_by
+     FROM audit_log a
+     LEFT JOIN users u ON u.id = a.changed_by_user_id
+     WHERE a.entity_type = ? AND a.entity_id IN (${placeholders})
+       AND a.id = (SELECT MAX(id) FROM audit_log WHERE entity_type = ? AND entity_id = a.entity_id)`,
+    [entityType, ...ids, entityType]
+  );
+  const map = {};
+  rows.forEach((r) => {
+    map[r.entity_id] = { at: r.changed_at, by: r.changed_by || '' };
+  });
+  return map;
+}
+
 // How to label one record of a given entity type in the activity feed, and
 // which live table to look it up in (it may since have been deleted).
 const ENTITY_LOOKUP = {

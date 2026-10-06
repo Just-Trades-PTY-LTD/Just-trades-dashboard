@@ -108,6 +108,23 @@ export function Checkbox({ label, checked, onChange }) {
   );
 }
 
+// The "Advanced Filters" toggle button shared by Call History/Job History —
+// a badge shows how many advanced filters are currently applied (even while
+// the panel itself is collapsed), so that's always visible at a glance
+// without needing to open the panel back up.
+export function AdvancedFiltersToggle({ open, onToggle, activeCount }) {
+  return (
+    <button className="btn" type="button" onClick={onToggle}>
+      {open ? 'Hide Advanced Filters' : 'Advanced Filters'}
+      {activeCount > 0 && (
+        <span className="badge badge-info" style={{ marginLeft: 8 }}>
+          {activeCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function SubTabs({ value, onChange, tabs }) {
   return (
     <div className="subtabs">
