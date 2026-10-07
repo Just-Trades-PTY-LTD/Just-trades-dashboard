@@ -5,6 +5,13 @@ import { HEADER_FILL, HEADER_FONT, CURRENCY_FORMAT, money, addTitleBlock, addSec
 // the value cell needs a display format (e.g. CURRENCY_FORMAT) — these KPI
 // rows mix counts, percentages and money in the same two generic columns,
 // so the format has to travel with the row rather than the column.
+// Inspection/Option Sheet completion can be null (no Yes/No records at all —
+// every job in scope was N/A or never answered) — shown as "—", never a
+// misleading "0%". See services/reports.js's yesNoRate().
+function rateLabel(v) {
+  return v == null ? '—' : `${v}%`;
+}
+
 function addKpiTable(sheet, rows) {
   const header = sheet.addRow(['Figure', 'Value']);
   header.eachCell((c) => {
@@ -152,6 +159,8 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'upsellValueExGst', label: 'Upsell Value (ex GST)', value: (r) => money(r.upsellValueExGst), numFmt: CURRENCY_FORMAT, width: 18 },
   { key: 'callBacks', label: 'Call backs' },
   { key: 'pendingCancellations', label: 'Pending cancel.' },
+  { key: 'inspectionRate', label: 'Inspection Sheet %', value: (r) => rateLabel(r.inspectionRate) },
+  { key: 'optionRate', label: 'Option Sheet %', value: (r) => rateLabel(r.optionRate) },
 ];
 
 // By technician: Total Jobs and Qualified Jobs lead, immediately adjacent.
@@ -217,8 +226,8 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     ['Unqualified Jobs', c.unqualifiedJobs],
     ['Call backs', c.callBacks],
     ['Pending cancellations', c.pendingCancellations],
-    ['Inspection sheet completion', `${c.inspectionRate}%`],
-    ['Option sheet completion', `${c.optionRate}%`],
+    ['Inspection sheet completion', rateLabel(c.inspectionRate)],
+    ['Option sheet completion', rateLabel(c.optionRate)],
   ]);
 
   const byTrade = wb.addWorksheet('By trade');
@@ -233,8 +242,8 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   addTitleBlock(byTechnician, 'Technician & Sales Report — By Technician', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   const techCols = [
     ...TECH_BY_TECHNICIAN_COLUMNS,
-    { key: 'inspectionRate', label: 'Inspection Sheet %', value: (r) => `${r.inspectionRate}%` },
-    { key: 'optionRate', label: 'Option Sheet %', value: (r) => `${r.optionRate}%` },
+    { key: 'inspectionRate', label: 'Inspection Sheet %', value: (r) => rateLabel(r.inspectionRate) },
+    { key: 'optionRate', label: 'Option Sheet %', value: (r) => rateLabel(r.optionRate) },
   ];
   addDataTable(
     byTechnician,

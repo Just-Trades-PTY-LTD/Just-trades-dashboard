@@ -16,6 +16,13 @@ function defaultFilters() {
   return { ...currentAdelaideWeek(), technicianId: '', tradeId: '' };
 }
 
+// Inspection/Option Sheet completion can be null (no Yes/No records at all —
+// every job in scope was N/A or never answered) — shown as "—", never a
+// misleading 0%. See the server's services/reports.js's yesNoRate().
+function rateLabel(v) {
+  return v == null ? '—' : `${v}%`;
+}
+
 export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
   const settings = useSettings();
   const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
@@ -102,8 +109,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
     ['Unqualified Jobs', company.unqualifiedJobs, 'unqualifiedJobs'],
     ['Call backs', company.callBacks, 'callBacks'],
     ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],
-    ['Inspection sheet completion', `${company.inspectionRate}%`, 'inspectionRate'],
-    ['Option sheet completion', `${company.optionRate}%`, 'optionRate'],
+    ['Inspection sheet completion', rateLabel(company.inspectionRate), 'inspectionRate'],
+    ['Option sheet completion', rateLabel(company.optionRate), 'optionRate'],
   ];
 
   return (
@@ -323,6 +330,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                     <th>Upsell Value (ex GST)</th>
                     <th>Call backs</th>
                     <th>Pending cancel.</th>
+                    <th>Inspection Sheet %</th>
+                    <th>Option Sheet %</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -347,6 +356,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ['upsellValueExGst', money(r.upsellValueExGst)],
                         ['callBacks', r.callBacks],
                         ['pendingCancellations', r.pendingCancellations],
+                        ['inspectionRate', rateLabel(r.inspectionRate)],
+                        ['optionRate', rateLabel(r.optionRate)],
                       ].map(([field, val]) => (
                         <td
                           key={field}
@@ -421,8 +432,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
                         ['unqualifiedJobs', r.unqualifiedJobs],
                         ['callBacks', r.callBacks],
                         ['pendingCancellations', r.pendingCancellations],
-                        ['inspectionRate', `${r.inspectionRate}%`],
-                        ['optionRate', `${r.optionRate}%`],
+                        ['inspectionRate', rateLabel(r.inspectionRate)],
+                        ['optionRate', rateLabel(r.optionRate)],
                       ].map(([field, val, tooltip]) => (
                         <td
                           key={field}

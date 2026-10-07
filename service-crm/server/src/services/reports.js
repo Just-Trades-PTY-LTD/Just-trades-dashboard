@@ -5,6 +5,19 @@ export function pct(a, b) {
   return b ? Math.round((a / b) * 100) : 0;
 }
 
+// Inspection Sheet / Option Sheet completion rate: Yes ÷ (Yes + No), with
+// "N/A" (the item genuinely didn't apply to that job) and any blank/legacy
+// value (the question was never answered at all — every record saved
+// before this field existed) excluded from BOTH sides, never counted as a
+// silent "No". Neither should ever drag the rate down just for being
+// recorded. Returns null — never 0 — when there are no Yes/No records to
+// measure at all (all N/A, all blank, or no jobs), so the caller can show
+// "—" instead of a misleading 0%.
+function yesNoRate(yesCount, noCount) {
+  const total = yesCount + noCount;
+  return total ? Math.round((yesCount / total) * 100) : null;
+}
+
 export function num(v) {
   const n = parseFloat(v);
   return Number.isNaN(n) ? 0 : n;
@@ -605,8 +618,14 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels, upsells = []) {
     upsellValueExGst,
     callBacks: callbacks.length,
     pendingCancellations: pendingCancels.length,
-    inspectionRate: pct(jobs.filter((j) => j.inspection_sheet === 'Yes').length, jobs.length),
-    optionRate: pct(jobs.filter((j) => j.option_sheet === 'Yes').length, jobs.length),
+    inspectionRate: yesNoRate(
+      jobs.filter((j) => j.inspection_sheet === 'Yes').length,
+      jobs.filter((j) => j.inspection_sheet === 'No').length
+    ),
+    optionRate: yesNoRate(
+      jobs.filter((j) => j.option_sheet === 'Yes').length,
+      jobs.filter((j) => j.option_sheet === 'No').length
+    ),
   };
 }
 
@@ -903,25 +922,32 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
         ],
         label: 'Records with no Technician assigned',
       };
+    // N/A (and any blank/legacy "never answered") rows are excluded from the
+    // rate itself (see yesNoRate() above), so they must also be excluded
+    // here — the drill-down must only ever show the exact Yes/No records the
+    // percentage was calculated from, never an N/A row sitting behind it
+    // looking like a negative result it was never counted as.
     case 'inspectionRate': {
-      const yes = jobs.filter((j) => j.inspection_sheet === 'Yes').length;
+      const yesJobs = jobs.filter((j) => j.inspection_sheet === 'Yes');
+      const noJobs = jobs.filter((j) => j.inspection_sheet === 'No');
       return {
-        rows: tagJobs(jobs),
+        rows: tagJobs([...yesJobs, ...noJobs]),
         label: 'Inspection sheet completion',
         outcomes: [
-          { label: 'Yes', count: yes },
-          { label: 'No / not recorded', count: jobs.length - yes },
+          { label: 'Yes', count: yesJobs.length },
+          { label: 'No', count: noJobs.length },
         ],
       };
     }
     case 'optionRate': {
-      const yes = jobs.filter((j) => j.option_sheet === 'Yes').length;
+      const yesJobs = jobs.filter((j) => j.option_sheet === 'Yes');
+      const noJobs = jobs.filter((j) => j.option_sheet === 'No');
       return {
-        rows: tagJobs(jobs),
+        rows: tagJobs([...yesJobs, ...noJobs]),
         label: 'Option sheet completion',
         outcomes: [
-          { label: 'Yes', count: yes },
-          { label: 'No / not recorded', count: jobs.length - yes },
+          { label: 'Yes', count: yesJobs.length },
+          { label: 'No', count: noJobs.length },
         ],
       };
     }
