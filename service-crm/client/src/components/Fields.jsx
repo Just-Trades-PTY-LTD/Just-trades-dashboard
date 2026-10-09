@@ -125,6 +125,27 @@ export function AdvancedFiltersToggle({ open, onToggle, activeCount }) {
   );
 }
 
+// Reports' quick date-range picker (Current Week/Last Week/Current Month/
+// Last Month/Custom Range) — see lib/dates.js's DATE_RANGE_PRESETS and
+// matchDateRangePreset(). Deliberately has no blank/placeholder option
+// (unlike SelectField/FilterSelect above): exactly one of these five is
+// always the right description of whatever's currently in the From/To
+// fields, so there's never a "nothing selected" state to show.
+export function DateRangePresetSelect({ value, onChange, options, style }) {
+  return (
+    <div className="field" style={{ maxWidth: 160, ...style }}>
+      <label>Quick range</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function SubTabs({ value, onChange, tabs }) {
   return (
     <div className="subtabs">

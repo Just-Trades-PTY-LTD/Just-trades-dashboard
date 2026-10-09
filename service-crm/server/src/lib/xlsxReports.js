@@ -277,12 +277,16 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     { key: 'count', label: 'Sales count' },
   ], data.trend);
 
-  // Knockback Reasons tracker — its own two sheets, driven entirely by that
-  // box's own filters (knockbackReasonsFilters/knockbackReasonsData), never
-  // the Technician & Sales report's filters above. Both sheets are built
-  // from the exact same computeKnockbackReasonsReport() result, so their
-  // totals can never drift apart from each other or from what the tracker
-  // itself currently shows on screen.
+  // Knockback Reasons tracker — its own two sheets, built from
+  // knockbackReasonsFilters/knockbackReasonsData. Its Technician/Trade/Reason
+  // filters are this box's own; its date range (kf.from/kf.to) is always the
+  // caller's — see routes/reports.js's /tech.xlsx, which now always passes
+  // this same report's own applied from/to as kbrFrom/kbrTo, never an
+  // independent range, so this sheet can never show a different reporting
+  // period from the rest of the workbook. Both sheets are built from the
+  // exact same computeKnockbackReasonsReport() result, so their totals can
+  // never drift apart from each other or from what the tracker itself
+  // currently shows on screen.
   if (knockbackReasonsData) {
     const kf = knockbackReasonsFilters || {};
     const kbrExtra = [

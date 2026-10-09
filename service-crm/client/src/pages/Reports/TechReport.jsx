@@ -3,8 +3,8 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
-import { money, currentAdelaideWeek } from '../../lib/dates.js';
-import { DateField, FilterSelect } from '../../components/Fields.jsx';
+import { money, currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset } from '../../lib/dates.js';
+import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
@@ -118,6 +118,14 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={draft.from} onChange={(v) => patch({ from: v })} invalid={!!error} />
         <DateField label="To" value={draft.to} onChange={(v) => patch({ to: v })} invalid={!!error} />
+        <DateRangePresetSelect
+          value={matchDateRangePreset(draft.from, draft.to)}
+          onChange={(id) => {
+            const preset = DATE_RANGE_PRESETS.find((p) => p.id === id);
+            if (preset?.range) patch(preset.range());
+          }}
+          options={DATE_RANGE_PRESETS}
+        />
         <FilterSelect
           label="Technician"
           value={draft.technicianId}
@@ -135,14 +143,16 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           className="btn btn-primary"
           href={api.reports.techXlsxUrl({
             ...applied,
-            // The Knockback Reasons tracker's own current filters, kept
-            // entirely separate from the report's own above (kbr-prefixed
-            // so neither set can collide with or override the other) — see
-            // routes/reports.js's /tech.xlsx, which reads these back out to
-            // build the two Knockback Reasons sheets from exactly what the
-            // tracker currently shows.
-            kbrFrom: knockbackReasonsFilters.from,
-            kbrTo: knockbackReasonsFilters.to,
+            // The Knockback Reasons tracker's own Technician/Trade/Reason
+            // filters (kbr-prefixed so they can never collide with or
+            // override the report's own above) — see routes/reports.js's
+            // /tech.xlsx. Its date range is deliberately NOT independent:
+            // kbrFrom/kbrTo are always this report's own currently applied
+            // from/to, exactly like every other section of this export, so
+            // the Knockback Reasons sheets can never show a different
+            // reporting period from the rest of the workbook.
+            kbrFrom: applied.from,
+            kbrTo: applied.to,
             kbrTechnicianId: knockbackReasonsFilters.technicianId,
             kbrTradeId: knockbackReasonsFilters.tradeId,
             kbrReasonId: knockbackReasonsFilters.reasonId,
@@ -457,6 +467,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           setDrilldown={setDrilldown}
           filters={knockbackReasonsFilters}
           setFilters={setKnockbackReasonsFilters}
+          from={applied.from}
+          to={applied.to}
         />
       </div>
 

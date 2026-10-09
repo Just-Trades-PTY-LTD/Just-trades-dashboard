@@ -106,12 +106,18 @@ export function createReportsRouter() {
       trades: idNameMap(all('SELECT id, name FROM trades')),
       knockbackReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'knockback_reason'")),
     };
-    // Knockback Reasons tracker — entirely independent filters from the
-    // report above (kbr-prefixed query params), exactly matching whatever
-    // the tracker box currently has applied, so this export's totals always
-    // match what's on screen there. See computeKnockbackReasonsReport() —
-    // same population (genuine Actual Knockback jobs only, never a Quote
-    // Approved Later/Converted Later record) that already backs that box.
+    // Knockback Reasons tracker — kbr-prefixed query params, exactly
+    // matching whatever the tracker box currently has applied, so this
+    // export's totals always match what's on screen there. This route
+    // itself places no constraint on what the caller sends as kbrFrom/
+    // kbrTo — the client (TechReport.jsx) is what guarantees they're always
+    // this same report's own applied from/to, never an independent range,
+    // so Knockback Reasons can never show a different reporting period from
+    // the rest of this workbook. kbrTechnicianId/kbrTradeId/kbrReasonId
+    // remain that box's own, separate filters. See
+    // computeKnockbackReasonsReport() — same population (genuine Actual
+    // Knockback jobs only, never a Quote Approved Later/Converted Later
+    // record) that already backs that box.
     const knockbackReasonsFilters = {
       from: req.query.kbrFrom,
       to: req.query.kbrTo,

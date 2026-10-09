@@ -3,8 +3,8 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
-import { currentAdelaideWeek } from '../../lib/dates.js';
-import { DateField, FilterSelect } from '../../components/Fields.jsx';
+import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset } from '../../lib/dates.js';
+import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
@@ -61,6 +61,14 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={draft.from} onChange={(v) => patch({ from: v })} invalid={!!error} />
         <DateField label="To" value={draft.to} onChange={(v) => patch({ to: v })} invalid={!!error} />
+        <DateRangePresetSelect
+          value={matchDateRangePreset(draft.from, draft.to)}
+          onChange={(id) => {
+            const preset = DATE_RANGE_PRESETS.find((p) => p.id === id);
+            if (preset?.range) patch(preset.range());
+          }}
+          options={DATE_RANGE_PRESETS}
+        />
         <FilterSelect
           label="Staff"
           value={draft.handledByUserId}
