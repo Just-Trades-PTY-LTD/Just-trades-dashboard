@@ -3,7 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
 import { todayLocalDate } from '../../lib/dates.js';
-import { DateField, NumberField, SelectField, TextAreaField, YesNoField } from '../../components/Fields.jsx';
+import { DateField, NumberField, SelectField, TextAreaField, YesNoField, Checkbox } from '../../components/Fields.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
@@ -54,6 +54,10 @@ function emptyForm(kind) {
     pendingCancellationReasonId: '',
     comments: '',
     suburb: '',
+    // Existing Job — Upsell only: this Job Number/Invoice Number are a plain
+    // text reference to a job/invoice that predates the CRM, not expected to
+    // match an existing record — see validate()/handleSubmit() below.
+    predatesCrm: false,
   };
 }
 
@@ -82,6 +86,12 @@ function fromEntry(entry) {
     pendingCancellationReasonId: entry.reasonId || '',
     comments: entry.comments || '',
     suburb: entry.suburb || '',
+    // Derived from whether this entry already has a linked job (jobId is
+    // only ever returned for a sale-based entry — see saleToEntry()) —
+    // never stored as its own field, so editing an existing entry always
+    // reflects what it actually is rather than a separately-saved flag that
+    // could drift from it.
+    predatesCrm: entry.kind === 'existing_job_upsell' && !entry.jobId,
   };
 }
 
@@ -288,6 +298,18 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         missing.push('Credited Technician');
         fields.add('creditedTechnicianId');
       }
+      // No matched job/invoice to auto-fill these from — the server backs
+      // this same rule up (see /existing-job-upsell's own "missing2" check).
+      if (form.predatesCrm) {
+        if (!form.tradeId) {
+          missing.push('Trade');
+          fields.add('tradeId');
+        }
+        if (!form.invoiceDate) {
+          missing.push('Invoice Date');
+          fields.add('invoiceDate');
+        }
+      }
     } else if (isCallBack) {
       if (!form.jobNumber || !form.jobNumber.trim()) {
         missing.push('Original Job Number');
@@ -379,6 +401,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           saleValueExGst: form.saleValueExGst,
           suburb: form.suburb,
           comments: form.comments,
+          predatesCrm: form.predatesCrm,
         };
         res = editing ? { entry: await api.tech.updateUpsell(editing.id, body) } : await api.tech.createUpsell(body);
       } else if (isCallBack) {
@@ -487,18 +510,36 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Job Number *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
-            <JobLookupBox jobNumber={form.jobNumber} mode="job" result={lookupResult} />
+            {!form.predatesCrm && <JobLookupBox jobNumber={form.jobNumber} mode="job" result={lookupResult} />}
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-              The existing job the upsell was made on — used to locate the original job and auto-fill Trade/Job Type/Suburb below.
+              {form.predatesCrm
+                ? 'A reference only — this job predates the CRM, so no match is required.'
+                : "The existing job the upsell was made on — used to locate the original job and auto-fill Trade/Job Type/Suburb below."}
             </div>
           </div>
           <div className={`field${invalidFields.has('invoiceNumber') ? ' invalid' : ''}`}>
             <label>Invoice Number *</label>
             <input className="mono" value={form.invoiceNumber} onChange={(e) => patch({ invoiceNumber: e.target.value })} />
-            <JobLookupBox jobNumber={form.jobNumber} mode="sale" result={upsellInvoiceLookup} />
+            {!form.predatesCrm && <JobLookupBox jobNumber={form.jobNumber} mode="sale" result={upsellInvoiceLookup} />}
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-              The existing invoice the upsell has been added to — must already be on record for this Job Number.
+              {form.predatesCrm
+                ? 'A reference only — no matching invoice is required.'
+                : 'The existing invoice the upsell has been added to — must already be on record for this Job Number.'}
             </div>
+          </div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <Checkbox
+              label="This job predates the CRM (original job/invoice not on record)"
+              checked={form.predatesCrm}
+              onChange={(v) => patch({ predatesCrm: v })}
+            />
+            {form.predatesCrm && (
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 6 }}>
+                Trade, Invoice Date and Upsell value below are required — there's no original job to auto-fill them from. The
+                original job and invoice are never created or counted as a Total/Qualified Job or a Sale; only this upsell's own
+                value is credited to the technician below.
+              </div>
+            )}
           </div>
         </div>
       ) : isCallBack ? (
@@ -625,7 +666,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       {(isNewJob || isExistingJob || isUpsell || isCallBack) && (
         <div className="grid-form" style={{ marginTop: 14 }}>
           <SelectField
-            label={isNewJob ? 'Trade *' : 'Trade'}
+            label={isNewJob || (isUpsell && form.predatesCrm) ? 'Trade *' : 'Trade'}
             value={form.tradeId}
             onChange={(v) => patch({ tradeId: v, jobTypeId: '' })}
             options={settings.trades}
@@ -743,7 +784,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Upsell — added to the existing invoice above</div>
           <div className="grid-form">
-            <DateField label="Relevant invoice date" value={form.invoiceDate} onChange={(v) => patch({ invoiceDate: v })} />
+            <DateField
+              label={form.predatesCrm ? 'Relevant invoice date *' : 'Relevant invoice date'}
+              value={form.invoiceDate}
+              onChange={(v) => patch({ invoiceDate: v })}
+              invalid={invalidFields.has('invoiceDate')}
+            />
             <NumberField
               label="Upsell value (ex GST) ($) *"
               value={form.saleValueExGst}

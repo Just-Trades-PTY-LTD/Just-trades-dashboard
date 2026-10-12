@@ -220,6 +220,12 @@ function saleToEntry(s) {
     // an Upsell, which has no such second JN.
     jobNumber: s.job_number,
     newJobNumber: s.new_job_number || '',
+    // Only meaningful for an Upsell: null means this entry's Job Number is a
+    // plain text reference to a job that predates the CRM (no matching jobs
+    // row), rather than being linked to one — see POST/PATCH
+    // /existing-job-upsell's own predatesCrm handling. Always set for a
+    // Quote Approved Later entry (creation requires a match).
+    jobId: s.job_id || null,
     tradeId: s.trade_id,
     tradeName: s.trade_name,
     jobTypeId: s.job_type_id,
@@ -959,6 +965,13 @@ export function createTechSalesRouter() {
   // record, not a freely-entered one.
   router.post('/existing-job-upsell', (req, res) => {
     const b = req.body || {};
+    // Lets an Upsell reference a job/invoice from before the CRM was in use,
+    // which (by definition) has no matching jobs/sales row to find. Set
+    // explicitly by the user (a checkbox on the form) rather than inferred
+    // from a failed lookup, so a genuine typo on a job that SHOULD match
+    // still gets the normal "not found" error instead of silently saving
+    // unlinked. See the two "if (!matched... && !predatesCrm)" checks below.
+    const predatesCrm = !!b.predatesCrm;
     const missing = [];
     if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Job Number');
     if (!b.invoiceNumber || !String(b.invoiceNumber).trim()) missing.push('Invoice Number');
@@ -972,23 +985,42 @@ export function createTechSalesRouter() {
       });
     }
     // Must reference a job that's actually on record — exact Job Number
-    // match only, same rule as Quote Approved Later above.
+    // match only, same rule as Quote Approved Later above. Skipped only when
+    // predatesCrm is set, in which case matchedJob stays null and the sale
+    // below is saved with job_id = NULL — a plain text reference, never
+    // linked to (or counted as) a Total/Qualified Job, same principle as
+    // call_backs.job_id already being nullable for a Call Back logged before
+    // its own original job is on record.
     const matchedJob = findOriginalJob(b.jobNumber);
-    if (!matchedJob) {
+    if (!matchedJob && !predatesCrm) {
       return res.status(400).json({
-        error: `No existing job found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference a Job Number that was already logged as a New Job entry.`,
+        error: `No existing job found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference a Job Number that was already logged as a New Job entry. If this job predates the CRM, tick "This job predates the CRM" below.`,
       });
     }
     // Must reference an invoice that's actually on record for that job — an
     // Upsell adds value onto an EXISTING invoice, never a new one. Excludes
     // other Upsell rows (see findSaleForInvoice): it must link to the
     // genuine original sale, not another upsell that happens to share the
-    // same invoice number.
+    // same invoice number. Skipped only when predatesCrm is set, for the
+    // same reason as above.
     const matchedSale = findSaleForInvoice(b.jobNumber, b.invoiceNumber);
-    if (!matchedSale) {
+    if (!matchedSale && !predatesCrm) {
       return res.status(400).json({
-        error: `No existing invoice ${b.invoiceNumber} found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference an invoice that's already on record for that job.`,
+        error: `No existing invoice ${b.invoiceNumber} found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference an invoice that's already on record for that job. If this job predates the CRM, tick "This job predates the CRM" below.`,
       });
+    }
+    // With no matched job to auto-populate Trade from (see saleValues
+    // below), and no matched sale to auto-populate Invoice Date from, both
+    // become directly-required inputs instead — never silently saved blank.
+    if (!matchedJob) {
+      const missing2 = [];
+      if (!b.tradeId) missing2.push('Trade');
+      if (!b.invoiceDate) missing2.push('Invoice Date');
+      if (missing2.length) {
+        return res.status(400).json({
+          error: `Please complete the following required field${missing2.length > 1 ? 's' : ''} before saving: ${missing2.join(', ')}.`,
+        });
+      }
     }
     // Duplicate protection: the exact same upsell (same job, same invoice,
     // same technician) accidentally entered twice. A different technician,
@@ -1007,19 +1039,24 @@ export function createTechSalesRouter() {
       // The original job's Trade, Job Type and Suburb are auto-populated
       // below where possible, but stay editable — an explicit value in the
       // request always wins over the matched job's own value, and none of
-      // this ever touches the original job row itself.
-      trade_id: b.tradeId || matchedJob.trade_id || null,
-      job_type_id: b.jobTypeId || matchedJob.job_type_id || null,
+      // this ever touches the original job row itself. With no matchedJob
+      // (predatesCrm), Trade is already guaranteed present by the check
+      // above; Job Type/Suburb simply stay whatever the user entered (or
+      // blank — neither is mandatory even for a normal, job-linked Upsell).
+      trade_id: b.tradeId || matchedJob?.trade_id || null,
+      job_type_id: b.jobTypeId || matchedJob?.job_type_id || null,
       invoice_number: b.invoiceNumber || '',
       // The matched invoice's own date is the sensible default for "relevant
-      // invoice date" — still editable in case it needs correcting.
-      invoice_date: b.invoiceDate || matchedSale.invoice_date || '',
+      // invoice date" — still editable in case it needs correcting. With no
+      // matchedSale (predatesCrm), Invoice Date is already guaranteed
+      // present by the check above.
+      invoice_date: b.invoiceDate || matchedSale?.invoice_date || '',
       // The ADDITIONAL upsell value ex GST only — never the full invoice
       // value again (the original sale's own sale_value_ex_gst is never
       // read or added here).
       sale_value_ex_gst: Number(b.saleValueExGst) || 0,
       comments: b.comments || '',
-      suburb: b.suburb || matchedJob.suburb || '',
+      suburb: b.suburb || matchedJob?.suburb || '',
     };
     const saleId = transaction(() => {
       const { lastInsertRowid } = run(
@@ -1027,7 +1064,12 @@ export function createTechSalesRouter() {
           invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id)
          VALUES (?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          matchedJob.id,
+          // NULL when this Upsell references a job/invoice that predates the
+          // CRM — a plain text reference only (job_number/invoice_number
+          // above), never linked to a jobs row, exactly like
+          // call_backs.job_id when a Call Back is logged before its own
+          // original job is on record.
+          matchedJob ? matchedJob.id : null,
           saleValues.job_number,
           b.dateLogged,
           saleValues.credited_technician_id,
@@ -1063,7 +1105,11 @@ export function createTechSalesRouter() {
     const nextJobNumber = b.jobNumber ?? existing.job_number;
     const nextInvoiceNumber = b.invoiceNumber ?? existing.invoice_number;
     const nextCreditedTechnicianId = mergeId(b.creditedTechnicianId, existing.credited_technician_id) || originalJobTechnicianId(existing.job_id);
-    if (b.jobNumber !== undefined || b.invoiceNumber !== undefined) {
+    // Same predatesCrm escape hatch as creation — defaults to whatever this
+    // entry already was (a pre-CRM reference has job_id NULL from creation;
+    // PATCH never changes job_id) unless the request explicitly overrides it.
+    const predatesCrm = b.predatesCrm !== undefined ? !!b.predatesCrm : existing.job_id === null;
+    if ((b.jobNumber !== undefined || b.invoiceNumber !== undefined) && !predatesCrm) {
       const matchedSale = findSaleForInvoice(nextJobNumber, nextInvoiceNumber);
       if (!matchedSale) {
         return res.status(400).json({

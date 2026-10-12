@@ -433,6 +433,259 @@ test('The original job and its original sale are completely unchanged by an Upse
   }
 });
 
+// --- predatesCrm: an Upsell against a job/invoice that predates the CRM ---
+// (no matching jobs/sales row exists, and never will) — see routes/
+// techSales.js's own predatesCrm handling on both POST and PATCH.
+
+test('predatesCrm=true: an Upsell can be logged against a Job Number/Invoice Number with no matching record, saved with jobId null', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, techUpsell } = await setup(server);
+    const res = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-1',
+      invoiceNumber: 'INV-PRECRM-1',
+      dateLogged: '2026-05-10',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-15',
+      saleValueExGst: 350,
+      suburb: 'Adelaide',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.data));
+    assert.equal(res.data.entry.kind, 'existing_job_upsell');
+    assert.equal(res.data.entry.jobId, null, 'never linked to a jobs row');
+    assert.equal(res.data.entry.jobNumber, 'JN-PRECRM-1', 'kept as a plain text reference');
+    assert.equal(res.data.entry.invoiceNumber, 'INV-PRECRM-1');
+    assert.equal(res.data.entry.invoiceDate, '2026-08-15');
+    assert.equal(res.data.entry.tradeId, plumbing.id);
+    assert.equal(res.data.entry.suburb, 'Adelaide');
+    assert.equal(res.data.entry.creditedTechnicianId, techUpsell.id);
+    assert.equal(res.data.entry.saleValueExGst, 350);
+  } finally {
+    server.close();
+  }
+});
+
+test('predatesCrm=false (the default): the same unmatched Job Number/Invoice Number is still rejected — predatesCrm never weakens the normal rule by accident', async () => {
+  const server = await startTestServer();
+  try {
+    const { techUpsell } = await setup(server);
+    const res = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-NOTSET',
+      invoiceNumber: 'INV-PRECRM-NOTSET',
+      creditedTechnicianId: techUpsell.id,
+      saleValueExGst: 100,
+    });
+    assert.equal(res.status, 400);
+    assert.match(res.data.error, /No existing job found/);
+    assert.match(res.data.error, /predates the CRM/);
+  } finally {
+    server.close();
+  }
+});
+
+test('predatesCrm=true still requires Trade and Invoice Date, named individually when missing (nothing to auto-fill them from)', async () => {
+  const server = await startTestServer();
+  try {
+    const { techUpsell } = await setup(server);
+    const res = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-MISSING',
+      invoiceNumber: 'INV-PRECRM-MISSING',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      saleValueExGst: 100,
+    });
+    assert.equal(res.status, 400);
+    assert.match(res.data.error, /Trade/);
+    assert.match(res.data.error, /Invoice Date/);
+    const entries = (await server.request('GET', '/tech/entries')).data;
+    assert.equal(entries.filter((e) => e.kind === 'existing_job_upsell').length, 0, 'nothing was created');
+  } finally {
+    server.close();
+  }
+});
+
+test('predatesCrm=true but the Job Number actually DOES match a real job: the real match is used regardless — the flag only relaxes the check, it never forces an unlinked reference', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, techOriginal, techUpsell } = await setup(server);
+    await originalJobWithSale(server, {
+      technicianId: techOriginal.id,
+      plumbing,
+      jobTypeId,
+      jobNumber: 'JN-PRECRM-REALMATCH',
+      invoiceNumber: 'INV-PRECRM-REALMATCH',
+      saleValueExGst: 500,
+    });
+    const res = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-REALMATCH',
+      invoiceNumber: 'INV-PRECRM-REALMATCH',
+      dateLogged: '2026-05-10',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      saleValueExGst: 150,
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.data));
+    assert.notEqual(res.data.entry.jobId, null, 'a real match was found, so it is still linked');
+    assert.equal(res.data.entry.tradeId, plumbing.id, 'Trade still auto-populated from the real matched job');
+  } finally {
+    server.close();
+  }
+});
+
+test('predatesCrm=true: duplicate protection still applies (same Job Number + Invoice Number + Technician blocked; a different technician allowed)', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, techUpsell } = await setup(server);
+    const techUpsell2 = (await server.request('POST', '/settings/technicians', { name: 'Upsell Tech PreCRM Two' })).data;
+    const first = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-DUPE',
+      invoiceNumber: 'INV-PRECRM-DUPE',
+      dateLogged: '2026-08-10',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-01',
+      saleValueExGst: 150,
+    });
+    assert.equal(first.status, 201, JSON.stringify(first.data));
+
+    const dupe = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-DUPE',
+      invoiceNumber: 'INV-PRECRM-DUPE',
+      dateLogged: '2026-08-10',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-01',
+      saleValueExGst: 150,
+    });
+    assert.equal(dupe.status, 400);
+    assert.match(dupe.data.error, /already has an Upsell logged/);
+
+    const otherTech = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-DUPE',
+      invoiceNumber: 'INV-PRECRM-DUPE',
+      dateLogged: '2026-08-10',
+      creditedTechnicianId: techUpsell2.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-01',
+      saleValueExGst: 90,
+    });
+    assert.equal(otherTech.status, 201, 'a different technician upselling onto the same pre-CRM reference must never be blocked');
+  } finally {
+    server.close();
+  }
+});
+
+test('predatesCrm=true: never creates or affects Total Jobs, Qualified Jobs, Sales (invoices), Average Sale or Conversion — only Upsells/Upsell Value for the credited technician', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, techUpsell } = await setup(server);
+
+    const before = (await server.request('GET', '/reports/tech?from=2026-08-01&to=2026-08-31')).data;
+    assert.equal(before.company.jobsAttended, 0);
+    assert.equal(before.company.qualifiedJobs, 0);
+    assert.equal(before.company.sales, 0);
+
+    await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-FIGURES',
+      invoiceNumber: 'INV-PRECRM-FIGURES',
+      dateLogged: '2026-08-15',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-15',
+      saleValueExGst: 450,
+    });
+
+    const after = (await server.request('GET', '/reports/tech?from=2026-08-01&to=2026-08-31')).data;
+    assert.equal(after.company.jobsAttended, 0, 'never counted as a Total Job');
+    assert.equal(after.company.qualifiedJobs, 0, 'never counted as a Qualified Job');
+    assert.equal(after.company.sales, 0, 'never counted as a Sale (invoice)');
+    assert.equal(after.company.avgSaleExGst, 0, 'never affects Average Sale (scoped to qualified jobs, still zero here)');
+    assert.equal(after.company.actualKnockbacks, 0);
+    assert.equal(after.company.adjustedKnockbacks, 0);
+
+    const upsellerRow = after.byTechnician.find((r) => r.name === 'Upsell Tech Upseller');
+    assert.ok(upsellerRow, 'the technician appears in By Technician purely from the upsell');
+    assert.equal(upsellerRow.jobsAttended, 0);
+    assert.equal(upsellerRow.sales, 0);
+    assert.equal(upsellerRow.upsellsCount, 1);
+    assert.equal(upsellerRow.upsellValueExGst, 450);
+    assert.equal(upsellerRow.totalSaleExGst, 450, 'the upsell value is still included in the technician\'s own overall credited Value (ex GST)');
+  } finally {
+    server.close();
+  }
+});
+
+test('Editing a predatesCrm Upsell never re-triggers the "must match an existing invoice" check unless the request explicitly turns predatesCrm off', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, techUpsell } = await setup(server);
+    const created = await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-EDIT',
+      invoiceNumber: 'INV-PRECRM-EDIT',
+      dateLogged: '2026-08-10',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-01',
+      saleValueExGst: 150,
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.data));
+    const id = created.data.entry.id;
+
+    // Correcting the invoice number (still won't match anything real) must
+    // not be blocked — this entry is already known to be a pre-CRM
+    // reference (job_id is NULL), inferred automatically without the
+    // request needing to resend predatesCrm every time.
+    const corrected = await server.request('PATCH', `/tech/existing-job-upsell/${id}`, { invoiceNumber: 'INV-PRECRM-EDIT-CORRECTED' });
+    assert.equal(corrected.status, 200, JSON.stringify(corrected.data));
+    assert.equal(corrected.data.invoiceNumber, 'INV-PRECRM-EDIT-CORRECTED');
+  } finally {
+    server.close();
+  }
+});
+
+test('Excel exports: a predatesCrm Upsell appears correctly labelled, without a linked job, and still rolls up into Upsells/Upsell Value', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, techUpsell } = await setup(server);
+    await server.request('POST', '/tech/existing-job-upsell', {
+      jobNumber: 'JN-PRECRM-XLSX',
+      invoiceNumber: 'INV-PRECRM-XLSX',
+      dateLogged: '2026-08-20',
+      creditedTechnicianId: techUpsell.id,
+      predatesCrm: true,
+      tradeId: plumbing.id,
+      invoiceDate: '2026-08-20',
+      saleValueExGst: 275,
+    });
+
+    const ExcelJS = (await import('exceljs')).default;
+
+    const historyRes = await server.rawGet('/tech/entries/export.xlsx');
+    assert.equal(historyRes.status, 200);
+    const historyWb = new ExcelJS.Workbook();
+    await historyWb.xlsx.load(historyRes.buffer);
+    const historyText = historyWb.worksheets[0].getSheetValues().flat().filter(Boolean).join(' | ');
+    assert.match(historyText, /Existing Job — Upsell/);
+    assert.match(historyText, /INV-PRECRM-XLSX/);
+
+    const reportRes = await server.rawGet('/reports/tech.xlsx?from=2026-08-01&to=2026-08-31');
+    assert.equal(reportRes.status, 200);
+    const reportWb = new ExcelJS.Workbook();
+    await reportWb.xlsx.load(reportRes.buffer);
+    const summaryText = reportWb.worksheets.find((s) => s.name === 'Summary').getSheetValues().flat().filter(Boolean).join(' | ');
+    assert.match(summaryText, /Upsells/);
+  } finally {
+    server.close();
+  }
+});
+
 test('Excel exports: Job History export labels the entry "Existing Job — Upsell"; Tech report export includes Upsells/Upsell Value', async () => {
   const server = await startTestServer();
   try {
