@@ -143,17 +143,18 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           className="btn btn-primary"
           href={api.reports.techXlsxUrl({
             ...applied,
-            // The Knockback Reasons tracker's own Technician/Trade/Reason
-            // filters (kbr-prefixed so they can never collide with or
-            // override the report's own above) — see routes/reports.js's
-            // /tech.xlsx. Its date range is deliberately NOT independent:
-            // kbrFrom/kbrTo are always this report's own currently applied
-            // from/to, exactly like every other section of this export, so
-            // the Knockback Reasons sheets can never show a different
-            // reporting period from the rest of the workbook.
+            // The Knockback Reasons tracker's own Trade/Reason filters
+            // (kbr-prefixed so they can never collide with or override the
+            // report's own above) — see routes/reports.js's /tech.xlsx. Its
+            // date range AND technician are deliberately NOT independent:
+            // kbrFrom/kbrTo/kbrTechnicianId are always this report's own
+            // currently applied from/to/technicianId, exactly like every
+            // other section of this export, so the Knockback Reasons sheets
+            // can never show a different reporting period or technician
+            // from the rest of the workbook.
             kbrFrom: applied.from,
             kbrTo: applied.to,
-            kbrTechnicianId: knockbackReasonsFilters.technicianId,
+            kbrTechnicianId: applied.technicianId,
             kbrTradeId: knockbackReasonsFilters.tradeId,
             kbrReasonId: knockbackReasonsFilters.reasonId,
           })}
@@ -469,6 +470,8 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
           setFilters={setKnockbackReasonsFilters}
           from={applied.from}
           to={applied.to}
+          technicianId={applied.technicianId}
+          technicianName={withInactiveLabel(settings.technicians).find((t) => String(t.id) === String(applied.technicianId))?.name}
         />
       </div>
 

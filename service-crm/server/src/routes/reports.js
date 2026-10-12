@@ -110,14 +110,14 @@ export function createReportsRouter() {
     // matching whatever the tracker box currently has applied, so this
     // export's totals always match what's on screen there. This route
     // itself places no constraint on what the caller sends as kbrFrom/
-    // kbrTo — the client (TechReport.jsx) is what guarantees they're always
-    // this same report's own applied from/to, never an independent range,
-    // so Knockback Reasons can never show a different reporting period from
-    // the rest of this workbook. kbrTechnicianId/kbrTradeId/kbrReasonId
-    // remain that box's own, separate filters. See
-    // computeKnockbackReasonsReport() — same population (genuine Actual
-    // Knockback jobs only, never a Quote Approved Later/Converted Later
-    // record) that already backs that box.
+    // kbrTo/kbrTechnicianId — the client (TechReport.jsx) is what
+    // guarantees they're always this same report's own applied from/to/
+    // technicianId, never independent, so Knockback Reasons can never show
+    // a different reporting period or technician from the rest of this
+    // workbook. Only kbrTradeId/kbrReasonId remain that box's own, separate
+    // filters. See computeKnockbackReasonsReport() — same population
+    // (genuine Actual Knockback jobs only, never a Quote Approved Later/
+    // Converted Later record) that already backs that box.
     const knockbackReasonsFilters = {
       from: req.query.kbrFrom,
       to: req.query.kbrTo,

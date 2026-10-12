@@ -4,24 +4,26 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { FilterSelect } from '../../components/Fields.jsx';
 import { BarCardBody } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
-import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 export function defaultKnockbackReasonsFilters() {
-  return { technicianId: '', tradeId: '', reasonId: '' };
+  return { tradeId: '', reasonId: '' };
 }
 
-// Its own Technician/Trade/Reason filters, but its date range is never its
-// own: `from`/`to` always come from the Technician & Sales report's main
-// filter bar above (passed down as props, not part of `filters`), so this
-// box can never show a different reporting period from the rest of the
-// page. Updates live on every filter change (including whenever the main
-// report's date range is refreshed) — no separate "Refresh Report" step of
-// its own, since this is cheap to recompute and the whole point is fast
-// back-and-forth between "whole company" and one technician.
+// Its own Trade/Reason filters only — date range AND technician are never
+// its own: `from`/`to`/`technicianId` always come from the Technician &
+// Sales report's main filter bar above (passed down as props, not part of
+// `filters`), so this box can never show a different reporting period, or a
+// different technician's records, from the rest of the page. Selecting a
+// technician up there (or "All Technicians") narrows/widens this box
+// exactly the same way it does every other section. Updates live on every
+// filter change (including whenever the main report's filters are
+// refreshed) — no separate "Refresh Report" step of its own, since this is
+// cheap to recompute and the whole point is fast back-and-forth between
+// "whole company" and one trade/reason.
 //
 // `filters`/`setFilters` are owned by TechReport.jsx (not this component)
 // purely so its "Export to Excel" link can carry this box's own current
-// Technician/Trade/Reason filters alongside the report's own (from/to
+// Trade/Reason filters alongside the report's own (from/to/technicianId
 // included) — see that file's techXlsxUrl() call.
 //
 // Counts the exact same "genuine Actual Knockback" population as the
@@ -29,16 +31,17 @@ export function defaultKnockbackReasonsFilters() {
 // computeKnockbackReasonsReport/genuineKnockbackJobs) — a knock-back keeps
 // its original reason here even once its quote is later approved, since
 // that's a separate Converted Later credit, never another knock-back.
-export default function KnockbackReasonsTracker({ layout, setDrilldown, filters, setFilters, from, to }) {
+export default function KnockbackReasonsTracker({ layout, setDrilldown, filters, setFilters, from, to, technicianId, technicianName }) {
   const settings = useSettings();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // The one place `from`/`to` join the rest of this box's own filters — every
-  // request this component makes (the data fetch below, and the drill-down)
-  // goes through this single merged object, so neither can ever drift from
-  // the main report's own currently applied date range.
-  const effectiveFilters = { ...filters, from, to };
+  // The one place from/to/technicianId join the rest of this box's own
+  // filters — every request this component makes (the data fetch below,
+  // and the drill-down) goes through this single merged object, so none of
+  // them can ever drift from the main report's own currently applied
+  // filters.
+  const effectiveFilters = { ...filters, from, to, technicianId };
 
   useEffect(() => {
     setLoading(true);
@@ -47,20 +50,20 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown, filters,
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, from, to]);
+  }, [filters, from, to, technicianId]);
 
   function patch(p) {
     setFilters((f) => ({ ...f, ...p }));
   }
 
-  // Always carries the same from/to the box is currently showing — matching
-  // the main report's own applied date range — plus this box's own
-  // Technician/Trade filters.
+  // Always carries the same from/to/technicianId the box is currently
+  // showing — matching the main report's own applied filters — plus this
+  // box's own Trade filter.
   function openReasonDrilldown(reasonName) {
     setDrilldown({
       from,
       to,
-      technicianId: filters.technicianId,
+      technicianId,
       tradeId: filters.tradeId,
       metric: 'knockbackByReason',
       category: reasonName,
@@ -74,12 +77,6 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown, filters,
       {(cfg) => (
         <div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
-            <FilterSelect
-              label="Technician"
-              value={filters.technicianId}
-              onChange={(v) => patch({ technicianId: v })}
-              options={withInactiveLabel(settings.technicians)}
-            />
             <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
             <FilterSelect
               label="Reason"
@@ -92,8 +89,8 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown, filters,
             </button>
             {!loading && data && (
               <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginLeft: 'auto', paddingBottom: 8 }}>
-                {data.total} knock-back{data.total === 1 ? '' : 's'} — matches the report's date range above ({from || 'earliest'} to {to || 'latest'});
-                click a reason to view its records.
+                {data.total} knock-back{data.total === 1 ? '' : 's'} — matches the report's date range ({from || 'earliest'} to {to || 'latest'}) and
+                technician ({technicianName || 'All Technicians'}) above; click a reason to view its records.
               </div>
             )}
           </div>
