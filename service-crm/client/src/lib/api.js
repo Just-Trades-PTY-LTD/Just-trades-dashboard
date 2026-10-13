@@ -56,6 +56,7 @@ export const api = {
     updateSuburb: (id, body) => request('PATCH', `/settings/suburbs/${id}`, body),
     removeSuburb: (id) => request('DELETE', `/settings/suburbs/${id}`),
     bulkImportSuburbs: (text) => request('POST', '/settings/suburbs/bulk-import', { text }),
+    updateFollowUpDefaultDueDays: (days) => request('PATCH', '/settings/follow-up-default-due-days', { days }),
   },
   calls: {
     list: (params) => request('GET', `/calls${qs(params)}`),
@@ -82,6 +83,16 @@ export const api = {
     updatePendingCancellation: (id, body) => request('PATCH', `/tech/pending-cancellations/${id}`, body),
     archive: (kind, id, archived) => request('PATCH', `/tech/entries/${kind}/${id}/archive`, { archived }),
     remove: (kind, id) => request('DELETE', `/tech/entries/${kind}/${id}`),
+  },
+  followUps: {
+    list: (params) => request('GET', `/follow-ups${qs(params)}`),
+    get: (id) => request('GET', `/follow-ups/${id}`),
+    defaultDueDate: (attendanceDate) => request('GET', `/follow-ups/default-due-date${qs({ attendanceDate })}`),
+    create: (body) => request('POST', '/follow-ups', body),
+    addNote: (id, note) => request('POST', `/follow-ups/${id}/notes`, { note }),
+    updateDueDate: (id, dueDate, note) => request('PATCH', `/follow-ups/${id}/due-date`, { dueDate, note }),
+    close: (id, outcome, note) => request('PATCH', `/follow-ups/${id}/close`, { outcome, note }),
+    reopen: (id, note) => request('PATCH', `/follow-ups/${id}/reopen`, { note }),
   },
   lookup: {
     job: (jn) => request('GET', `/lookup/job${qs({ jn })}`),

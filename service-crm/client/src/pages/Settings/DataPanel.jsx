@@ -1,5 +1,57 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
+import { useSettings } from '../../lib/SettingsContext.jsx';
+import { NumberField } from '../../components/Fields.jsx';
+
+// Quote Follow-up trial — the one admin-editable setting it introduces. Lives
+// here rather than a new subtab since it's the only follow-up-related config
+// and this panel already holds the CRM's other few operational toggles.
+function FollowUpDefaultsSection() {
+  const { followUpDefaultDueDays, refresh } = useSettings();
+  const [days, setDays] = useState(String(followUpDefaultDueDays));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    setDays(String(followUpDefaultDueDays));
+  }, [followUpDefaultDueDays]);
+
+  async function save() {
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 1) {
+      setMessage('Please enter a whole number of days (1 or more).');
+      return;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      await api.settings.updateFollowUpDefaultDueDays(n);
+      await refresh();
+      setMessage('Saved.');
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Quote follow-up — default due date</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>
+        When "Follow-up required" is checked on a knock-back, the due date defaults to this many days after the original attendance
+        date (shifted to the following Monday if that lands on a weekend). Always editable per follow-up before saving.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+        <NumberField label="Default days" value={days} onChange={setDays} style={{ maxWidth: 120 }} />
+        <button className="btn btn-primary" type="button" onClick={save} disabled={saving}>
+          Save
+        </button>
+      </div>
+      {message && <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 8 }}>{message}</div>}
+    </div>
+  );
+}
 
 export default function DataPanel() {
   const fileInputRef = useRef(null);
@@ -89,6 +141,7 @@ export default function DataPanel() {
           </div>
         )}
       </div>
+      <FollowUpDefaultsSection />
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Reset test data</div>
         <div style={{ display: 'flex', gap: 10 }}>

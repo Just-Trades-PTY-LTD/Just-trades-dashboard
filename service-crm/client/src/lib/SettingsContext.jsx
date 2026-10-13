@@ -15,6 +15,7 @@ const EMPTY_BUNDLE = {
     pending_cancellation_reason: [],
   },
   suburbCount: 0,
+  followUpDefaultDueDays: 10,
 };
 
 export function SettingsProvider({ children }) {

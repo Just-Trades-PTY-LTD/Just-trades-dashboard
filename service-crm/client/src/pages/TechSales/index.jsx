@@ -4,7 +4,7 @@ import { SubTabs } from '../../components/Fields.jsx';
 import LogEntry from './LogEntry.jsx';
 import JobHistory from './JobHistory.jsx';
 
-export default function TechSalesPage({ sub, setSub, editing, setEditing, pendingJump, clearJump, jumpToJN }) {
+export default function TechSalesPage({ sub, setSub, editing, setEditing, pendingJump, clearJump, jumpToJN, openFollowUp }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNoticeState] = useState(null);
@@ -87,6 +87,7 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
           jumpToJN={jumpToJN}
           initialJobNumber={initialJobNumber}
           setNotice={setNotice}
+          openFollowUp={openFollowUp}
         />
       )}
     </div>

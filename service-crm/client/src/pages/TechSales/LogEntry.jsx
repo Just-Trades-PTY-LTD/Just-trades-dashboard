@@ -58,6 +58,11 @@ function emptyForm(kind) {
     // text reference to a job/invoice that predates the CRM, not expected to
     // match an existing record — see validate()/handleSubmit() below.
     predatesCrm: false,
+    // Quote Follow-up trial — never part of the job itself (no jobs.* column
+    // for either of these); on save, a brand-new genuine knock-back fires a
+    // second, independent POST /follow-ups call — see handleSubmit() below.
+    followUpRequired: false,
+    followUpDueDate: '',
   };
 }
 
@@ -92,6 +97,11 @@ function fromEntry(entry) {
     // reflects what it actually is rather than a separately-saved flag that
     // could drift from it.
     predatesCrm: entry.kind === 'existing_job_upsell' && !entry.jobId,
+    // The "Follow-up required" checkbox is creation-only (see below) —
+    // editing an existing knock-back uses Job History's own "Add/View
+    // follow-up" affordance instead.
+    followUpRequired: false,
+    followUpDueDate: '',
   };
 }
 
@@ -212,6 +222,18 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callSuburbLookup, isNewJob]);
 
+  // Quote Follow-up trial — default the due date once, the first time the
+  // checkbox is checked for this entry; never overwrites a value the staff
+  // member has already set or edited.
+  useEffect(() => {
+    if (!form.followUpRequired || !form.visitDate || form.followUpDueDate) return;
+    api.followUps
+      .defaultDueDate(form.visitDate)
+      .then(({ dueDate }) => patch({ followUpDueDate: dueDate }))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.followUpRequired, form.visitDate]);
+
   function changeEntryType(kind) {
     setForm(emptyForm(kind));
     setInvalidFields(new Set());
@@ -264,6 +286,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       if (newJobDuplicateCheck?.found) {
         missing.push(`a different Job Number — ${form.jobNumber} already exists`);
         fields.add('jobNumber');
+      }
+      if (isGenuineKnockback && form.followUpRequired && !form.followUpDueDate) {
+        missing.push('Follow-up due date');
+        fields.add('followUpDueDate');
       }
     } else if (isExistingJob) {
       // Both JNs are mandatory only on a brand-new Quote Approved Later
@@ -430,8 +456,20 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           : await api.tech.createPendingCancellation(body);
       }
 
-      if (res.notice) setNotice(res.notice);
-      else setNotice(editing ? 'Entry updated.' : 'Entry logged.');
+      let notice = res.notice || (editing ? 'Entry updated.' : 'Entry logged.');
+      let noticeIsError = false;
+      // Quote Follow-up trial — a second, independent call after the job
+      // itself is already safely saved; the job is never rolled back or
+      // blocked if this one fails.
+      if (isNewJob && !editing && form.followUpRequired && res.entry?.id) {
+        try {
+          await api.followUps.create({ jobId: res.entry.id, dueDate: form.followUpDueDate });
+        } catch (err) {
+          notice = `${notice} However, the follow-up reminder could not be created: ${err.message}`;
+          noticeIsError = true;
+        }
+      }
+      setNotice(notice, noticeIsError);
       onSaved();
       if (!editing) changeEntryType(form.kind);
     } catch (err) {
@@ -719,6 +757,28 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               options={settings.lists.knockback_reason}
               invalid={invalidFields.has('knockbackReasonId')}
             />
+          )}
+          {isGenuineKnockback && !editing && (
+            <div className="field" style={{ gridColumn: '1 / -1' }}>
+              <Checkbox
+                label="Follow-up required"
+                checked={form.followUpRequired}
+                onChange={(v) => patch({ followUpRequired: v, followUpDueDate: v ? form.followUpDueDate : '' })}
+              />
+              {form.followUpRequired && (
+                <div style={{ marginTop: 8, maxWidth: 220 }}>
+                  <DateField
+                    label="Follow-up due date *"
+                    value={form.followUpDueDate}
+                    onChange={(v) => patch({ followUpDueDate: v })}
+                    invalid={invalidFields.has('followUpDueDate')}
+                  />
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                    Defaults to the configured number of days after the visit date (Settings → Data) — always editable here.
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -74,7 +74,88 @@ const isJobKind = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sal
 // only here would showing "Converted later" instead of "Knock back" make an
 // Actual Knockback record look like it belongs to the separate Converted
 // Later figure instead.
-export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN, initialJobNumber, setNotice, embedded, forceKnockbackLabel }) {
+// "Add follow-up" / "View follow-up" — shown only on a genuine knock-back
+// row (never embedded, i.e. never inside a report drill-down's fixed list;
+// same convention as "View original job"/"linked callback" above). Saving
+// fires a second, independent call after the job itself already exists —
+// see routes/followUps.js's own POST, which requires a real job id.
+function FollowUpCell({ entry, openFollowUp, onChanged, setNotice }) {
+  const [open, setOpen] = useState(false);
+  const [dueDate, setDueDate] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function startAdd() {
+    setOpen(true);
+    try {
+      const { dueDate: d } = await api.followUps.defaultDueDate(entry.visitDate);
+      setDueDate(d);
+    } catch {
+      // Leave the field blank — the admin can still type a date manually.
+    }
+  }
+
+  async function save() {
+    if (!dueDate) {
+      setNotice('Please choose a due date before saving.', true);
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.followUps.create({ jobId: entry.id, dueDate });
+      setOpen(false);
+      onChanged();
+    } catch (err) {
+      setNotice(err.message, true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (entry.activeFollowUp) {
+    return (
+      <div style={{ marginTop: 4 }}>
+        <button className="link-btn" style={{ fontSize: 11 }} onClick={() => openFollowUp(entry.activeFollowUp.id)} type="button">
+          Follow-up due {entry.activeFollowUp.dueDate} →
+        </button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div style={{ marginTop: 4 }}>
+        <button className="link-btn" style={{ fontSize: 11 }} onClick={startAdd} type="button">
+          Add follow-up
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 6, display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={{ width: 130 }} />
+      <button className="btn btn-sm btn-primary" onClick={save} type="button" disabled={saving}>
+        Save
+      </button>
+      <button className="btn btn-sm" onClick={() => setOpen(false)} type="button">
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+export default function JobHistory({
+  rows,
+  loading,
+  onEdit,
+  onChanged,
+  jumpToJN,
+  initialJobNumber,
+  setNotice,
+  embedded,
+  forceKnockbackLabel,
+  openFollowUp,
+}) {
   const settings = useSettings();
   const [filters, setFilters] = usePersistentFilters('crm.tech.historyFilters', emptyFilters, embedded);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -532,6 +613,9 @@ export default function JobHistory({ rows, loading, onEdit, onChanged, jumpToJN,
                         )}
                         {e.kind === 'call_back' && <span className="badge badge-info">{e.reasonName || 'Call back'}</span>}
                         {e.kind === 'pending_cancellation' && <span className="badge badge-alert">{e.reasonName || 'Pending cancellation'}</span>}
+                        {!embedded && e.kind === 'new_job_no_sale' && e.knockback && !e.archived && (
+                          <FollowUpCell entry={e} openFollowUp={openFollowUp} onChanged={onChanged} setNotice={setNotice} />
+                        )}
                       </td>
                       <td style={{ maxWidth: 220, color: 'var(--ink-muted)', fontSize: 12.5 }} title={e.comments || undefined}>
                         {notesPreview(e.comments) || '—'}

@@ -253,6 +253,77 @@ CREATE TABLE IF NOT EXISTS one_time_migrations (
   ran_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- A single generic key/value store for small, admin-editable company-wide
+-- settings that don't warrant their own dedicated table (unlike trades,
+-- technicians, lists, suburbs above) — e.g. the Quote Follow-up trial's own
+-- default due-date offset. Absent key = "not yet configured"; callers fall
+-- back to a sensible default rather than treating that as an error. Never
+-- read by any report calculation.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Quote Follow-up trial — an operational reminder to call a customer back
+-- about a quote after a knock-back, nothing more. Deliberately NOT another
+-- Job or Sale: never read by services/reports.js (grep confirms nothing
+-- there references this table), so it can never affect Total/Qualified
+-- Jobs, Sales, Knock-backs, Conversion, or any technician figure. job_id is
+-- a hard link to the original knock-back job purely for display/lookup —
+-- mirrors sales.job_id/call_backs.job_id, including being left NULL rather
+-- than ever deleting a follow-up if that job row itself is ever removed
+-- (the FK with no ON DELETE CASCADE blocks that delete outright, same as
+-- it already does for a job with a linked sale/call back — see
+-- routes/settings.js's technicianIdsWithLinkedRecords() for the equivalent
+-- pattern on technicians).
+CREATE TABLE IF NOT EXISTS follow_ups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER REFERENCES jobs(id),
+  job_number TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+  -- Blank while active; one of 'quote_approved' | 'quote_rejected' |
+  -- 'unable_to_contact' | 'no_longer_required' | 'other' once closed.
+  closed_outcome TEXT NOT NULL DEFAULT '',
+  -- Set only when closed_outcome = 'quote_approved' AND it was closed
+  -- automatically by a matching Quote Approved Later save (never set for a
+  -- manual "Quote Approved" close) — see routes/techSales.js's
+  -- quote-approved-later route. Purely informational; nothing else in this
+  -- schema reads it back.
+  closed_by_sale_id INTEGER REFERENCES sales(id),
+  due_date TEXT NOT NULL,
+  -- Everything below is copied from the original job at creation time, so
+  -- this task displays correctly even if the original job is later edited —
+  -- exactly the same "copy once, stays editable here, never re-derived"
+  -- convention already used for e.g. sales.suburb on an Upsell.
+  technician_id INTEGER REFERENCES technicians(id),
+  trade_id INTEGER REFERENCES trades(id),
+  job_type_id INTEGER REFERENCES job_types(id),
+  suburb TEXT NOT NULL DEFAULT '',
+  original_attendance_date TEXT NOT NULL,
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Append-only notes/reschedule/lifecycle history for one follow_ups row —
+-- same "one row per event, who + when + what, never edited or deleted"
+-- philosophy as audit_log, just shaped for this domain (a free-text note
+-- and/or a due-date change) instead of audit_log's generic field-diff JSON.
+CREATE TABLE IF NOT EXISTS follow_up_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  follow_up_id INTEGER NOT NULL REFERENCES follow_ups(id),
+  kind TEXT NOT NULL CHECK (kind IN ('created', 'note', 'reschedule', 'closed', 'reopened')),
+  note TEXT NOT NULL DEFAULT '',
+  previous_due_date TEXT NOT NULL DEFAULT '',
+  new_due_date TEXT NOT NULL DEFAULT '',
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_follow_ups_job_id ON follow_ups (job_id);
+CREATE INDEX IF NOT EXISTS idx_follow_ups_status_due_date ON follow_ups (status, due_date);
+CREATE INDEX IF NOT EXISTS idx_follow_up_events_follow_up_id ON follow_up_events (follow_up_id);
+
 CREATE INDEX IF NOT EXISTS idx_calls_job_number ON calls (job_number);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_number ON jobs (job_number);
 CREATE INDEX IF NOT EXISTS idx_sales_job_number ON sales (job_number);

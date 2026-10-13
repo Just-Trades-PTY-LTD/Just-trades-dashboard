@@ -41,11 +41,14 @@ function defaultNav() {
     tech: { sub: readLegacy(LEGACY_KEYS.techSub, 'log'), editing: null },
     reports: { sub: readLegacy(LEGACY_KEYS.reportsSub, 'calls'), callsDrilldown: null, techDrilldown: null },
     settings: { sub: readLegacy(LEGACY_KEYS.settingsSub, 'lists') },
+    followups: { sub: 'active', editing: null },
   };
 }
 
 function isNavShape(v) {
-  return !!v && typeof v === 'object' && typeof v.module === 'string' && v.calls && v.tech && v.reports && v.settings;
+  return (
+    !!v && typeof v === 'object' && typeof v.module === 'string' && v.calls && v.tech && v.reports && v.settings && v.followups
+  );
 }
 
 // Best-effort only — Back/Forward already works from the history entry

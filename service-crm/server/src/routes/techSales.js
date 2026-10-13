@@ -5,6 +5,7 @@ import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '..
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
 import {
+  findActiveFollowUpForJob,
   findConvertibleKnockback,
   findDuplicateCallBackJobNumber,
   findDuplicateInvoice,
@@ -486,6 +487,14 @@ export function listTechEntries({
   // be offered in those cases; Archive is always safe regardless.
   const jobIdsWithSales = new Set(all("SELECT DISTINCT job_id AS id FROM sales WHERE job_id IS NOT NULL").map((r) => r.id));
   const saleIdsConvertedFrom = new Set(all("SELECT DISTINCT converted_by_sale_id AS id FROM jobs WHERE converted_by_sale_id IS NOT NULL").map((r) => r.id));
+  // Quote Follow-up trial — one batched query, never one-per-row; see
+  // e.activeFollowUp below.
+  const followUpByJobId = new Map(
+    all("SELECT id, job_id, due_date FROM follow_ups WHERE status = 'active' AND job_id IS NOT NULL").map((r) => [
+      r.job_id,
+      { id: r.id, dueDate: r.due_date },
+    ])
+  );
 
   entries.forEach((e) => {
     const t = ENTITY_TYPE_BY_KIND[e.kind];
@@ -513,6 +522,13 @@ export function listTechEntries({
       isJobEntry && e.jobNumber
         ? get("SELECT COUNT(*) AS n FROM sales WHERE archived = 0 AND is_upsell = 1 AND lower(trim(job_number)) = ?", [normKey(e.jobNumber)]).n
         : 0;
+    // Quote Follow-up trial — purely a display flag so Job History can offer
+    // "Add follow-up" or "View follow-up" on a knock-back row; a job-kind
+    // entry's own id IS the jobs.id (see jobToEntry below), so this is a
+    // direct lookup, never a text match. Read-only: never affects any
+    // report figure, and never itself written to by anything in this file
+    // except the dedicated routes/followUps.js router.
+    e.activeFollowUp = isJobEntry ? followUpByJobId.get(e.id) || null : null;
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
     else if (isJobEntry) e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
@@ -890,6 +906,28 @@ export function createTechSalesRouter() {
           fields: ['knockback'],
           userId: req.user.id,
         });
+      }
+
+      // Quote Follow-up trial: a Quote Approved Later entry for this same
+      // job automatically closes any active follow-up as Quote Approved —
+      // never the reverse (saving a follow-up never creates or edits a
+      // sale), and never more than this one write to the follow_ups/
+      // follow_up_events tables. If this entry's own validation above
+      // failed, this code is never reached, so the follow-up is simply
+      // never touched. Deliberately one-directional for the trial: if this
+      // sale is later edited, archived or deleted, the follow-up stays
+      // closed rather than being automatically reopened — see
+      // routes/followUps.js's own reopen route for the manual undo.
+      const activeFollowUp = findActiveFollowUpForJob(matchedJob.id);
+      if (activeFollowUp) {
+        run(
+          "UPDATE follow_ups SET status = 'closed', closed_outcome = 'quote_approved', closed_by_sale_id = ?, updated_at = datetime('now') WHERE id = ?",
+          [lastInsertRowid, activeFollowUp.id]
+        );
+        run(
+          `INSERT INTO follow_up_events (follow_up_id, kind, note, created_by_user_id) VALUES (?, 'closed', ?, ?)`,
+          [activeFollowUp.id, 'Automatically closed — a Quote Approved Later entry was saved for this job.', req.user.id]
+        );
       }
       return lastInsertRowid;
     });

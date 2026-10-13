@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, prepare, run } from '../db/index.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
+import { getFollowUpDefaultDueDays } from './followUps.js';
 
 const LIST_CATEGORIES = [
   'lead_source',
@@ -55,10 +56,24 @@ export function createSettingsRouter() {
       lists[cat] = all('SELECT id, name FROM list_items WHERE category = ? ORDER BY sort_order', [cat]);
     });
     const suburbCount = get('SELECT COUNT(*) AS n FROM suburbs').n;
-    res.json({ trades, technicians, lists, suburbCount });
+    res.json({ trades, technicians, lists, suburbCount, followUpDefaultDueDays: getFollowUpDefaultDueDays() });
   });
 
   const adminOnly = requireAdmin;
+
+  // ---- Quote Follow-up trial: configurable default due-days ----
+  router.patch('/follow-up-default-due-days', adminOnly, (req, res) => {
+    const days = Number(req.body?.days);
+    if (!Number.isFinite(days) || days < 1 || !Number.isInteger(days)) {
+      return res.status(400).json({ error: 'Please enter a whole number of days (1 or more).' });
+    }
+    run(
+      `INSERT INTO app_settings (key, value) VALUES ('follow_up_default_due_days', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(days)]
+    );
+    res.json({ followUpDefaultDueDays: getFollowUpDefaultDueDays() });
+  });
 
   // ---- Trades & job types ----
   router.post('/trades', adminOnly, (req, res) => {

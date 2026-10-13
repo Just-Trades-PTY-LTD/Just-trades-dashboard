@@ -166,3 +166,12 @@ export function isUserActive(id) {
   const row = get('SELECT active FROM users WHERE id = ?', [id]);
   return !row || !!row.active;
 }
+
+// The active Quote Follow-up task already on record for this job, if any —
+// at most one is ever allowed per job (see routes/followUps.js's own POST),
+// so this is both the duplicate check at creation and how "add a follow-up"
+// in Job History knows whether to offer "Add" or "View" for a given job.
+export function findActiveFollowUpForJob(jobId) {
+  if (!jobId) return null;
+  return get("SELECT * FROM follow_ups WHERE job_id = ? AND status = 'active' LIMIT 1", [jobId]);
+}

@@ -33,6 +33,31 @@ export function mondayOf(dateStr) {
   return `${asUtc.getUTCFullYear()}-${pad(asUtc.getUTCMonth() + 1)}-${pad(asUtc.getUTCDate())}`;
 }
 
+// `dateStr` + `days` calendar days later, formatted as "YYYY-MM-DD" — plain
+// Date.UTC() arithmetic on the parsed Y/M/D triple, same independence from
+// the server's own timezone as every other helper in this file.
+export function addDays(dateStr, days) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const asUtc = new Date(Date.UTC(y, m - 1, d));
+  asUtc.setUTCDate(asUtc.getUTCDate() + days);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${asUtc.getUTCFullYear()}-${pad(asUtc.getUTCMonth() + 1)}-${pad(asUtc.getUTCDate())}`;
+}
+
+// Saturday/Sunday -> the following Monday; any other day is returned
+// unchanged. Used once, only for the Quote Follow-up trial's own default
+// due-date calculation (attendance date + the configured number of days) —
+// nobody is rostered to call customers back on a weekend, so a task that
+// would otherwise land on one is deliberately due the next business day
+// instead. Never re-applied to a manually chosen or rescheduled date — see
+// routes/followUps.js.
+export function shiftWeekendToMonday(dateStr) {
+  const dow = weekdayOf(dateStr);
+  if (dow === 6) return addDays(dateStr, 2); // Saturday -> Monday
+  if (dow === 0) return addDays(dateStr, 1); // Sunday -> Monday
+  return dateStr.slice(0, 10);
+}
+
 // A "Generated: ..." label for exported workbooks, in Adelaide local time —
 // this is the one place the CRM displays "the current moment" server-side,
 // so it's pinned to Australia/Adelaide explicitly rather than the container's
@@ -42,9 +67,11 @@ export function adelaideGeneratedAtLabel(date = new Date()) {
 }
 
 // "YYYY-MM-DD" for the current moment in Adelaide local time — used for
-// export filenames, so "today's date" in a downloaded file always matches
-// the Adelaide-based user's own calendar date, regardless of which timezone
-// the server process itself happens to run in (en-CA formats y-m-d).
+// export filenames (so "today's date" in a downloaded file always matches
+// the Adelaide-based user's own calendar date) and, separately, by
+// routes/followUps.js to classify a task as overdue/due today/upcoming
+// against its own due_date — regardless of which timezone the server
+// process itself happens to run in (en-CA formats y-m-d).
 export function adelaideDateStamp(date = new Date()) {
   return date.toLocaleDateString('en-CA', { timeZone: ADELAIDE_TZ });
 }

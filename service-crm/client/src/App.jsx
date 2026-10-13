@@ -7,12 +7,14 @@ import CallsPage from './pages/Calls/index.jsx';
 import TechSalesPage from './pages/TechSales/index.jsx';
 import ReportsPage from './pages/Reports/index.jsx';
 import SettingsPage from './pages/Settings/index.jsx';
+import FollowUpsPage from './pages/FollowUps/index.jsx';
 import logo from './assets/logo.png';
 
 const BASE_TABS = [
   ['home', 'Home'],
   ['calls', 'Calls & Contacts'],
   ['tech', 'Technician & sales'],
+  ['followups', 'Follow-ups'],
   ['reports', 'Reports'],
 ];
 
@@ -47,6 +49,13 @@ export default function App() {
     updateNav((prev) => ({ ...prev, pendingJump: null }), { push: false });
   }
 
+  // "View follow-up" from Job History — same one-Back-stop pattern as
+  // jumpToJN: switch tabs and open the task's detail view as a single
+  // logical action.
+  function openFollowUp(id) {
+    updateNav((prev) => ({ ...prev, module: 'followups', followups: { ...prev.followups, editing: id } }));
+  }
+
   const setCallsSub = makeSliceSetter(updateNav, 'calls', 'sub');
   const setCallsEditing = makeSliceSetter(updateNav, 'calls', 'editing');
   const setTechSub = makeSliceSetter(updateNav, 'tech', 'sub');
@@ -55,6 +64,8 @@ export default function App() {
   const setReportsCallsDrilldown = makeSliceSetter(updateNav, 'reports', 'callsDrilldown');
   const setReportsTechDrilldown = makeSliceSetter(updateNav, 'reports', 'techDrilldown');
   const setSettingsSub = makeSliceSetter(updateNav, 'settings', 'sub');
+  const setFollowUpsSub = makeSliceSetter(updateNav, 'followups', 'sub');
+  const setFollowUpsEditing = makeSliceSetter(updateNav, 'followups', 'editing');
   const pendingJump = nav.pendingJump;
 
   return (
@@ -101,7 +112,11 @@ export default function App() {
             pendingJump={pendingJump && pendingJump.target === 'tech' ? pendingJump : null}
             clearJump={clearJump}
             jumpToJN={jumpToJN}
+            openFollowUp={openFollowUp}
           />
+        )}
+        {activeModule === 'followups' && (
+          <FollowUpsPage sub={nav.followups.sub} setSub={setFollowUpsSub} editing={nav.followups.editing} setEditing={setFollowUpsEditing} />
         )}
         {activeModule === 'reports' && (
           <ReportsPage
