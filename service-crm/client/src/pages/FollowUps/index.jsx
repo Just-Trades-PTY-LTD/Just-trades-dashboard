@@ -107,8 +107,7 @@ function ActiveList({ onOpen }) {
   );
 }
 
-function CompletedList({ onOpen }) {
-  const [q, setQ] = useState('');
+function CompletedList({ onOpen, q, setQ }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -318,12 +317,27 @@ function FollowUpDetail({ id, onClose, onChanged }) {
 
 export default function FollowUpsPage({ sub, setSub, editing, setEditing }) {
   const [refreshKey, setRefreshKey] = useState(0);
+  // Lifted up here (rather than local state inside CompletedList) so it
+  // survives the list <-> detail transition below, which unmounts/remounts
+  // CompletedList — otherwise the search box would silently clear every time
+  // a completed follow-up was opened and closed again.
+  const [closedQuery, setClosedQuery] = useState('');
 
   function openDetail(id) {
     setEditing(id);
   }
+  // Deliberately NOT window.history.back() — this page can be reached by
+  // more than one browser-history "hop" (e.g. the Follow-ups tab, then a
+  // sub-tab switch, then opening a task; or arriving via "View follow-up" in
+  // Job History, which opens the detail directly), so popping one entry off
+  // the real history stack does not reliably land back on this page — it can
+  // just as easily surface whatever the user was looking at several steps
+  // earlier (Reports, Job History, ...). Clearing `editing` directly always
+  // returns to the Follow-ups list itself, with its current section
+  // (Outstanding/Completed) and search untouched; `push: false` amends the
+  // current history entry in place rather than growing the stack.
   function closeDetail() {
-    window.history.back();
+    setEditing(null, { push: false });
   }
   function onChanged() {
     setRefreshKey((k) => k + 1);
@@ -343,7 +357,11 @@ export default function FollowUpsPage({ sub, setSub, editing, setEditing }) {
           ['closed', 'Completed'],
         ]}
       />
-      {sub === 'closed' ? <CompletedList onOpen={openDetail} /> : <ActiveList key={refreshKey} onOpen={openDetail} />}
+      {sub === 'closed' ? (
+        <CompletedList onOpen={openDetail} q={closedQuery} setQ={setClosedQuery} />
+      ) : (
+        <ActiveList key={refreshKey} onOpen={openDetail} />
+      )}
     </div>
   );
 }
