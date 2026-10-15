@@ -58,7 +58,24 @@ function notesPreview(notes) {
 }
 
 function emptyFilters() {
-  return { from: '', to: '', technicianId: '', tradeId: '', entryType: '', jobNumber: '', includeArchived: false, q: '', ...EMPTY_ADVANCED };
+  return {
+    from: '',
+    to: '',
+    technicianId: '',
+    tradeId: '',
+    entryType: '',
+    jobNumber: '',
+    includeArchived: false,
+    q: '',
+    // Invisible, programmatic-only filter (no UI control of its own) set by
+    // "View original knockback job" below — shows EXACTLY that one job,
+    // regardless of every other filter/archived state, rather than a
+    // job_number text match that could coincidentally include an unrelated
+    // job sharing the same JN. Cleared automatically by any other filter
+    // change (see patch() below) or by Clear filters.
+    onlyJobId: null,
+    ...EMPTY_ADVANCED,
+  };
 }
 
 const isJobKind = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
@@ -150,7 +167,9 @@ export default function JobHistory({
   onEdit,
   onChanged,
   jumpToJN,
+  jumpToJobId,
   initialJobNumber,
+  initialJobId,
   setNotice,
   embedded,
   forceKnockbackLabel,
@@ -172,14 +191,27 @@ export default function JobHistory({
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
   }, [initialJobNumber]);
 
+  // Arriving here via jumpToJobId (see "View original knockback job" below,
+  // used only from the embedded report drill-down, whose own fixed row set
+  // never includes the matching job row to filter locally) — same exact,
+  // id-based filter as viewOriginalKnockbackJob's own non-embedded path.
+  useEffect(() => {
+    if (initialJobId) setFilters((f) => ({ ...f, onlyJobId: initialJobId, jobNumber: '', entryType: '' }));
+  }, [initialJobId]);
+
   // Clear the selection whenever the filters change, so a selection never
   // silently carries over onto a different set of rows than what was picked.
   useEffect(() => {
     setSelectedKeys(new Set());
   }, [filters]);
 
+  // `onlyJobId` always resets to null first unless the patch itself sets it
+  // explicitly — so any ordinary filter interaction (typing a search term,
+  // picking a dropdown, Clear filters) cancels "View original knockback
+  // job"'s exact-match view automatically, rather than leaving it silently
+  // stuck and ignoring the user's new filter choice.
   function patch(p) {
-    setFilters((f) => ({ ...f, ...p }));
+    setFilters((f) => ({ ...f, onlyJobId: null, ...p }));
   }
 
   function toggleAdvanced() {
@@ -218,7 +250,27 @@ export default function JobHistory({
     patch({ jobNumber: jn, entryType: '' });
   }
 
+  // "View original knockback job" on a Converted Later (Quote Approved
+  // Later) entry — exact-id match only (see onlyJobId above), never a
+  // job_number text match, since that could coincidentally show a different
+  // job that happens to share the same JN instead of the one this entry
+  // actually converted. Embedded (inside a report drill-down) shows only
+  // that drill-down's own fixed row set, which never includes the matching
+  // job row — so there, this jumps out to the real Job History page instead
+  // of filtering locally.
+  function viewOriginalKnockbackJob(jobId) {
+    if (embedded && jumpToJobId) {
+      jumpToJobId('tech', jobId);
+    } else {
+      patch({ onlyJobId: jobId, jobNumber: '', entryType: '' });
+    }
+  }
+
   const filtered = rows.filter((e) => {
+    // Exact-id view (see viewOriginalKnockbackJob above) — bypasses every
+    // other filter, including archived state, so the linked job is always
+    // shown even if it's since been archived.
+    if (filters.onlyJobId) return isJobKind(e) && e.id === filters.onlyJobId;
     if (filters.status === 'archived') {
       if (!e.archived) return false;
     } else if (filters.status === 'all') {
@@ -517,11 +569,24 @@ export default function JobHistory({
         </>
       )}
 
+      {!embedded && filters.onlyJobId && (
+        <div className="notice panel" style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span>Showing only the linked original knockback job.</span>
+          <button className="link-btn" type="button" onClick={() => setFilters(emptyFilters())}>
+            Clear filters to see everything
+          </button>
+        </div>
+      )}
+
       <div className="panel table-scroll">
         {loading ? (
           <div className="empty-state">Loading…</div>
         ) : filtered.length === 0 ? (
-          <div className="empty-state">No entries match these filters yet.</div>
+          <div className="empty-state">
+            {filters.onlyJobId
+              ? 'The original knockback job could not be found — it may have been permanently deleted.'
+              : 'No entries match these filters yet.'}
+          </div>
         ) : (
           <table className="data-table">
             <thead>
@@ -585,6 +650,17 @@ export default function JobHistory({
                             <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewByJobNumber(e.jobNumber)}>
                               {e.relatedCallBackCount} linked callback{e.relatedCallBackCount > 1 ? 's' : ''} →
                             </button>
+                          </div>
+                        )}
+                        {e.kind === 'quote_approved_later' && (
+                          <div>
+                            {e.originalKnockbackJobId ? (
+                              <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewOriginalKnockbackJob(e.originalKnockbackJobId)}>
+                                View original knockback job →
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Original knockback job: not linked</span>
+                            )}
                           </div>
                         )}
                       </td>

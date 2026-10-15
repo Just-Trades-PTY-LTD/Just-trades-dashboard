@@ -11,6 +11,7 @@ import {
   findDuplicateInvoice,
   findDuplicateNewJobNumber,
   findDuplicateUpsell,
+  findJobConvertedBySale,
   findOriginalBookingCall,
   findOriginalJob,
   findLatestSale,
@@ -243,6 +244,13 @@ function saleToEntry(s) {
     createdByName: s.created_by_name || '',
     createdAt: s.created_at,
     updatedAt: s.updated_at,
+    // Only ever meaningful for a Quote Approved Later entry — the exact job
+    // this sale flipped from knock-back to converted (see
+    // findJobConvertedBySale/listTechEntries' own batched equivalent). Always
+    // null here; the single-entry create/edit routes below merge in the real
+    // value, since computing it requires a DB call this pure function never
+    // makes.
+    originalKnockbackJobId: null,
   };
 }
 
@@ -487,6 +495,18 @@ export function listTechEntries({
   // be offered in those cases; Archive is always safe regardless.
   const jobIdsWithSales = new Set(all("SELECT DISTINCT job_id AS id FROM sales WHERE job_id IS NOT NULL").map((r) => r.id));
   const saleIdsConvertedFrom = new Set(all("SELECT DISTINCT converted_by_sale_id AS id FROM jobs WHERE converted_by_sale_id IS NOT NULL").map((r) => r.id));
+  // The exact job each Quote Approved Later sale flipped from knock-back to
+  // converted, if any (the reverse of jobs.converted_by_sale_id) — used only
+  // so Job History can offer "View original knockback job" on a Converted
+  // Later entry. Deliberately NOT a job_number text match (which could
+  // coincidentally hit a different job sharing that same JN) — this is the
+  // one hard link between a Converted Later sale and the specific job it
+  // actually converted. A sale with no entry here never had an active
+  // knock-back to convert at creation (e.g. an extra invoice on an
+  // already-sold job) and is correctly shown as not linked.
+  const originalKnockbackJobIdBySaleId = new Map(
+    all("SELECT id, converted_by_sale_id FROM jobs WHERE converted_by_sale_id IS NOT NULL").map((r) => [r.converted_by_sale_id, r.id])
+  );
   // Quote Follow-up trial — one batched query, never one-per-row; see
   // e.activeFollowUp below.
   const followUpByJobId = new Map(
@@ -529,6 +549,7 @@ export function listTechEntries({
     // report figure, and never itself written to by anything in this file
     // except the dedicated routes/followUps.js router.
     e.activeFollowUp = isJobEntry ? followUpByJobId.get(e.id) || null : null;
+    e.originalKnockbackJobId = e.kind === 'quote_approved_later' ? originalKnockbackJobIdBySaleId.get(e.id) || null : null;
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
     else if (isJobEntry) e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
@@ -932,7 +953,10 @@ export function createTechSalesRouter() {
       return lastInsertRowid;
     });
 
-    res.status(201).json({ entry: saleToEntry(saleRow(saleId)), notice });
+    res.status(201).json({
+      entry: { ...saleToEntry(saleRow(saleId)), originalKnockbackJobId: findJobConvertedBySale(saleId)?.id ?? null },
+      notice,
+    });
   });
 
   router.patch('/quote-approved-later/:id', (req, res) => {
@@ -991,7 +1015,7 @@ export function createTechSalesRouter() {
       ]
     );
     recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
-    res.json(saleToEntry(saleRow(req.params.id)));
+    res.json({ ...saleToEntry(saleRow(req.params.id)), originalKnockbackJobId: findJobConvertedBySale(req.params.id)?.id ?? null });
   });
 
   // ---- Existing Job — Upsell ----

@@ -9,6 +9,10 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
   const [loading, setLoading] = useState(true);
   const [notice, setNoticeState] = useState(null);
   const [initialJobNumber, setInitialJobNumber] = useState('');
+  // Set only by jumpToJobId (see App.jsx's "View original knockback job" —
+  // the embedded report drill-down's own exact-job jump, whose fixed row set
+  // doesn't include the matching job row to filter locally).
+  const [initialJobId, setInitialJobId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,10 +30,11 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
 
   useEffect(() => {
     if (pendingJump && pendingJump.target === 'tech') {
-      setInitialJobNumber(pendingJump.jn);
-      // Continuation of the same "related call(s) →" click that already
-      // pushed a history entry for the module switch — amend it, don't push
-      // again.
+      if (pendingJump.jobId !== undefined) setInitialJobId(pendingJump.jobId);
+      else setInitialJobNumber(pendingJump.jn);
+      // Continuation of the same "related call(s) →"/"View original
+      // knockback job →" click that already pushed a history entry for the
+      // module switch — amend it, don't push again.
       setSub('history', { push: false });
       clearJump();
     }
@@ -86,6 +91,7 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
           onChanged={load}
           jumpToJN={jumpToJN}
           initialJobNumber={initialJobNumber}
+          initialJobId={initialJobId}
           setNotice={setNotice}
           openFollowUp={openFollowUp}
         />

@@ -171,6 +171,21 @@ export function isUserActive(id) {
 // at most one is ever allowed per job (see routes/followUps.js's own POST),
 // so this is both the duplicate check at creation and how "add a follow-up"
 // in Job History knows whether to offer "Add" or "View" for a given job.
+// The exact job a Quote Approved Later sale flipped from knock-back to
+// converted, if any — the reverse of jobs.converted_by_sale_id (see
+// routes/techSales.js's own POST /quote-approved-later, which is the only
+// place that column is ever set). Used for a single-entry response (the
+// create/edit routes); routes/techSales.js's own listTechEntries() computes
+// the same thing in bulk via a batched query instead of calling this per row.
+// Null means this sale never had a matching active knock-back to convert at
+// creation (e.g. it added an extra invoice to an already-sold job) — the
+// correct, deliberate "not linked" case, never a job_number text match that
+// could coincidentally hit an unrelated job sharing that same JN.
+export function findJobConvertedBySale(saleId) {
+  if (!saleId) return null;
+  return get('SELECT * FROM jobs WHERE converted_by_sale_id = ?', [saleId]);
+}
+
 export function findActiveFollowUpForJob(jobId) {
   if (!jobId) return null;
   return get("SELECT * FROM follow_ups WHERE job_id = ? AND status = 'active' LIMIT 1", [jobId]);

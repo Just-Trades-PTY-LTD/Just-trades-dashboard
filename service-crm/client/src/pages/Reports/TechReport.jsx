@@ -23,7 +23,7 @@ function rateLabel(v) {
   return v == null ? '—' : `${v}%`;
 }
 
-export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
+export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilldown }) {
   const settings = useSettings();
   const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
   const [granularity, setGranularity] = useState('week');
@@ -475,7 +475,9 @@ export default function TechReport({ jumpToJN, drilldown, setDrilldown }) {
         />
       </div>
 
-      {drilldown && <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}
+      {drilldown && (
+        <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} jumpToJobId={jumpToJobId} onClose={() => window.history.back()} />
+      )}
     </div>
   );
 }

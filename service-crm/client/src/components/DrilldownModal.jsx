@@ -11,7 +11,7 @@ import LogEntry from '../pages/TechSales/LogEntry.jsx';
 // `kind` picks which drill-down endpoint/history log/edit form to use;
 // `params` is the exact metric/category/scope selector plus the report's own
 // current filters (see server/src/services/reports.js for the full list).
-export default function DrilldownModal({ kind, params, jumpToJN, onClose }) {
+export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -114,6 +114,7 @@ export default function DrilldownModal({ kind, params, jumpToJN, onClose }) {
               onEdit={setEditingRecord}
               onChanged={load}
               jumpToJN={jumpToJN}
+              jumpToJobId={jumpToJobId}
               setNotice={setNotice}
               embedded
               forceKnockbackLabel={params.metric === 'actualKnockbacks'}

@@ -45,6 +45,12 @@ export default function App() {
   function jumpToJN(target, jn) {
     updateNav((prev) => ({ ...prev, module: target, pendingJump: { target, jn } }));
   }
+  // "View original knockback job" from a report drill-down's fixed row set
+  // (see JobHistory.jsx) — an exact-id jump, never a job_number text match,
+  // so it can only ever open the one specific job it's linked to.
+  function jumpToJobId(target, jobId) {
+    updateNav((prev) => ({ ...prev, module: target, pendingJump: { target, jobId } }));
+  }
   function clearJump() {
     updateNav((prev) => ({ ...prev, pendingJump: null }), { push: false });
   }
@@ -127,6 +133,7 @@ export default function App() {
             techDrilldown={nav.reports.techDrilldown}
             setTechDrilldown={setReportsTechDrilldown}
             jumpToJN={jumpToJN}
+            jumpToJobId={jumpToJobId}
           />
         )}
         {activeModule === 'settings' && isAdmin && <SettingsPage sub={nav.settings.sub} setSub={setSettingsSub} isAdmin={isAdmin} />}
