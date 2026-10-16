@@ -11,7 +11,7 @@ import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function defaultFilters() {
-  return { ...currentAdelaideWeek(), handledByUserId: '' };
+  return { ...currentAdelaideWeek(), handledByUserId: '', tradeId: '' };
 }
 
 export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
@@ -20,6 +20,10 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const layout = useReportLayout('calls');
+  // "Calls by Trade" box's own Calls/Leads toggle — a display choice only,
+  // never persisted as a report filter; switches both which dataset the
+  // chart shows and which drill-down metric a slice click opens.
+  const [tradeChartMode, setTradeChartMode] = useState('calls');
 
   useEffect(() => {
     setLoading(true);
@@ -38,7 +42,8 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf } = data;
+  const { kpis, byTrade, leadsByTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf } =
+    data;
 
   const kpiRows = [
     ['Total Contacts', kpis.total, 'total'],
@@ -75,6 +80,7 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
           onChange={(v) => patch({ handledByUserId: v })}
           options={withInactiveLabel(settings.staffAll)}
         />
+        <FilterSelect label="Trade" value={draft.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
         <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
           {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
@@ -117,15 +123,35 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
         <div className="panel empty-state">No calls logged in this range yet.</div>
       ) : (
         <div className="grid-charts">
-          <AdjustableSection id="byTrade" title="Calls by trade" defaultSize="md" layout={layout}>
-            {(cfg) => (
-              <PieCardBody
-                data={byTrade}
-                height={cfg.chartHeight}
-                colorFor={tradeColor}
-                onSliceClick={(name) => openDrilldown('byTrade', { category: name })}
-              />
-            )}
+          <AdjustableSection
+            id="byTrade"
+            title={tradeChartMode === 'leads' ? 'Leads by trade' : 'Calls by trade'}
+            defaultSize="md"
+            layout={layout}
+            headerRight={
+              <select className="btn" style={{ padding: '4px 10px' }} value={tradeChartMode} onChange={(e) => setTradeChartMode(e.target.value)}>
+                <option value="calls">Calls</option>
+                <option value="leads">Leads</option>
+              </select>
+            }
+          >
+            {(cfg) =>
+              tradeChartMode === 'leads' ? (
+                <PieCardBody
+                  data={leadsByTrade}
+                  height={cfg.chartHeight}
+                  colorFor={tradeColor}
+                  onSliceClick={(name) => openDrilldown('leadsByTrade', { category: name })}
+                />
+              ) : (
+                <PieCardBody
+                  data={byTrade}
+                  height={cfg.chartHeight}
+                  colorFor={tradeColor}
+                  onSliceClick={(name) => openDrilldown('byTrade', { category: name })}
+                />
+              )
+            }
           </AdjustableSection>
 
           <AdjustableSection id="bySourcePie" title="Leads by referral source" defaultSize="md" layout={layout}>

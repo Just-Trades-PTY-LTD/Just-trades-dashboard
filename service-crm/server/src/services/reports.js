@@ -97,7 +97,7 @@ function catLabel(v) {
 // and by drilldownCalls() below, so a figure and its drill-down can never
 // drift apart from each other.
 // ---------------------------------------------------------------------------
-function fetchCallsRaw({ from, to, handledByUserId } = {}) {
+function fetchCallsRaw({ from, to, handledByUserId, tradeId } = {}) {
   const rows = all(
     `SELECT c.*, u.name AS handled_by_name, tr.name AS trade_name, ls.name AS lead_source_name,
       nbr.name AS not_booked_reason_name, cr.name AS cancellation_reason_name
@@ -109,11 +109,16 @@ function fetchCallsRaw({ from, to, handledByUserId } = {}) {
      LEFT JOIN list_items cr ON cr.id = c.cancellation_reason_id
      WHERE c.archived = 0`
   );
-  return rows.filter((c) => inRange(c.call_at, from, to) && (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)));
+  return rows.filter(
+    (c) =>
+      inRange(c.call_at, from, to) &&
+      (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)) &&
+      (!tradeId || c.trade_id === Number(tradeId))
+  );
 }
 
-export function computeCallsReport({ from, to, handledByUserId } = {}) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId });
+export function computeCallsReport({ from, to, handledByUserId, tradeId } = {}) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId });
 
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
@@ -155,6 +160,11 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   };
 
   const byTrade = countBy(reportCalls.filter((c) => c.trade_name), (c) => c.trade_name);
+  // Same breakdown, scoped to genuine leads only (call_type === 'Lead', the
+  // same population the Leads/Booking rate KPIs already use) — the "Calls by
+  // Trade" box's own toggle between "Calls" and "Leads" switches between
+  // these two, never a third, separately-defined notion of a lead.
+  const leadsByTrade = countBy(leads.filter((c) => c.trade_name), (c) => c.trade_name);
   const bySourcePie = countBy(leads.filter((c) => c.lead_source_name), (c) => c.lead_source_name);
 
   const stackMap = {};
@@ -202,7 +212,7 @@ export function computeCallsReport({ from, to, handledByUserId } = {}) {
   });
   const staffPerf = Object.values(staffMap).map((s) => ({ ...s, rate: pct(s.booked, s.leads) }));
 
-  return { kpis, byTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf };
+  return { kpis, byTrade, leadsByTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf };
 }
 
 // Selects the subset of an (already date/staff-scoped) calls array for one
@@ -262,8 +272,8 @@ function pickCallsSubset(base, field) {
 // resolved against the exact same filtered rows the report itself computed
 // its numbers from. Returns null for a metric this report has no accurate
 // record-level answer for.
-export function drilldownCalls({ from, to, handledByUserId, metric, category, segment, staffName, field }) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId });
+export function drilldownCalls({ from, to, handledByUserId, tradeId, metric, category, segment, staffName, field }) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId });
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
 
   if (metric === 'staff') {
@@ -275,6 +285,9 @@ export function drilldownCalls({ from, to, handledByUserId, metric, category, se
 
   if (metric === 'byTrade') {
     return { rows: reportCalls.filter((c) => catLabel(c.trade_name) === category), label: `Calls by trade — ${category}` };
+  }
+  if (metric === 'leadsByTrade') {
+    return { rows: leads.filter((c) => catLabel(c.trade_name) === category), label: `Leads by trade — ${category}` };
   }
   if (metric === 'bySource') {
     return { rows: leads.filter((c) => catLabel(c.lead_source_name) === category), label: `Leads by referral source — ${category}` };
