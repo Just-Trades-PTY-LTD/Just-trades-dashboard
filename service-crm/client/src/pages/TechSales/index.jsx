@@ -53,12 +53,19 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
     setSub('log', { push: false });
   }
 
-  // Cancelling or saving an edit is the mirror of opening it — go back to
-  // the entry that was current before the edit started (Job History), the
-  // same way the browser's own Back button would. Skipped for a brand new
-  // (non-edit) log, which never pushed an entry to begin with.
+  // Deliberately NOT window.history.back() — this screen can be reached by
+  // more than one browser-history hop depending on how the user navigated
+  // here, so popping one entry off the real history stack doesn't reliably
+  // land back on Job History — it can just as easily overshoot to an
+  // earlier, unrelated page (e.g. Home). Clearing the edit state directly
+  // instead always returns to Job History, with no record left stuck in
+  // edit mode. Skipped for a brand new (non-edit) log, which was never a
+  // Back-stop in the first place.
   function closeEdit() {
-    if (editing) window.history.back();
+    if (editing) {
+      setEditing(null, { push: false });
+      setSub('history', { push: false });
+    }
   }
 
   return (
