@@ -192,6 +192,10 @@ const TECH_BY_TECHNICIAN_COLUMNS = [
   { key: 'unqualifiedJobs', label: 'Unqualified Jobs' },
   { key: 'callBacks', label: 'Call Backs' },
   { key: 'pendingCancellations', label: 'Pending Cancellations' },
+  // Genuinely separate from every figure above (see services/reports.js's
+  // positiveReviewsByTechnicianName) — included here only, never on the "By
+  // trade" sheet, matching the on-screen report's own "By technician" table.
+  { key: 'positiveReviewsCount', label: 'Positive Reviews' },
 ];
 
 export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, knockbackReasonsFilters) {
@@ -330,6 +334,68 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
       knockbackReasonsData.records
     );
   }
+
+  return wb;
+}
+
+// ---------------------------------------------------------------------------
+// Reviews report workbook
+// ---------------------------------------------------------------------------
+export function buildReviewsWorkbook(data, records, filters, lookups) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Just Trades CRM';
+  wb.created = new Date();
+
+  const techName = filters.technicianId ? lookups?.technicians?.get(String(filters.technicianId)) || `#${filters.technicianId}` : 'All';
+  const ratingLabel = filters.rating ? `${filters.rating} stars` : filters.ratingClass || 'All';
+  const linkSentLabel = filters.reviewLinkSent || 'All';
+  const extra = [`Technician: ${techName}`, `Rating: ${ratingLabel}`, `Review Link Sent: ${linkSentLabel}`];
+  const filterLines = filterSummaryLines({ from: filters.from, to: filters.to, extra });
+
+  const summary = wb.addWorksheet('Summary');
+  addTitleBlock(summary, 'Reviews Report — Summary', filterLines);
+  addKpiTable(summary, [
+    ['Total Reviews', data.kpis.total],
+    ['Positive Reviews', data.kpis.positive],
+    ['Neutral Reviews', data.kpis.neutral],
+    ['Negative Reviews', data.kpis.negative],
+    ['Average Star Rating', data.kpis.avgRating],
+    ['Review Link Sent — Yes', data.kpis.linkSentYes],
+    ['Review Link Sent — No', data.kpis.linkSentNo],
+  ]);
+
+  const byTechnician = wb.addWorksheet('By technician');
+  addTitleBlock(byTechnician, 'Reviews Report — By Technician', filterLines);
+  addDataTable(
+    byTechnician,
+    [
+      { key: 'name', label: 'Technician', width: 24 },
+      { key: 'total', label: 'Reviews' },
+      { key: 'positive', label: 'Positive Reviews' },
+    ],
+    data.byTechnician
+  );
+
+  // The exact filtered review records behind this export — same population
+  // as the on-screen report's own "Total Reviews" figure (see
+  // routes/reports.js's /reviews.xlsx), so this sheet can never drift from
+  // what the Summary/By technician sheets above are counting.
+  const recordsSheet = wb.addWorksheet('Records');
+  addTitleBlock(recordsSheet, 'Reviews Report — Records', filterLines);
+  addDataTable(
+    recordsSheet,
+    [
+      { key: 'reviewDate', label: 'Review Date', width: 14 },
+      { key: 'rating', label: 'Rating' },
+      { key: 'classification', label: 'Classification', width: 14 },
+      { key: 'technicians', label: 'Technician(s)', width: 30, value: (r) => r.technicians.map((t) => t.name).join(', ') },
+      { key: 'reviewLinkSent', label: 'Review Link Sent' },
+      { key: 'jobNumber', label: 'Job Number', width: 16 },
+      { key: 'notes', label: 'Notes / Review Reference', width: 40 },
+      { key: 'createdByName', label: 'Entered By', width: 18 },
+    ],
+    records
+  );
 
   return wb;
 }

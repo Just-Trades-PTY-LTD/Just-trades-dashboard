@@ -4,6 +4,8 @@ import CallHistory from '../pages/Calls/CallHistory.jsx';
 import LogCall from '../pages/Calls/LogCall.jsx';
 import JobHistory from '../pages/TechSales/JobHistory.jsx';
 import LogEntry from '../pages/TechSales/LogEntry.jsx';
+import ReviewHistory from '../pages/Reviews/ReviewHistory.jsx';
+import LogReview from '../pages/Reviews/LogReview.jsx';
 
 // Opens as an overlay ON TOP of a report — the report page underneath is
 // never unmounted, so its filters, its AdjustableSection layout and its
@@ -27,7 +29,12 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
     setLoading(true);
     setError('');
     try {
-      const res = kind === 'calls' ? await api.reports.callsDrilldown(params) : await api.reports.techDrilldown(params);
+      const res =
+        kind === 'calls'
+          ? await api.reports.callsDrilldown(params)
+          : kind === 'reviews'
+          ? await api.reports.reviewsDrilldown(params)
+          : await api.reports.techDrilldown(params);
       setData(res);
     } catch (err) {
       setError(err.message);
@@ -102,11 +109,15 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
           ) : editingRecord ? (
             kind === 'calls' ? (
               <LogCall editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
+            ) : kind === 'reviews' ? (
+              <LogReview editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
             ) : (
               <LogEntry editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
             )
           ) : kind === 'calls' ? (
             <CallHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} onChanged={load} jumpToJN={jumpToJN} setNotice={setNotice} embedded />
+          ) : kind === 'reviews' ? (
+            <ReviewHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} embedded />
           ) : (
             <JobHistory
               rows={data?.rows || []}

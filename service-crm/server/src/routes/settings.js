@@ -17,10 +17,11 @@ function nextSortOrder(table, whereSql = '1=1', params = []) {
   return row.m + 1;
 }
 
-// Every column across jobs/sales/call_backs/pending_cancellations that can
-// reference a technician — a technician referenced by any of these (active
-// or archived) can never be permanently deleted, only deactivated, since the
-// FOREIGN KEY on each of these columns would refuse the delete outright.
+// Every column across jobs/sales/call_backs/pending_cancellations/
+// review_technicians that can reference a technician — a technician
+// referenced by any of these (active or archived) can never be permanently
+// deleted, only deactivated, since the FOREIGN KEY on each of these columns
+// would refuse the delete outright.
 function technicianIdsWithLinkedRecords() {
   const ids = new Set();
   [
@@ -30,6 +31,7 @@ function technicianIdsWithLinkedRecords() {
     'SELECT DISTINCT attending_technician_id AS id FROM call_backs WHERE attending_technician_id IS NOT NULL',
     'SELECT DISTINCT credited_technician_id AS id FROM call_backs WHERE credited_technician_id IS NOT NULL',
     'SELECT DISTINCT credited_technician_id AS id FROM pending_cancellations WHERE credited_technician_id IS NOT NULL',
+    'SELECT DISTINCT technician_id AS id FROM review_technicians',
   ].forEach((sql) => all(sql).forEach((r) => ids.add(r.id)));
   return ids;
 }

@@ -1,8 +1,16 @@
 import { Router } from 'express';
 import { all, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { computeCallsReport, computeKnockbackReasonsReport, computeTechReport, drilldownCalls, drilldownTech } from '../services/reports.js';
-import { buildCallsWorkbook, buildTechWorkbook } from '../lib/xlsxReports.js';
+import {
+  computeCallsReport,
+  computeKnockbackReasonsReport,
+  computeTechReport,
+  computeReviewsReport,
+  drilldownCalls,
+  drilldownTech,
+  drilldownReviews,
+} from '../services/reports.js';
+import { buildCallsWorkbook, buildTechWorkbook, buildReviewsWorkbook } from '../lib/xlsxReports.js';
 import { listCalls } from './calls.js';
 import { listTechEntries } from './techSales.js';
 
@@ -20,7 +28,7 @@ async function sendWorkbook(res, workbook, filenamePrefix) {
 // A user's saved Reports page layout (each section's size/collapsed state)
 // is a pure display preference — scoped to req.user.id so one user's choices
 // can never affect another's, and stored separately from every CRM record.
-const REPORT_KEYS = ['calls', 'tech'];
+const REPORT_KEYS = ['calls', 'tech', 'reviews'];
 
 export function createReportsRouter() {
   const router = Router();
@@ -66,6 +74,22 @@ export function createReportsRouter() {
     const keySet = new Set(result.rows.map((r) => `${r.kind}:${r.id}`));
     const rows = listTechEntries({ includeArchived: 'true' }).filter((e) => keySet.has(`${e.kind}:${e.id}`));
     res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, kind: 'tech', rows });
+  });
+
+  router.get('/reviews', (req, res) => {
+    res.json(computeReviewsReport(req.query));
+  });
+
+  // Unlike /calls/drilldown and /tech/drilldown above, drilldownReviews()
+  // already returns fully display-ready review rows directly (reviews have
+  // no separate "kinds" to re-expand through a listX() lookup the way job
+  // entries do), so this route returns its result as-is.
+  router.get('/reviews/drilldown', (req, res) => {
+    const { metric } = req.query;
+    if (!metric) return res.status(400).json({ error: 'A metric is required.' });
+    const result = drilldownReviews(req.query);
+    if (!result) return res.status(400).json({ error: `This figure can't be linked to specific records: "${metric}".` });
+    res.json({ label: result.label, count: result.rows.length, kind: 'reviews', rows: result.rows });
   });
 
   router.get('/layouts', (req, res) => {
@@ -133,6 +157,18 @@ export function createReportsRouter() {
     const knockbackReasonsData = computeKnockbackReasonsReport(knockbackReasonsFilters);
     const wb = buildTechWorkbook(data, req.query, lookups, knockbackReasonsData, knockbackReasonsFilters);
     await sendWorkbook(res, wb, 'technician-sales-report');
+  });
+
+  router.get('/reviews.xlsx', async (req, res) => {
+    const data = computeReviewsReport(req.query);
+    // The exact filtered review records (not scoped to any one figure) —
+    // same population the "Total Reviews" KPI itself counts, via the same
+    // drilldownReviews() every other click-through on this report uses, so
+    // the export's own Records sheet can never drift from what's on screen.
+    const records = drilldownReviews({ ...req.query, metric: 'total' }).rows;
+    const lookups = { technicians: idNameMap(all('SELECT id, name FROM technicians')) };
+    const wb = buildReviewsWorkbook(data, records, req.query, lookups);
+    await sendWorkbook(res, wb, 'reviews-report');
   });
 
   return router;

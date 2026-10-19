@@ -8,6 +8,7 @@ import TechSalesPage from './pages/TechSales/index.jsx';
 import ReportsPage from './pages/Reports/index.jsx';
 import SettingsPage from './pages/Settings/index.jsx';
 import FollowUpsPage from './pages/FollowUps/index.jsx';
+import ReviewsPage from './pages/Reviews/index.jsx';
 import logo from './assets/logo.png';
 
 const BASE_TABS = [
@@ -15,6 +16,7 @@ const BASE_TABS = [
   ['calls', 'Calls & Contacts'],
   ['tech', 'Technician & sales'],
   ['followups', 'Follow-ups'],
+  ['reviews', 'Reviews'],
   ['reports', 'Reports'],
 ];
 
@@ -69,16 +71,21 @@ export default function App() {
   const setReportsSub = makeSliceSetter(updateNav, 'reports', 'sub');
   const setReportsCallsDrilldown = makeSliceSetter(updateNav, 'reports', 'callsDrilldown');
   const setReportsTechDrilldown = makeSliceSetter(updateNav, 'reports', 'techDrilldown');
+  const setReportsReviewsDrilldown = makeSliceSetter(updateNav, 'reports', 'reviewsDrilldown');
   const setSettingsSub = makeSliceSetter(updateNav, 'settings', 'sub');
   const setFollowUpsSub = makeSliceSetter(updateNav, 'followups', 'sub');
   const setFollowUpsEditing = makeSliceSetter(updateNav, 'followups', 'editing');
+  const setReviewsSub = makeSliceSetter(updateNav, 'reviews', 'sub');
+  const setReviewsEditing = makeSliceSetter(updateNav, 'reviews', 'editing');
   const pendingJump = nav.pendingJump;
 
-  // Contact History and Job History show dense, many-column tables — widen
-  // the page just for those two views so they can use more of a large
-  // screen, without changing the comfortable width of every other page.
+  // Contact History, Job History and Review History show dense, many-column
+  // tables — widen the page just for those views so they can use more of a
+  // large screen, without changing the comfortable width of every other page.
   const isWideHistoryView =
-    (activeModule === 'calls' && nav.calls.sub === 'history') || (activeModule === 'tech' && nav.tech.sub === 'history');
+    (activeModule === 'calls' && nav.calls.sub === 'history') ||
+    (activeModule === 'tech' && nav.tech.sub === 'history') ||
+    (activeModule === 'reviews' && nav.reviews.sub === 'history');
 
   return (
     <SettingsProvider>
@@ -130,6 +137,9 @@ export default function App() {
         {activeModule === 'followups' && (
           <FollowUpsPage sub={nav.followups.sub} setSub={setFollowUpsSub} editing={nav.followups.editing} setEditing={setFollowUpsEditing} />
         )}
+        {activeModule === 'reviews' && (
+          <ReviewsPage sub={nav.reviews.sub} setSub={setReviewsSub} editing={nav.reviews.editing} setEditing={setReviewsEditing} />
+        )}
         {activeModule === 'reports' && (
           <ReportsPage
             sub={nav.reports.sub}
@@ -138,6 +148,8 @@ export default function App() {
             setCallsDrilldown={setReportsCallsDrilldown}
             techDrilldown={nav.reports.techDrilldown}
             setTechDrilldown={setReportsTechDrilldown}
+            reviewsDrilldown={nav.reports.reviewsDrilldown}
+            setReviewsDrilldown={setReportsReviewsDrilldown}
             jumpToJN={jumpToJN}
             jumpToJobId={jumpToJobId}
           />

@@ -146,6 +146,85 @@ export function DateRangePresetSelect({ value, onChange, options, style }) {
   );
 }
 
+// options: array of {id, name}. `value` is an array of ids. Checkboxes
+// rather than a native multi-select <select> — much easier to use correctly
+// on both desktop and touch, and every selection is visible at a glance
+// rather than hidden behind a ctrl/cmd-click convention few people know.
+export function MultiSelectField({ label, value, onChange, options }) {
+  const selected = new Set((value || []).map(String));
+  function toggle(id) {
+    const idStr = String(id);
+    const next = new Set(selected);
+    if (next.has(idStr)) next.delete(idStr);
+    else next.add(idStr);
+    onChange(options.filter((o) => next.has(String(o.id))).map((o) => o.id));
+  }
+  return (
+    <div className="field">
+      {label && <label>{label}</label>}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          padding: 10,
+          maxHeight: 220,
+          overflowY: 'auto',
+          background: 'var(--surface)',
+        }}
+      >
+        {options.length === 0 ? (
+          <span style={{ fontSize: 13, color: 'var(--ink-muted)' }}>No technicians available.</span>
+        ) : (
+          options.map((o) => (
+            <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={selected.has(String(o.id))} onChange={() => toggle(o.id)} style={{ width: 'auto' }} />
+              {o.name}
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 1-5 star picker — clicking a star sets the rating to that star's position
+// (never a half-star / hover-preview interaction, since the rating itself is
+// always a whole number 1-5). Filled stars use --warn (the same amber token
+// badges already use elsewhere), empty stars the ordinary border color.
+export function StarRatingField({ label, value, onChange }) {
+  return (
+    <div className="field">
+      {label && <label>{label}</label>}
+      <div style={{ display: 'flex', gap: 2 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            aria-label={`${n} star${n > 1 ? 's' : ''}`}
+            aria-pressed={value === n}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 26,
+              lineHeight: 1,
+              minWidth: 44,
+              minHeight: 44,
+              color: value >= n ? 'var(--warn)' : 'var(--border)',
+            }}
+          >
+            ★
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SubTabs({ value, onChange, tabs }) {
   return (
     <div className="subtabs">

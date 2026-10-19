@@ -17,6 +17,8 @@ export const BACKUP_TABLES = [
   'call_backs',
   'pending_cancellations',
   'audit_log',
+  'reviews',
+  'review_technicians',
 ];
 
 export function buildBackupPayload() {

@@ -324,6 +324,54 @@ CREATE INDEX IF NOT EXISTS idx_follow_ups_job_id ON follow_ups (job_id);
 CREATE INDEX IF NOT EXISTS idx_follow_ups_status_due_date ON follow_ups (status, due_date);
 CREATE INDEX IF NOT EXISTS idx_follow_up_events_follow_up_id ON follow_up_events (follow_up_id);
 
+-- A published Google review. Entirely separate from Jobs/Sales/Knockbacks —
+-- nothing in services/reports.js's computeTechReport()/computeMetrics() ever
+-- reads this table, so a review can never affect Total Jobs, Sales,
+-- Knockbacks, Converted Later, Adjusted Knockbacks or any conversion %; the
+-- Technician & Sales report only ever adds a separate, additive Positive
+-- Reviews figure alongside those, never folded into them.
+-- `source` is deliberately unconstrained (no CHECK) even though every review
+-- today is 'google' — so a future review source can be added later with a
+-- plain INSERT, never a migration that touches or reinterprets this column
+-- on any existing row.
+-- Rating classification (Positive/Neutral/Negative) is never stored — always
+-- calculated from `rating` where needed (see services/reports.js), so it can
+-- never drift from the star rating it's derived from.
+CREATE TABLE IF NOT EXISTS reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_date TEXT NOT NULL,
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  source TEXT NOT NULL DEFAULT 'google',
+  review_link_sent TEXT NOT NULL DEFAULT '',
+  job_number TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_by_user_id INTEGER REFERENCES users(id),
+  -- Who last edited this review and when — kept as plain columns (updated on
+  -- every PATCH) rather than routed through the shared audit_log table,
+  -- since audit_log.entity_type's CHECK constraint can't gain a new value
+  -- without rebuilding that entire table. This needs no such migration and
+  -- keeps Reviews a genuinely separate area, exactly as requested.
+  last_edited_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One review can credit several technicians without duplicating the review
+-- itself: the company total is always COUNT(*) on `reviews` (one row per
+-- review, regardless of how many technicians it names); each technician's own
+-- total is COUNT(*) on this join table for their technician_id. The primary
+-- key prevents the same technician being credited twice on one review, which
+-- would otherwise double-count them.
+CREATE TABLE IF NOT EXISTS review_technicians (
+  review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  technician_id INTEGER NOT NULL REFERENCES technicians(id),
+  PRIMARY KEY (review_id, technician_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_review_date ON reviews (review_date);
+CREATE INDEX IF NOT EXISTS idx_reviews_job_number ON reviews (job_number);
+CREATE INDEX IF NOT EXISTS idx_review_technicians_technician_id ON review_technicians (technician_id);
+
 CREATE INDEX IF NOT EXISTS idx_calls_job_number ON calls (job_number);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_number ON jobs (job_number);
 CREATE INDEX IF NOT EXISTS idx_sales_job_number ON sales (job_number);

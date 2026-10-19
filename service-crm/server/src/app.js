@@ -19,6 +19,7 @@ import { createExportRouter } from './routes/export.js';
 import { createReportsRouter } from './routes/reports.js';
 import { createAuditRouter } from './routes/audit.js';
 import { createFollowUpsRouter } from './routes/followUps.js';
+import { createReviewsRouter } from './routes/reviews.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.resolve(__dirname, '../../client/dist');
@@ -115,6 +116,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use('/api/reports', createReportsRouter());
   app.use('/api/audit', createAuditRouter());
   app.use('/api/follow-ups', createFollowUpsRouter());
+  app.use('/api/reviews', createReviewsRouter());
 
   // In production this one server serves the built React app too, so the
   // trial site is a single deployable service. In local dev, client/dist

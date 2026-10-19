@@ -1,5 +1,6 @@
 import { all } from '../db/index.js';
-import { mondayOf } from '../lib/adelaideTime.js';
+import { mondayOf, utcToAdelaideDisplay } from '../lib/adelaideTime.js';
+import { classifyRating } from '../lib/reviewRating.js';
 
 export function pct(a, b) {
   return b ? Math.round((a / b) * 100) : 0;
@@ -703,6 +704,16 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
   callBacksAll.forEach((c) => c.credited_technician_name && techNameSet.add(c.credited_technician_name));
   pendingCancelsAll.forEach((p) => p.credited_technician_name && techNameSet.add(p.credited_technician_name));
 
+  // Positive Reviews — a genuinely separate, additive figure (see
+  // positiveReviewsByTechnicianName's own comment): computed from its own
+  // from/to/technicianId filters only, never folded into any job/sale/
+  // knockback/conversion figure above, and merged in by name only onto a
+  // technician row that already exists here from their job/sale/call-back/
+  // upsell activity — a technician with reviews but no such activity in this
+  // range simply has no row to attach to and so isn't added as a new one,
+  // keeping this table's own row membership exactly as it was before.
+  const positiveReviewCounts = positiveReviewsByTechnicianName({ from, to, technicianId });
+
   const byTechnician = Array.from(techNameSet).map((name) => {
     const techJobs = jobsAll.filter((j) => (j.technician_name || 'Unassigned') === name);
     // A Converted Later sale is scoped to whichever technician it's
@@ -724,6 +735,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
         techUpsells
       ),
       ...computeConvertedLaterAdjustment(techJobs, techSales),
+      positiveReviewsCount: positiveReviewCounts[name] || 0,
     };
   });
 
@@ -1046,4 +1058,139 @@ export function drilldownTech({ from, to, technicianId, tradeId, jobTypeId, metr
   const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells }, metric);
   if (!picked) return null;
   return { ...picked, label: `${scopeLabel}${picked.label}` };
+}
+
+// ---------------------------------------------------------------------------
+// Reviews — a published review (Google, so far) credited to one or more
+// technicians without duplicating the review itself: the company total is
+// always reviews.length (one entry per review row, however many
+// technicians it names); each technician's own total counts how many of
+// those reviews name them. Entirely separate from Jobs/Sales/Knockbacks —
+// nothing above this point in the file reads the reviews/review_technicians
+// tables, and this section never reads calls/jobs/sales — see schema.sql's
+// comment on the reviews table. One raw fetch, shared by the Review
+// Report's own figures, drilldownReviews() below, and the Technician &
+// Sales report's own additive Positive Reviews figure (see
+// positiveReviewsByTechnicianName), so none of them can ever drift apart
+// from each other.
+function fetchReviewsRaw({ from, to, technicianId, rating, ratingClass, reviewLinkSent } = {}) {
+  const rows = all(
+    `SELECT r.*, cu.name AS created_by_name, lu.name AS last_edited_by_name
+     FROM reviews r
+     LEFT JOIN users cu ON cu.id = r.created_by_user_id
+     LEFT JOIN users lu ON lu.id = r.last_edited_by_user_id`
+  );
+  const reviewIds = rows.map((r) => r.id);
+  const techRows = reviewIds.length
+    ? all(
+        `SELECT rt.review_id, t.id AS technician_id, t.name AS technician_name
+         FROM review_technicians rt JOIN technicians t ON t.id = rt.technician_id
+         WHERE rt.review_id IN (${reviewIds.map(() => '?').join(',')})`,
+        reviewIds
+      )
+    : [];
+  const techniciansByReview = {};
+  techRows.forEach((t) => {
+    (techniciansByReview[t.review_id] ||= []).push({ id: t.technician_id, name: t.technician_name });
+  });
+
+  return rows
+    .map((r) => ({ ...r, classification: classifyRating(r.rating), technicians: techniciansByReview[r.id] || [] }))
+    .filter((r) => inRange(r.review_date, from, to))
+    .filter((r) => !rating || r.rating === Number(rating))
+    .filter((r) => !ratingClass || r.classification === ratingClass)
+    .filter((r) => !reviewLinkSent || r.review_link_sent === reviewLinkSent)
+    .filter((r) => !technicianId || r.technicians.some((t) => String(t.id) === String(technicianId)));
+}
+
+function reviewToDrilldownRow(r) {
+  return {
+    id: r.id,
+    reviewDate: r.review_date,
+    rating: r.rating,
+    classification: r.classification,
+    reviewLinkSent: r.review_link_sent,
+    jobNumber: r.job_number,
+    notes: r.notes,
+    technicians: r.technicians,
+    createdByName: r.created_by_name || '',
+    lastEditedByName: r.last_edited_by_name || '',
+    updatedAt: utcToAdelaideDisplay(r.updated_at),
+  };
+}
+
+export function computeReviewsReport({ from, to, technicianId, rating, ratingClass, reviewLinkSent } = {}) {
+  const reviews = fetchReviewsRaw({ from, to, technicianId, rating, ratingClass, reviewLinkSent });
+
+  const total = reviews.length;
+  const positive = reviews.filter((r) => r.classification === 'Positive').length;
+  const neutral = reviews.filter((r) => r.classification === 'Neutral').length;
+  const negative = reviews.filter((r) => r.classification === 'Negative').length;
+  const avgRating = total ? Math.round((reviews.reduce((sum, r) => sum + r.rating, 0) / total) * 100) / 100 : 0;
+  const linkSentYes = reviews.filter((r) => r.review_link_sent === 'Yes').length;
+  const linkSentNo = reviews.filter((r) => r.review_link_sent === 'No').length;
+
+  const byTechnicianMap = {};
+  reviews.forEach((r) => {
+    r.technicians.forEach((t) => {
+      const bucket = (byTechnicianMap[t.name] ||= { name: t.name, total: 0, positive: 0 });
+      bucket.total += 1;
+      if (r.classification === 'Positive') bucket.positive += 1;
+    });
+  });
+  const byTechnician = Object.values(byTechnicianMap).sort((a, b) => b.total - a.total);
+
+  return {
+    kpis: { total, positive, neutral, negative, avgRating, linkSentYes, linkSentNo },
+    byTechnician,
+  };
+}
+
+export function drilldownReviews({ from, to, technicianId, rating, ratingClass, reviewLinkSent, metric, scopeTechnician }) {
+  let reviews = fetchReviewsRaw({ from, to, technicianId, rating, ratingClass, reviewLinkSent });
+  if (scopeTechnician) reviews = reviews.filter((r) => r.technicians.some((t) => t.name === scopeTechnician));
+
+  const scopeLabel = scopeTechnician ? `${scopeTechnician} — ` : '';
+  switch (metric) {
+    case 'total':
+      return { rows: reviews.map(reviewToDrilldownRow), label: `${scopeLabel}Total Reviews` };
+    // The Technician & Sales report's own Positive Reviews column (see
+    // positiveReviewsByTechnicianName) drills down through this same case,
+    // always with scopeTechnician set, so it can never show a different
+    // population from the figure it explains.
+    case 'positive':
+    case 'positiveReviewsByTechnician':
+      return { rows: reviews.filter((r) => r.classification === 'Positive').map(reviewToDrilldownRow), label: `${scopeLabel}Positive Reviews` };
+    case 'neutral':
+      return { rows: reviews.filter((r) => r.classification === 'Neutral').map(reviewToDrilldownRow), label: `${scopeLabel}Neutral Reviews` };
+    case 'negative':
+      return { rows: reviews.filter((r) => r.classification === 'Negative').map(reviewToDrilldownRow), label: `${scopeLabel}Negative Reviews` };
+    case 'avgRating':
+      return { rows: reviews.map(reviewToDrilldownRow), label: `${scopeLabel}Average Star Rating` };
+    case 'reviewsByTechnician':
+      return { rows: reviews.map(reviewToDrilldownRow), label: `${scopeLabel}Reviews by Technician` };
+    case 'linkSentYes':
+      return { rows: reviews.filter((r) => r.review_link_sent === 'Yes').map(reviewToDrilldownRow), label: `${scopeLabel}Review Link Sent — Yes` };
+    case 'linkSentNo':
+      return { rows: reviews.filter((r) => r.review_link_sent === 'No').map(reviewToDrilldownRow), label: `${scopeLabel}Review Link Sent — No` };
+    default:
+      return null;
+  }
+}
+
+// Merged into the Technician & Sales report's own byTechnician rows as a
+// genuinely separate, additive figure (see computeTechReport below) — never
+// folded into jobsAttended/sales/knockbacks/conversion. Computed from its
+// own from/to/technicianId filters only; reviews carry no trade/job type,
+// so a Trade/Job Type filter on that report has no effect on this figure,
+// exactly as specified.
+export function positiveReviewsByTechnicianName({ from, to, technicianId } = {}) {
+  const reviews = fetchReviewsRaw({ from, to, technicianId, ratingClass: 'Positive' });
+  const counts = {};
+  reviews.forEach((r) => {
+    r.technicians.forEach((t) => {
+      counts[t.name] = (counts[t.name] || 0) + 1;
+    });
+  });
+  return counts;
 }

@@ -63,6 +63,22 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     });
   }
 
+  // Positive Reviews is a genuinely separate figure from everything else on
+  // this report (see services/reports.js's positiveReviewsByTechnicianName)
+  // — its drill-down opens the Reviews kind of modal (review records, not
+  // job-entry records), carrying only this report's own from/to/technicianId
+  // (reviews have no trade/job type), never the Trade/Job Type filters.
+  function openReviewsDrilldown(technicianName) {
+    setDrilldown({
+      from: applied.from,
+      to: applied.to,
+      technicianId: applied.technicianId,
+      metric: 'positiveReviewsByTechnician',
+      scopeTechnician: technicianName,
+      kind: 'reviews',
+    });
+  }
+
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount } = data;
 
@@ -440,6 +456,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                     <th>Pending Cancellations</th>
                     <th>Inspection Sheet %</th>
                     <th>Option Sheet %</th>
+                    <th title="Separate from every other figure on this report — see the Reviews area">Positive Reviews</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -481,6 +498,13 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                           {val}
                         </td>
                       ))}
+                      <td
+                        className="clickable-stat"
+                        onClick={() => openReviewsDrilldown(r.name)}
+                        title={`View ${r.name}'s positive review records`}
+                      >
+                        {r.positiveReviewsCount}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -502,7 +526,13 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
       </div>
 
       {drilldown && (
-        <DrilldownModal kind="tech" params={drilldown} jumpToJN={jumpToJN} jumpToJobId={jumpToJobId} onClose={() => window.history.back()} />
+        <DrilldownModal
+          kind={drilldown.kind || 'tech'}
+          params={drilldown}
+          jumpToJN={jumpToJN}
+          jumpToJobId={jumpToJobId}
+          onClose={() => window.history.back()}
+        />
       )}
     </div>
   );
