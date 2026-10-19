@@ -155,12 +155,6 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           onChange={(v) => patch({ jobTypeId: v })}
           options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
         />
-        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
-          {loading ? 'Refreshing…' : 'Refresh Report'}
-        </button>
-        <button className="btn" type="button" onClick={reset}>
-          Reset Filters
-        </button>
         <a
           className="btn btn-primary"
           href={api.reports.techXlsxUrl({
@@ -180,10 +174,20 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
             kbrTradeId: knockbackReasonsFilters.tradeId,
             kbrReasonId: knockbackReasonsFilters.reasonId,
           })}
-          style={{ marginLeft: 'auto' }}
         >
           Export to Excel
         </a>
+        <button className="btn" type="button" onClick={reset}>
+          Reset Filters
+        </button>
+        {/* Refresh Report is the button used most often, so it always stays
+            pinned to the far right of its row — marginLeft: auto here rather
+            than on Export to Excel (which moved earlier to make room for the
+            Job Type filter) — and still lands on the far right of whichever
+            line it wraps to on a narrow screen. */}
+        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading} style={{ marginLeft: 'auto' }}>
+          {loading ? 'Refreshing…' : 'Refresh Report'}
+        </button>
       </div>
 
       {error && (

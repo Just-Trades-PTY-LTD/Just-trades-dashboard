@@ -81,15 +81,20 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
           options={withInactiveLabel(settings.staffAll)}
         />
         <FilterSelect label="Trade" value={draft.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
-        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
-          {loading ? 'Refreshing…' : 'Refresh Report'}
-        </button>
+        <a className="btn btn-primary" href={api.reports.callsXlsxUrl(applied)}>
+          Export to Excel
+        </a>
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
-        <a className="btn btn-primary" href={api.reports.callsXlsxUrl(applied)} style={{ marginLeft: 'auto' }}>
-          Export to Excel
-        </a>
+        {/* Refresh Report is the button used most often, so it always stays
+            pinned to the far right of its row — marginLeft: auto here rather
+            than on Export to Excel (which moved earlier to make room for the
+            Trade filter) — and still lands on the far right of whichever
+            line it wraps to on a narrow screen. */}
+        <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading} style={{ marginLeft: 'auto' }}>
+          {loading ? 'Refreshing…' : 'Refresh Report'}
+        </button>
       </div>
 
       {error && (
