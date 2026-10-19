@@ -94,8 +94,12 @@ export function createReportsRouter() {
 
   router.get('/calls.xlsx', async (req, res) => {
     const data = computeCallsReport(req.query);
-    const staffLookup = idNameMap(all('SELECT id, name FROM users'));
-    const wb = buildCallsWorkbook(data, req.query, staffLookup);
+    const lookups = {
+      staff: idNameMap(all('SELECT id, name FROM users')),
+      trades: idNameMap(all('SELECT id, name FROM trades')),
+      jobTypes: idNameMap(all('SELECT id, name FROM job_types')),
+    };
+    const wb = buildCallsWorkbook(data, req.query, lookups);
     await sendWorkbook(res, wb, 'calls-report');
   });
 

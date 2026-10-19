@@ -30,15 +30,18 @@ function addKpiTable(sheet, rows) {
 // ---------------------------------------------------------------------------
 // Calls report workbook
 // ---------------------------------------------------------------------------
-export function buildCallsWorkbook(data, filters, staffLookup) {
+export function buildCallsWorkbook(data, filters, lookups) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Just Trades CRM';
   wb.created = new Date();
 
-  const staffName = filters.handledByUserId ? staffLookup?.get(String(filters.handledByUserId)) || `#${filters.handledByUserId}` : 'All';
+  const staffName = filters.handledByUserId ? lookups?.staff?.get(String(filters.handledByUserId)) || `#${filters.handledByUserId}` : 'All';
+  const tradeName = filters.tradeId ? lookups?.trades?.get(String(filters.tradeId)) || `#${filters.tradeId}` : 'All';
+  const jobTypeName = filters.jobTypeId ? lookups?.jobTypes?.get(String(filters.jobTypeId)) || `#${filters.jobTypeId}` : 'All';
+  const extra = [`Staff: ${staffName}`, `Trade: ${tradeName}`, `Job Type: ${jobTypeName}`];
 
   const summary = wb.addWorksheet('Summary');
-  addTitleBlock(summary, 'Calls Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra: [`Staff: ${staffName}`] }));
+  addTitleBlock(summary, 'Calls Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   addKpiTable(summary, [
     ['Total Contacts', data.kpis.total],
     ['Inbound Calls', data.kpis.inboundCount],
@@ -56,7 +59,7 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
   ]);
 
   const byStaff = wb.addWorksheet('By staff');
-  addTitleBlock(byStaff, 'Calls Report — By Staff', filterSummaryLines({ from: filters.from, to: filters.to, extra: [`Staff: ${staffName}`] }));
+  addTitleBlock(byStaff, 'Calls Report — By Staff', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   addDataTable(
     byStaff,
     [
@@ -75,7 +78,7 @@ export function buildCallsWorkbook(data, filters, staffLookup) {
   );
 
   const breakdowns = wb.addWorksheet('Breakdowns');
-  addTitleBlock(breakdowns, 'Calls Report — Breakdowns', filterSummaryLines({ from: filters.from, to: filters.to, extra: [`Staff: ${staffName}`] }));
+  addTitleBlock(breakdowns, 'Calls Report — Breakdowns', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
 
   addSectionHeading(breakdowns, 'Calls by trade');
   addDataTable(breakdowns, [

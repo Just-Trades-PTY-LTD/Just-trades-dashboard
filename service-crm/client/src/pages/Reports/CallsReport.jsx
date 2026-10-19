@@ -11,7 +11,7 @@ import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function defaultFilters() {
-  return { ...currentAdelaideWeek(), handledByUserId: '', tradeId: '' };
+  return { ...currentAdelaideWeek(), handledByUserId: '', tradeId: '', jobTypeId: '' };
 }
 
 export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
@@ -80,7 +80,21 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
           onChange={(v) => patch({ handledByUserId: v })}
           options={withInactiveLabel(settings.staffAll)}
         />
-        <FilterSelect label="Trade" value={draft.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
+        <FilterSelect
+          label="Trade"
+          value={draft.tradeId}
+          // Changing Trade always resets Job Type back to "All Job Types" —
+          // an unrelated job type from a previously-selected trade must
+          // never be silently retained.
+          onChange={(v) => patch({ tradeId: v, jobTypeId: '' })}
+          options={settings.trades}
+        />
+        <FilterSelect
+          label="Job type"
+          value={draft.jobTypeId}
+          onChange={(v) => patch({ jobTypeId: v })}
+          options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
+        />
         <a className="btn btn-primary" href={api.reports.callsXlsxUrl(applied)}>
           Export to Excel
         </a>

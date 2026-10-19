@@ -97,13 +97,14 @@ function catLabel(v) {
 // and by drilldownCalls() below, so a figure and its drill-down can never
 // drift apart from each other.
 // ---------------------------------------------------------------------------
-function fetchCallsRaw({ from, to, handledByUserId, tradeId } = {}) {
+function fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId } = {}) {
   const rows = all(
-    `SELECT c.*, u.name AS handled_by_name, tr.name AS trade_name, ls.name AS lead_source_name,
+    `SELECT c.*, u.name AS handled_by_name, tr.name AS trade_name, jt.name AS job_type_name, ls.name AS lead_source_name,
       nbr.name AS not_booked_reason_name, cr.name AS cancellation_reason_name
      FROM calls c
      LEFT JOIN users u ON u.id = c.handled_by_user_id
      LEFT JOIN trades tr ON tr.id = c.trade_id
+     LEFT JOIN job_types jt ON jt.id = c.job_type_id
      LEFT JOIN list_items ls ON ls.id = c.lead_source_id
      LEFT JOIN list_items nbr ON nbr.id = c.not_booked_reason_id
      LEFT JOIN list_items cr ON cr.id = c.cancellation_reason_id
@@ -113,12 +114,13 @@ function fetchCallsRaw({ from, to, handledByUserId, tradeId } = {}) {
     (c) =>
       inRange(c.call_at, from, to) &&
       (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)) &&
-      (!tradeId || c.trade_id === Number(tradeId))
+      (!tradeId || c.trade_id === Number(tradeId)) &&
+      (!jobTypeId || c.job_type_id === Number(jobTypeId))
   );
 }
 
-export function computeCallsReport({ from, to, handledByUserId, tradeId } = {}) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId });
+export function computeCallsReport({ from, to, handledByUserId, tradeId, jobTypeId } = {}) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId });
 
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
@@ -272,8 +274,8 @@ function pickCallsSubset(base, field) {
 // resolved against the exact same filtered rows the report itself computed
 // its numbers from. Returns null for a metric this report has no accurate
 // record-level answer for.
-export function drilldownCalls({ from, to, handledByUserId, tradeId, metric, category, segment, staffName, field }) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId });
+export function drilldownCalls({ from, to, handledByUserId, tradeId, jobTypeId, metric, category, segment, staffName, field }) {
+  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId });
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
 
   if (metric === 'staff') {
