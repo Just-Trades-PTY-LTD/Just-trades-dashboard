@@ -76,7 +76,7 @@ export default function Users() {
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{u.email}</div>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {u.active ? (
                   <span className="badge badge-success">Active</span>
                 ) : (

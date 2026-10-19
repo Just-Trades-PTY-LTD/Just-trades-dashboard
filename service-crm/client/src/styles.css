@@ -203,7 +203,18 @@ a {
   display: flex;
   border-bottom: 1px solid var(--border);
   margin-bottom: 22px;
-  flex-wrap: wrap;
+  /* A horizontally-scrolling single row rather than wrapping: on a desktop-
+     width screen every tab already fits so this has no visible effect, but
+     on a phone or a narrow tablet it avoids tabs stacking into two or three
+     awkward rows — one swipeable row instead, in either orientation. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.app-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -216,6 +227,8 @@ a {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
+  flex: none;
+  white-space: nowrap;
 }
 
 .tab.active {
@@ -409,7 +422,11 @@ a {
 
 .grid-charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  /* min(420px, 100%) keeps the comfortable desktop column width while never
+     exceeding the available width itself — without this, a column's own
+     420px floor is wider than every phone viewport and forces the whole
+     page to scroll horizontally. */
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -500,6 +517,7 @@ table.data-table {
 
 .table-scroll {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .list-row {
@@ -507,6 +525,11 @@ table.data-table {
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
+  /* Some rows (e.g. a staff account's name plus its Active/role/Reset
+     password/Deactivate buttons) are too wide to fit on one line on a phone
+     — wrapping keeps every control on screen and tappable instead of
+     forcing the whole page to scroll sideways. */
+  flex-wrap: wrap;
 }
 
 .empty-state {
@@ -542,6 +565,7 @@ table.data-table {
   margin-top: 2px;
   max-height: 220px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   width: 100%;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
 }
@@ -561,6 +585,64 @@ table.data-table {
 @media (max-width: 640px) {
   .app-shell {
     padding: 16px 16px 48px;
+  }
+
+  /* Below this width a filter/form field stacks to the full row instead of
+     sitting cramped side-by-side with its neighbours. A field that already
+     sets its own maxWidth (e.g. a Job Number box) keeps that cap — max-width
+     always wins over width — so this only widens the fields that were never
+     meant to stay narrow. */
+  .field {
+    width: 100%;
+  }
+}
+
+/* Comfortable tap targets on touch devices (phones and tablets alike),
+   independent of window width so a touch screen gets these at any size or
+   orientation while a mouse-driven desktop is never affected, however
+   narrow its window happens to be. */
+@media (pointer: coarse) {
+  .btn,
+  .field input,
+  .field select,
+  .field textarea,
+  .tab,
+  .subtab {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 38px;
+  }
+
+  input[type='checkbox'] {
+    width: 18px;
+    height: 18px;
+  }
+
+  .data-table td {
+    padding: 11px 10px;
+  }
+}
+
+/* A short viewport (a phone in landscape, or any small screen) leaves little
+   vertical room for a modal's own chrome — shrink the overlay's padding so
+   the panel itself gets the space back, in both orientations. */
+@media (max-width: 640px), (max-height: 500px) {
+  .drilldown-overlay {
+    padding: 10px;
+  }
+
+  .drilldown-panel {
+    max-height: calc(100vh - 20px);
+  }
+
+  .drilldown-header {
+    padding: 14px 16px;
+  }
+
+  .drilldown-body {
+    padding: 14px 16px 16px;
   }
 }
 
