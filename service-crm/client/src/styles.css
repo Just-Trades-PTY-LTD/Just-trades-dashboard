@@ -169,6 +169,14 @@ a {
   padding: 24px 24px 64px;
 }
 
+/* Contact History / Job History show dense, many-column tables that benefit
+   from more room on a large screen — this widens just those two views
+   (applied conditionally in App.jsx) without affecting every other page's
+   comfortable reading width. */
+.app-shell--wide {
+  max-width: 1600px;
+}
+
 .app-header {
   display: flex;
   justify-content: space-between;

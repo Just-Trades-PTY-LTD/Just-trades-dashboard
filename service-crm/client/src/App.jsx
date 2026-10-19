@@ -74,9 +74,15 @@ export default function App() {
   const setFollowUpsEditing = makeSliceSetter(updateNav, 'followups', 'editing');
   const pendingJump = nav.pendingJump;
 
+  // Contact History and Job History show dense, many-column tables — widen
+  // the page just for those two views so they can use more of a large
+  // screen, without changing the comfortable width of every other page.
+  const isWideHistoryView =
+    (activeModule === 'calls' && nav.calls.sub === 'history') || (activeModule === 'tech' && nav.tech.sub === 'history');
+
   return (
     <SettingsProvider>
-      <div className="app-shell">
+      <div className={`app-shell${isWideHistoryView ? ' app-shell--wide' : ''}`}>
         <div className="app-header">
           <img src={logo} alt="Just Trades" className="app-logo" />
           <div className="app-header-right">
