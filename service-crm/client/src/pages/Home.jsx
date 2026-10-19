@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
 export default function Home({ setModule, isAdmin }) {
-  const [counts, setCounts] = useState({ calls: null, jobs: null });
+  const [counts, setCounts] = useState({ calls: null, jobs: null, activeFollowUps: null });
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.calls.list({}), api.tech.entries({})]).then(([calls, entries]) => {
-      if (alive) setCounts({ calls: calls.length, jobs: entries.length });
-    });
+    Promise.all([api.calls.list({}), api.tech.entries({}), api.followUps.list({ status: 'active' })]).then(
+      ([calls, entries, followUps]) => {
+        if (alive) setCounts({ calls: calls.length, jobs: entries.length, activeFollowUps: followUps.entries.length });
+      }
+    );
     return () => {
       alive = false;
     };
@@ -26,6 +28,15 @@ export default function Home({ setModule, isAdmin }) {
       title: 'Technician & sales',
       desc: 'Log technician job visits, sales, call backs and pending cancellations.',
       stat: counts.jobs === null ? 'Loading…' : `${counts.jobs} active job entries`,
+    },
+    {
+      id: 'followups',
+      title: 'Follow-ups',
+      desc: 'View upcoming, due, overdue and completed follow-up tasks.',
+      stat:
+        counts.activeFollowUps === null
+          ? 'View active follow-ups'
+          : `${counts.activeFollowUps} active follow-up${counts.activeFollowUps === 1 ? '' : 's'}`,
     },
     {
       id: 'reports',
