@@ -336,7 +336,7 @@ export function drilldownCalls({ from, to, handledByUserId, tradeId, metric, cat
 // ---------------------------------------------------------------------------
 // Technician & sales report
 // ---------------------------------------------------------------------------
-function fetchJobsAll({ from, to, technicianId, tradeId }) {
+function fetchJobsAll({ from, to, technicianId, tradeId, jobTypeId }) {
   const rows = all(
     `SELECT j.*, t.name AS technician_name, tr.name AS trade_name, kr.name AS knockback_reason_name
      FROM jobs j
@@ -349,7 +349,8 @@ function fetchJobsAll({ from, to, technicianId, tradeId }) {
     (j) =>
       inRange(j.visit_date, from, to) &&
       (!technicianId || j.technician_id === Number(technicianId)) &&
-      (!tradeId || j.trade_id === Number(tradeId))
+      (!tradeId || j.trade_id === Number(tradeId)) &&
+      (!jobTypeId || j.job_type_id === Number(jobTypeId))
   );
 }
 
@@ -360,7 +361,7 @@ function fetchJobsAll({ from, to, technicianId, tradeId }) {
 // (almost always the original sale, since the upsell is logged later and
 // this keeps "the most recently logged one"). See fetchUpsellsAll() for the
 // entirely separate population Upsells are counted from instead.
-function fetchSalesAll({ from, to, technicianId, tradeId }) {
+function fetchSalesAll({ from, to, technicianId, tradeId, jobTypeId }) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -373,7 +374,8 @@ function fetchSalesAll({ from, to, technicianId, tradeId }) {
     (s) =>
       inRange(s.invoice_date, from, to) &&
       (!technicianId || s.credited_technician_id === Number(technicianId)) &&
-      (!tradeId || s.trade_id === Number(tradeId))
+      (!tradeId || s.trade_id === Number(tradeId)) &&
+      (!jobTypeId || s.job_type_id === Number(jobTypeId))
   );
   // De-duplicate by invoice number — a duplicate is only ever counted once in
   // reports (HANDOVER §5.3), keeping the most recently logged one.
@@ -396,7 +398,7 @@ function fetchSalesAll({ from, to, technicianId, tradeId }) {
 // occasions — can each add a distinct, genuine upsell onto that same
 // invoice, so every row here counts, however many happen to share an
 // invoice number.
-function fetchUpsellsAll({ from, to, technicianId, tradeId }) {
+function fetchUpsellsAll({ from, to, technicianId, tradeId, jobTypeId }) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -408,11 +410,12 @@ function fetchUpsellsAll({ from, to, technicianId, tradeId }) {
     (s) =>
       inRange(s.invoice_date, from, to) &&
       (!technicianId || s.credited_technician_id === Number(technicianId)) &&
-      (!tradeId || s.trade_id === Number(tradeId))
+      (!tradeId || s.trade_id === Number(tradeId)) &&
+      (!jobTypeId || s.job_type_id === Number(jobTypeId))
   );
 }
 
-function fetchCallBacksAll({ from, to, technicianId, tradeId }) {
+function fetchCallBacksAll({ from, to, technicianId, tradeId, jobTypeId }) {
   const rows = all(
     `SELECT cb.*, ct.name AS credited_technician_name, tr.name AS trade_name
      FROM call_backs cb
@@ -424,11 +427,18 @@ function fetchCallBacksAll({ from, to, technicianId, tradeId }) {
     (c) =>
       inRange(c.visit_date, from, to) &&
       (!technicianId || c.credited_technician_id === Number(technicianId)) &&
-      (!tradeId || c.trade_id === Number(tradeId))
+      (!tradeId || c.trade_id === Number(tradeId)) &&
+      (!jobTypeId || c.job_type_id === Number(jobTypeId))
   );
 }
 
-function fetchPendingCancelsAll({ from, to, technicianId, tradeId }) {
+// pending_cancellations has no job_type_id column of its own (only
+// trade_id) — so when a specific Job Type is selected, `p.job_type_id` is
+// simply undefined and never equals Number(jobTypeId), correctly excluding
+// every pending cancellation rather than guessing which job type it
+// belongs to. With no Job Type filter applied (jobTypeId falsy), every
+// pending cancellation is included exactly as before.
+function fetchPendingCancelsAll({ from, to, technicianId, tradeId, jobTypeId }) {
   const rows = all(
     `SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM pending_cancellations pc
@@ -440,7 +450,8 @@ function fetchPendingCancelsAll({ from, to, technicianId, tradeId }) {
     (p) =>
       inRange(p.date_logged, from, to) &&
       (!technicianId || p.credited_technician_id === Number(technicianId)) &&
-      (!tradeId || p.trade_id === Number(tradeId))
+      (!tradeId || p.trade_id === Number(tradeId)) &&
+      (!jobTypeId || p.job_type_id === Number(jobTypeId))
   );
 }
 
@@ -642,8 +653,8 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels, upsells = []) {
   };
 }
 
-export function computeTechReport({ from, to, technicianId, tradeId, granularity = 'week' } = {}) {
-  const filters = { from, to, technicianId, tradeId };
+export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week' } = {}) {
+  const filters = { from, to, technicianId, tradeId, jobTypeId };
   const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
@@ -975,8 +986,8 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
 // "By technician" table row, matching how that row's own figures are
 // computed in computeTechReport() above. Returns null for a metric this
 // report has no accurate record-level answer for.
-export function drilldownTech({ from, to, technicianId, tradeId, metric, category, series, scopeTrade, scopeTechnician }) {
-  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
+export function drilldownTech({ from, to, technicianId, tradeId, jobTypeId, metric, category, series, scopeTrade, scopeTechnician }) {
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId, jobTypeId });
 
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see

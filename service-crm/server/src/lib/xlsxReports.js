@@ -198,7 +198,8 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
 
   const techName = filters.technicianId ? lookups?.technicians?.get(String(filters.technicianId)) || `#${filters.technicianId}` : 'All';
   const tradeName = filters.tradeId ? lookups?.trades?.get(String(filters.tradeId)) || `#${filters.tradeId}` : 'All';
-  const extra = [`Technician: ${techName}`, `Trade: ${tradeName}`];
+  const jobTypeName = filters.jobTypeId ? lookups?.jobTypes?.get(String(filters.jobTypeId)) || `#${filters.jobTypeId}` : 'All';
+  const extra = [`Technician: ${techName}`, `Trade: ${tradeName}`, `Job Type: ${jobTypeName}`];
 
   const summary = wb.addWorksheet('Summary');
   addTitleBlock(summary, 'Technician & Sales Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra }));

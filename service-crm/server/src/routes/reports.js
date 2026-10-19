@@ -104,6 +104,7 @@ export function createReportsRouter() {
     const lookups = {
       technicians: idNameMap(all('SELECT id, name FROM technicians')),
       trades: idNameMap(all('SELECT id, name FROM trades')),
+      jobTypes: idNameMap(all('SELECT id, name FROM job_types')),
       knockbackReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'knockback_reason'")),
     };
     // Knockback Reasons tracker — kbr-prefixed query params, exactly

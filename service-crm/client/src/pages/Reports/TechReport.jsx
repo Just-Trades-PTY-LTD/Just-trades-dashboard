@@ -13,7 +13,7 @@ import { useSessionState } from '../../lib/useSessionState.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 function defaultFilters() {
-  return { ...currentAdelaideWeek(), technicianId: '', tradeId: '' };
+  return { ...currentAdelaideWeek(), technicianId: '', tradeId: '', jobTypeId: '' };
 }
 
 // Inspection/Option Sheet completion can be null (no Yes/No records at all —
@@ -52,7 +52,15 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // *applied* filters (from/to/technician/trade) plus whichever selector
   // that figure needs — see services/reports.js's drilldownTech().
   function openDrilldown(metric, extra) {
-    setDrilldown({ from: applied.from, to: applied.to, technicianId: applied.technicianId, tradeId: applied.tradeId, metric, ...extra });
+    setDrilldown({
+      from: applied.from,
+      to: applied.to,
+      technicianId: applied.technicianId,
+      tradeId: applied.tradeId,
+      jobTypeId: applied.jobTypeId,
+      metric,
+      ...extra,
+    });
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
@@ -132,7 +140,21 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           onChange={(v) => patch({ technicianId: v })}
           options={withInactiveLabel(settings.technicians)}
         />
-        <FilterSelect label="Trade" value={draft.tradeId} onChange={(v) => patch({ tradeId: v })} options={settings.trades} />
+        <FilterSelect
+          label="Trade"
+          value={draft.tradeId}
+          // Changing Trade always resets Job Type back to "All Job Types" —
+          // an unrelated job type from a previously-selected trade must
+          // never be silently retained.
+          onChange={(v) => patch({ tradeId: v, jobTypeId: '' })}
+          options={settings.trades}
+        />
+        <FilterSelect
+          label="Job type"
+          value={draft.jobTypeId}
+          onChange={(v) => patch({ jobTypeId: v })}
+          options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
+        />
         <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
           {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
