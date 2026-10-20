@@ -487,7 +487,7 @@ function splitJobs(jobs) {
 }
 
 // ---------------------------------------------------------------------------
-// Converted Later bonus adjustment (trial) — report logic only.
+// Converted Later bonus adjustment — report logic only.
 //
 // This is entirely separate from, and never reads or writes, the permanent
 // job-level converted_later/converted_by_sale_id flip used elsewhere in this
@@ -899,7 +899,7 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
           { label: 'Knock back', count: knockbacks.length },
         ],
       };
-    // --- Converted Later bonus adjustment (trial) — see the file-level
+    // --- Converted Later bonus adjustment — see the file-level
     // comment above computeConvertedLaterAdjustment(). Derived from the
     // exact same jobs/sales arrays already scoped by this drill-down's own
     // technician/trade filters, so these always match the displayed figure.

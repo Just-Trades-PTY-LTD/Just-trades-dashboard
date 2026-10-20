@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { startTestServer } from './helpers.js';
 import { mondayOf } from '../src/lib/adelaideTime.js';
 
-// Converted Later bonus adjustment (trial) — a report-logic-only figure set
+// Converted Later bonus adjustment — a report-logic-only figure set
 // that never touches saved jobs/sales/knockback records. See
 // services/reports.js's file-level comment above computeConvertedLaterAdjustment()
 // for the exact rule this verifies: each Converted Later sale (counted by

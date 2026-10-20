@@ -82,7 +82,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount } = data;
 
-  // Converted Later bonus adjustment (trial) — computed fresh on every
+  // Converted Later bonus adjustment — computed fresh on every
   // report run from the underlying jobs/sales (see services/reports.js).
   // These figures replace the old Knock backs / Converted later / Conversion
   // rate cards in place (renamed, same single card each) rather than adding
@@ -228,10 +228,10 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         Jobs, leads, knock-backs and call backs are dated by visit date. Sales are dated by invoice creation date.
         <br />
-        <strong>Trial (report logic only, no saved record is ever changed):</strong> Actual Knockbacks and Converted Later are
-        each counted by their own date (visit date / invoice date). Adjusted Knockbacks credits one Converted Later sale
-        against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits expire at the
-        end of that week. Conversion % is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
+        <strong>Note:</strong> Actual Knockbacks and Converted Later are each counted by their own date (visit date / invoice
+        date), calculated by report logic only — no saved record is ever changed. Adjusted Knockbacks credits one Converted
+        Later sale against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits
+        expire at the end of that week. Conversion % is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -302,7 +302,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           )}
         </AdjustableSection>
 
-        <AdjustableSection id="knockbackAdjustmentByTechnician" title="Knockbacks: Actual vs Adjusted by Technician (Trial)" defaultSize="md" layout={layout}>
+        <AdjustableSection id="knockbackAdjustmentByTechnician" title="Knockbacks: Actual vs Adjusted by Technician" defaultSize="md" layout={layout}>
           {(cfg) =>
             knockbackAdjustmentByTechnician.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>
@@ -439,12 +439,12 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                     <th>Total Jobs</th>
                     <th>Qualified Jobs</th>
                     <th>Sales</th>
-                    <th title="Trial: report logic only — see the note above">Converted Later</th>
-                    <th title="Trial: report logic only — see the note above">Actual Knockbacks</th>
-                    <th title="Trial: report logic only — see the note above. Calculated as Actual Knockbacks minus Converted Later.">
+                    <th title="Report logic only — see the note above">Converted Later</th>
+                    <th title="Report logic only — see the note above">Actual Knockbacks</th>
+                    <th title="Report logic only — see the note above. Calculated as Actual Knockbacks minus Converted Later.">
                       Adjusted Knockbacks
                     </th>
-                    <th title="Trial: report logic only — see the note above. Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.">
+                    <th title="Report logic only — see the note above. Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.">
                       Conversion %
                     </th>
                     <th>Value (ex GST)</th>

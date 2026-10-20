@@ -215,7 +215,7 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     ['Total Jobs', c.jobsAttended],
     ['Qualified Jobs', c.qualifiedJobs],
     ['Sales (invoices)', c.sales],
-    // Trial (report logic only, no saved record is ever changed): Actual
+    // Report logic only, no saved record is ever changed: Actual
     // Knockbacks and Conversion % are the same figures the old Knock backs /
     // Conversion rate rows used to show, renamed in place — see
     // services/reports.js for the calculation. Adjusted Knockbacks is the
