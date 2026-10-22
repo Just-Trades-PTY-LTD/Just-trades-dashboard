@@ -113,6 +113,7 @@ export const api = {
     techXlsxUrl: (params) => `/api/reports/tech.xlsx${qs(params)}`,
     reviewsXlsxUrl: (params) => `/api/reports/reviews.xlsx${qs(params)}`,
     callsDrilldown: (params) => request('GET', `/reports/calls/drilldown${qs(params)}`),
+    leadsToSalesDrilldown: (params) => request('GET', `/reports/calls/leads-to-sales/drilldown${qs(params)}`),
     techDrilldown: (params) => request('GET', `/reports/tech/drilldown${qs(params)}`),
     reviewsDrilldown: (params) => request('GET', `/reports/reviews/drilldown${qs(params)}`),
     getLayouts: () => request('GET', '/reports/layouts'),

@@ -34,6 +34,8 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
           ? await api.reports.callsDrilldown(params)
           : kind === 'reviews'
           ? await api.reports.reviewsDrilldown(params)
+          : kind === 'leadsToSales'
+          ? await api.reports.leadsToSalesDrilldown(params)
           : await api.reports.techDrilldown(params);
       setData(res);
     } catch (err) {
@@ -107,7 +109,7 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
           ) : error ? (
             <div className="empty-state">{error}</div>
           ) : editingRecord ? (
-            kind === 'calls' ? (
+            kind === 'calls' || (kind === 'leadsToSales' && editingRecord.__formKind === 'call') ? (
               <LogCall editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
             ) : kind === 'reviews' ? (
               <LogReview editing={editingRecord} onSaved={handleSaved} onCancelEdit={() => setEditingRecord(null)} setNotice={setNotice} />
@@ -118,6 +120,41 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
             <CallHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} onChanged={load} jumpToJN={jumpToJN} setNotice={setNotice} embedded />
           ) : kind === 'reviews' ? (
             <ReviewHistory rows={data?.rows || []} loading={false} onEdit={setEditingRecord} embedded />
+          ) : kind === 'leadsToSales' ? (
+            <div>
+              {(data?.callRows || []).length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, padding: '0 20px 8px' }}>Leads</div>
+                  <CallHistory
+                    rows={data.callRows}
+                    loading={false}
+                    onEdit={(row) => setEditingRecord({ ...row, __formKind: 'call' })}
+                    onChanged={load}
+                    jumpToJN={jumpToJN}
+                    setNotice={setNotice}
+                    embedded
+                  />
+                </div>
+              )}
+              {(data?.saleRows || []).length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, padding: '0 20px 8px' }}>Linked sales</div>
+                  <JobHistory
+                    rows={data.saleRows}
+                    loading={false}
+                    onEdit={(row) => setEditingRecord({ ...row, __formKind: 'tech' })}
+                    onChanged={load}
+                    jumpToJN={jumpToJN}
+                    jumpToJobId={jumpToJobId}
+                    setNotice={setNotice}
+                    embedded
+                  />
+                </div>
+              )}
+              {(data?.callRows || []).length === 0 && (data?.saleRows || []).length === 0 && (
+                <div className="empty-state">No records behind this figure.</div>
+              )}
+            </div>
           ) : (
             <JobHistory
               rows={data?.rows || []}

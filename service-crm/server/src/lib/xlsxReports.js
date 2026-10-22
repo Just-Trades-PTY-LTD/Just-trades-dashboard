@@ -136,6 +136,29 @@ export function buildCallsWorkbook(data, filters, lookups) {
     { key: 'value', label: 'Inbound Calls' },
   ], data.inboundByHour);
 
+  // Leads to Sales by Marketing Category — same figures, same Job-Number
+  // grouping/attribution rules as the on-screen section (see
+  // services/reports.js's computeLeadsToSalesByMarketingCategory), so this
+  // export can never show a different number than what's on screen.
+  const leadsToSales = wb.addWorksheet('Leads to Sales');
+  addTitleBlock(leadsToSales, 'Calls Report — Leads to Sales by Marketing Category', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
+  addDataTable(
+    leadsToSales,
+    [
+      { key: 'category', label: 'Marketing Category', width: 26 },
+      { key: 'leads', label: 'Leads' },
+      { key: 'booked', label: 'Booked Leads' },
+      { key: 'converted', label: 'Leads Converted to Sale' },
+      { key: 'notConverted', label: 'Leads Not Converted to Sale' },
+      { key: 'leadToBookingPct', label: 'Lead-to-Booking %', value: (r) => `${r.leadToBookingPct}%` },
+      { key: 'bookedToSalePct', label: 'Booked-to-Sale %', value: (r) => `${r.bookedToSalePct}%` },
+      { key: 'overallLeadToSalePct', label: 'Overall Lead-to-Sale %', value: (r) => `${r.overallLeadToSalePct}%` },
+      { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
+      { key: 'averageSaleValue', label: 'Average Sale Value', value: (r) => money(r.averageSaleValue), numFmt: CURRENCY_FORMAT, width: 16 },
+    ],
+    [...data.leadsToSalesByCategory.rows, data.leadsToSalesByCategory.totals]
+  );
+
   return wb;
 }
 

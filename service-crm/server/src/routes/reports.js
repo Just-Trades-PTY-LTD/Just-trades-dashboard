@@ -9,6 +9,7 @@ import {
   drilldownCalls,
   drilldownTech,
   drilldownReviews,
+  drilldownLeadsToSalesByMarketingCategory,
 } from '../services/reports.js';
 import { buildCallsWorkbook, buildTechWorkbook, buildReviewsWorkbook } from '../lib/xlsxReports.js';
 import { listCalls } from './calls.js';
@@ -64,6 +65,33 @@ export function createReportsRouter() {
     const idSet = new Set(result.rows.map((r) => r.id));
     const rows = listCalls({ includeArchived: 'true' }).filter((r) => idSet.has(r.id));
     res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, kind: 'calls', rows });
+  });
+
+  // Leads to Sales by Marketing Category — unlike the drill-downs above,
+  // this figure can point at both calls (the originating leads) and sales
+  // (whatever converted them), so it returns two already-expanded row
+  // arrays rather than one. `category`/`field` select which figure; the
+  // rest of the query string carries the Calls Report's own current
+  // filters, exactly as /calls/drilldown above.
+  router.get('/calls/leads-to-sales/drilldown', (req, res) => {
+    // `category` is omitted for the Totals row's own drill-down — every
+    // category combined — never required the way every other figure's own
+    // category selector is.
+    const { field } = req.query;
+    if (!field) return res.status(400).json({ error: 'A field is required.' });
+    const result = drilldownLeadsToSalesByMarketingCategory(req.query);
+    if (!result) return res.status(400).json({ error: `This figure can't be linked to specific records: "${field}".` });
+    const callIdSet = new Set(result.callIds);
+    const callRows = listCalls({ includeArchived: 'true' }).filter((r) => callIdSet.has(r.id));
+    const saleKeySet = new Set(result.saleRows.map((r) => `${r.kind}:${r.id}`));
+    const saleRows = listTechEntries({ includeArchived: 'true' }).filter((e) => saleKeySet.has(`${e.kind}:${e.id}`));
+    res.json({
+      label: result.label,
+      count: callRows.length + saleRows.length,
+      outcomes: result.outcomes || null,
+      callRows,
+      saleRows,
+    });
   });
 
   router.get('/tech/drilldown', (req, res) => {

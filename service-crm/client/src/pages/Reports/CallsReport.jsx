@@ -3,7 +3,7 @@ import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
-import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset } from '../../lib/dates.js';
+import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset, money } from '../../lib/dates.js';
 import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
 import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
@@ -41,9 +41,41 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
     setDrilldown({ ...applied, metric, ...extra });
   }
 
+  // Leads to Sales by Marketing Category uses its own drill-down endpoint
+  // (it can point at both calls and sales, never just one), so it carries a
+  // distinct `_kind` the modal below switches on — every other figure on
+  // this report still defaults to the plain 'calls' kind, unchanged.
+  function openLeadsToSalesDrilldown(category, field) {
+    setDrilldown({ ...applied, category, field, _kind: 'leadsToSales' });
+  }
+
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { kpis, byTrade, leadsByTrade, bySourcePie, bySourceStack, notBookedReasons, newCancelReasons, pendingCancelReasons, trend, inboundByHour, staffPerf } =
-    data;
+  const {
+    kpis,
+    byTrade,
+    leadsByTrade,
+    bySourcePie,
+    bySourceStack,
+    notBookedReasons,
+    newCancelReasons,
+    pendingCancelReasons,
+    trend,
+    inboundByHour,
+    staffPerf,
+    leadsToSalesByCategory,
+  } = data;
+
+  const LEADS_TO_SALES_COLUMNS = [
+    ['leads', 'Leads', (r) => r.leads],
+    ['booked', 'Booked Leads', (r) => r.booked],
+    ['converted', 'Leads Converted to Sale', (r) => r.converted],
+    ['notConverted', 'Leads Not Converted to Sale', (r) => r.notConverted],
+    ['leadToBookingPct', 'Lead-to-Booking %', (r) => `${r.leadToBookingPct}%`],
+    ['bookedToSalePct', 'Booked-to-Sale %', (r) => `${r.bookedToSalePct}%`],
+    ['overallLeadToSalePct', 'Overall Lead-to-Sale %', (r) => `${r.overallLeadToSalePct}%`],
+    ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => `$${money(r.totalSalesValueExGst)}`],
+    ['averageSaleValue', 'Average Sale Value', (r) => `$${money(r.averageSaleValue)}`],
+  ];
 
   const kpiRows = [
     ['Total Contacts', kpis.total, 'total'],
@@ -336,10 +368,63 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
               </div>
             )}
           </AdjustableSection>
+          <AdjustableSection id="leadsToSales" title="Leads to Sales by Marketing Category" defaultSize="lg" layout={layout}>
+            {(cfg) => (
+              <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Marketing Category</th>
+                      {LEADS_TO_SALES_COLUMNS.map(([key, label]) => (
+                        <th key={key}>{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadsToSalesByCategory.rows.map((r) => (
+                      <tr key={r.category}>
+                        <td>{r.category}</td>
+                        {LEADS_TO_SALES_COLUMNS.map(([key, label, render]) => (
+                          <td
+                            key={key}
+                            className="clickable-stat"
+                            onClick={() => openLeadsToSalesDrilldown(r.category, key)}
+                            title={`View the records behind ${r.category} — ${label}`}
+                          >
+                            {render(r)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                    <tr style={{ fontWeight: 600 }}>
+                      <td>Total</td>
+                      {LEADS_TO_SALES_COLUMNS.map(([key, label, render]) => (
+                        <td
+                          key={key}
+                          className="clickable-stat"
+                          onClick={() => openLeadsToSalesDrilldown(undefined, key)}
+                          title={`View the records behind Total — ${label}`}
+                        >
+                          {render(leadsToSalesByCategory.totals)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </AdjustableSection>
         </div>
       )}
 
-      {drilldown && <DrilldownModal kind="calls" params={drilldown} jumpToJN={jumpToJN} onClose={() => window.history.back()} />}
+      {drilldown && (
+        <DrilldownModal
+          kind={drilldown._kind || 'calls'}
+          params={drilldown}
+          jumpToJN={jumpToJN}
+          onClose={() => window.history.back()}
+        />
+      )}
     </div>
   );
 }

@@ -36,7 +36,7 @@ test('calls report Excel export produces a workbook with Summary, By staff and B
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.buffer);
     const sheetNames = wb.worksheets.map((s) => s.name);
-    assert.deepEqual(sheetNames, ['Summary', 'By staff', 'Breakdowns']);
+    assert.deepEqual(sheetNames, ['Summary', 'By staff', 'Breakdowns', 'Leads to Sales']);
 
     const summary = wb.getWorksheet('Summary');
     const summaryText = summary.getSheetValues().flat().filter(Boolean).join(' | ');
