@@ -101,6 +101,15 @@ numbers than when it was first generated.
 counted once (keeping the most recent), Call Backs never counting as a job/
 lead/sale, and Pending Cancellations never touching sale figures.
 
+## Recently added
+
+- **Reports → Calls & Contacts → Leads to Sales by Marketing Category** —
+  attributes a sale back to the Lead Source recorded on the call that
+  originally booked it, by Job Number; every figure drills down to its exact
+  records, and the same breakdown is in the Excel export.
+- **Settings → AroFlo test** (admin-only) — a read-only Stage 1 lookup of a
+  single AroFlo task by job number, ahead of any live integration.
+
 ## Still open (see original HANDOVER.md §7 for full context)
 
 - **§7.4 naming clarity** ("Pending job cancellation" on Calls vs. "Pending
