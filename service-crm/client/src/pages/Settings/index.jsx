@@ -6,6 +6,7 @@ import Suburbs from './Suburbs.jsx';
 import Users from './Users.jsx';
 import DataPanel from './DataPanel.jsx';
 import Activity from './Activity.jsx';
+import ArofloTest from './ArofloTest.jsx';
 
 const THEME_CHOICES = [
   ['system', 'System default'],
@@ -54,6 +55,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
           ['users', 'Staff accounts'],
           ['data', 'Data'],
           ['activity', 'Activity history'],
+          ['aroflo-test', 'AroFlo test'],
         ]}
       />
       {sub === 'lists' && <Lists />}
@@ -61,6 +63,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
       {sub === 'users' && <Users />}
       {sub === 'data' && <DataPanel />}
       {sub === 'activity' && <Activity />}
+      {sub === 'aroflo-test' && <ArofloTest />}
     </div>
   );
 }

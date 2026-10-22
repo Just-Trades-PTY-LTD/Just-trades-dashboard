@@ -16,4 +16,10 @@ export const config = {
     email: (process.env.SEED_ADMIN_EMAIL || 'admin@justtrades.au').toLowerCase(),
     password: process.env.SEED_ADMIN_PASSWORD || 'change-me-on-first-login',
   },
+  // Stage 1 AroFlo test lookup only — read-only, admin-only. Unset means the
+  // feature reports itself as "not configured" rather than failing oddly.
+  aroflo: {
+    apiToken: process.env.AROFLO_PAT || '',
+    baseUrl: process.env.AROFLO_BASE_URL || 'https://api.aroflo.com/v2',
+  },
 };

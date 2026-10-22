@@ -121,6 +121,9 @@ export const api = {
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),
   },
+  arofloTest: {
+    lookup: (jn) => request('GET', `/aroflo-test/lookup${qs({ jn })}`),
+  },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',
     techCsvUrl: () => '/api/export/tech-entries.csv',
