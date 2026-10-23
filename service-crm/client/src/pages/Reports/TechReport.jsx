@@ -91,6 +91,11 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const advancedActiveCount = Object.keys(EMPTY_ADVANCED).filter((k) => applied[k] && applied[k] !== '').length;
+  // Display-only (never persisted, never affects the Excel export, which
+  // always includes every suburb regardless of this) — keeps the section
+  // compact by default as more suburbs accumulate over time.
+  const [showAllSuburbs, setShowAllSuburbs] = useState(false);
+  const REVENUE_BY_SUBURB_PREVIEW_COUNT = 10;
 
   useEffect(() => {
     setLoading(true);
@@ -609,50 +614,6 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           )}
         </AdjustableSection>
 
-        <AdjustableSection id="revenueBySuburb" title="Revenue by Suburb" defaultSize="lg" layout={layout}>
-          {(cfg) =>
-            revenueBySuburb.length === 0 ? (
-              <div className="empty-state">No sales in this range yet.</div>
-            ) : (
-              <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Suburb</th>
-                      {REVENUE_BY_SUBURB_COLUMNS.map(([key, label]) => (
-                        <th key={key}>{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {revenueBySuburb.map((r) => (
-                      <tr key={r.suburb}>
-                        <td
-                          className="clickable-stat"
-                          onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: 'totalSalesValue' })}
-                          title={`View the records behind ${r.suburb}`}
-                        >
-                          {r.suburb}
-                        </td>
-                        {REVENUE_BY_SUBURB_COLUMNS.map(([key, label, render]) => (
-                          <td
-                            key={key}
-                            className="clickable-stat"
-                            onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: key })}
-                            title={`View the records behind ${r.suburb} — ${label}`}
-                          >
-                            {render(r)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          }
-        </AdjustableSection>
-
         <KnockbackReasonsTracker
           layout={layout}
           setDrilldown={setDrilldown}
@@ -663,6 +624,75 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           technicianId={applied.technicianId}
           technicianName={withInactiveLabel(settings.technicians).find((t) => String(t.id) === String(applied.technicianId))?.name}
         />
+
+        {/* Kept last on the page, and compact by default (top 10 only) —
+            this list only grows as more suburbs are recorded over time, so
+            it must never be the thing that makes the report page excessively
+            long. The Excel export always includes every suburb regardless of
+            showAllSuburbs — see xlsxReports.js's buildTechWorkbook, which
+            reads data.revenueBySuburb directly, never this component's
+            display-only slice. */}
+        <AdjustableSection id="revenueBySuburb" title="Revenue by Suburb" defaultSize="lg" layout={layout}>
+          {(cfg) => {
+            if (revenueBySuburb.length === 0) return <div className="empty-state">No sales in this range yet.</div>;
+            const isTruncated = !showAllSuburbs && revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT;
+            const displayedSuburbs = isTruncated ? revenueBySuburb.slice(0, REVENUE_BY_SUBURB_PREVIEW_COUNT) : revenueBySuburb;
+            return (
+              <div>
+                {revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--ink-muted)' }}>
+                      {isTruncated
+                        ? `Showing top ${REVENUE_BY_SUBURB_PREVIEW_COUNT} of ${revenueBySuburb.length} suburbs by total sales value`
+                        : `Showing all ${revenueBySuburb.length} suburbs`}
+                    </span>
+                    <button className="btn btn-sm" type="button" onClick={() => setShowAllSuburbs((v) => !v)}>
+                      {isTruncated ? 'Show All' : `Show Top ${REVENUE_BY_SUBURB_PREVIEW_COUNT}`}
+                    </button>
+                  </div>
+                )}
+                <div
+                  className="table-scroll"
+                  style={!isTruncated && cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}
+                >
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Suburb</th>
+                        {REVENUE_BY_SUBURB_COLUMNS.map(([key, label]) => (
+                          <th key={key}>{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedSuburbs.map((r) => (
+                        <tr key={r.suburb}>
+                          <td
+                            className="clickable-stat"
+                            onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: 'totalSalesValue' })}
+                            title={`View the records behind ${r.suburb}`}
+                          >
+                            {r.suburb}
+                          </td>
+                          {REVENUE_BY_SUBURB_COLUMNS.map(([key, label, render]) => (
+                            <td
+                              key={key}
+                              className="clickable-stat"
+                              onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: key })}
+                              title={`View the records behind ${r.suburb} — ${label}`}
+                            >
+                              {render(r)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          }}
+        </AdjustableSection>
       </div>
 
       {drilldown && (
