@@ -12,6 +12,28 @@ function rateLabel(v) {
   return v == null ? '—' : `${v}%`;
 }
 
+// Resolves one filter's current value to the exact text shown in the
+// workbook's "Filters:" summary line — 'All' when the filter isn't applied,
+// the special "Unassigned" state when that's what was selected, or the
+// looked-up name/raw value otherwise. Shared by every filter-summary line
+// below so the export's own caption can never drift from what the data was
+// actually filtered by.
+const ENTRY_TYPE_LABELS = {
+  new_job_no_sale: 'New Job — No Sale',
+  new_job_sale_made: 'New Job — Sale Made',
+  quote_approved_later: 'Existing Job — Quote Approved Later',
+  existing_job_upsell: 'Existing Job — Upsell',
+  call_back: 'Call Back',
+  pending_cancellation: 'Pending Cancellation',
+};
+
+function filterLabel(value, lookup) {
+  if (value === undefined || value === null || value === '') return 'All';
+  if (value === 'unassigned') return 'Unassigned';
+  if (lookup) return lookup.get(String(value)) || `#${value}`;
+  return String(value);
+}
+
 function addKpiTable(sheet, rows) {
   const header = sheet.addRow(['Figure', 'Value']);
   header.eachCell((c) => {
@@ -35,10 +57,29 @@ export function buildCallsWorkbook(data, filters, lookups) {
   wb.creator = 'Just Trades CRM';
   wb.created = new Date();
 
-  const staffName = filters.handledByUserId ? lookups?.staff?.get(String(filters.handledByUserId)) || `#${filters.handledByUserId}` : 'All';
-  const tradeName = filters.tradeId ? lookups?.trades?.get(String(filters.tradeId)) || `#${filters.tradeId}` : 'All';
-  const jobTypeName = filters.jobTypeId ? lookups?.jobTypes?.get(String(filters.jobTypeId)) || `#${filters.jobTypeId}` : 'All';
-  const extra = [`Staff: ${staffName}`, `Trade: ${tradeName}`, `Job Type: ${jobTypeName}`];
+  // Every active global and box-specific filter the on-screen report and
+  // this export both read from the same `filters` (req.query) — so this
+  // caption can never say something different from what the data actually
+  // reflects. 'All' means that filter wasn't applied; every other filter not
+  // mentioned here simply has no effect on this report at all.
+  const extra = [
+    `Staff: ${filterLabel(filters.handledByUserId, lookups?.staff)}`,
+    `Trade: ${filterLabel(filters.tradeId, lookups?.trades)}`,
+    `Job Type: ${filterLabel(filters.jobTypeId, lookups?.jobTypes)}`,
+    `Lead Source: ${filterLabel(filters.leadSourceId, lookups?.leadSources)}`,
+    `Job Number: ${filters.jobNumber || 'All'}`,
+    `Suburb: ${filters.suburb || 'All'}`,
+    `Contact Method: ${filters.direction || 'All'}`,
+    `Call Type: ${filters.callType || 'All'}`,
+    `Booked: ${filters.booked || 'All'}`,
+    `Cancellation Type: ${filters.cancellationType || 'All'}`,
+    `Cancellation Reason: ${filterLabel(filters.cancellationReasonId, lookups?.newJobCancellationReasons)}`,
+    `Call-back Reason: ${filterLabel(filters.callBackReasonId, lookups?.callBackReasons)}`,
+    `Call Follow-up Required: ${filters.followUpRequired || 'All'}`,
+    `Created By: ${filterLabel(filters.createdByUserId, lookups?.staff)}`,
+    `Last Edited By: ${filterLabel(filters.lastEditedByUserId, lookups?.staff)}`,
+    `Notes search: ${filters.notes || 'All'}`,
+  ];
 
   const summary = wb.addWorksheet('Summary');
   addTitleBlock(summary, 'Calls Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
@@ -226,10 +267,21 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   wb.creator = 'Just Trades CRM';
   wb.created = new Date();
 
-  const techName = filters.technicianId ? lookups?.technicians?.get(String(filters.technicianId)) || `#${filters.technicianId}` : 'All';
-  const tradeName = filters.tradeId ? lookups?.trades?.get(String(filters.tradeId)) || `#${filters.tradeId}` : 'All';
-  const jobTypeName = filters.jobTypeId ? lookups?.jobTypes?.get(String(filters.jobTypeId)) || `#${filters.jobTypeId}` : 'All';
-  const extra = [`Technician: ${techName}`, `Trade: ${tradeName}`, `Job Type: ${jobTypeName}`];
+  const extra = [
+    `Technician: ${filterLabel(filters.technicianId, lookups?.technicians)}`,
+    `Trade: ${filterLabel(filters.tradeId, lookups?.trades)}`,
+    `Job Type: ${filterLabel(filters.jobTypeId, lookups?.jobTypes)}`,
+    `Lead Qualification: ${filterLabel(filters.leadQualification)}`,
+    `Lead Source: ${filterLabel(filters.leadSourceId, lookups?.leadSources)}`,
+    `Sale Made: ${filters.saleMade || 'All'}`,
+    `Knockback status: ${filters.knockback || 'All'}`,
+    `Converted Later: ${filters.convertedLater || 'All'}`,
+    `Entry Type: ${ENTRY_TYPE_LABELS[filters.entryType] || 'All'}`,
+    `Suburb: ${filters.suburb || 'All'}`,
+    `Job Number: ${filters.jobNumber || 'All'}`,
+    `Created By: ${filterLabel(filters.createdByUserId, lookups?.staff)}`,
+    `Last Edited By: ${filterLabel(filters.lastEditedByUserId, lookups?.staff)}`,
+  ];
 
   const summary = wb.addWorksheet('Summary');
   addTitleBlock(summary, 'Technician & Sales Report — Summary', filterSummaryLines({ from: filters.from, to: filters.to, extra }));

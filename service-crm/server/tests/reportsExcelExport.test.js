@@ -243,3 +243,107 @@ test('Knockback Reasons export sheets follow the tracker\'s own filters (indepen
     server.close();
   }
 });
+
+test('Calls Report Excel export\'s filter summary accurately lists every active filter, by name not id', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
+    const sourceA = bundle.lists.lead_source[0];
+    const cancelReason = bundle.lists.new_job_cancellation_reason[0];
+
+    await server.request('POST', '/calls', {
+      callAt: '2026-05-01T09:00',
+      direction: 'Inbound',
+      callType: 'Lead',
+      booked: 'Yes',
+      leadSourceId: sourceA.id,
+      tradeId: plumbing.id,
+      jobNumber: 'JN-XLFILT-1',
+      suburb: 'Norwood (5067)',
+      notes: 'hot water enquiry',
+    });
+
+    const res = await server.rawGet(
+      `/reports/calls.xlsx?from=2026-05-01&to=2026-05-31&leadSourceId=${sourceA.id}&tradeId=${plumbing.id}` +
+        `&jobNumber=JN-XLFILT-1&suburb=${encodeURIComponent('Norwood (5067)')}&direction=Inbound&callType=Lead&booked=Yes` +
+        `&cancellationReasonId=${cancelReason.id}&followUpRequired=No&notes=hot%20water`
+    );
+    assert.equal(res.status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.buffer);
+    const summaryText = wb.getWorksheet('Summary').getSheetValues().flat().filter(Boolean).join(' | ');
+
+    assert.match(summaryText, new RegExp(`Lead Source: ${sourceA.name}`));
+    assert.match(summaryText, /Trade: Plumbing/);
+    assert.match(summaryText, /Job Number: JN-XLFILT-1/);
+    assert.match(summaryText, /Suburb: Norwood \(5067\)/);
+    assert.match(summaryText, /Contact Method: Inbound/);
+    assert.match(summaryText, /Call Type: Lead/);
+    assert.match(summaryText, /Booked: Yes/);
+    assert.match(summaryText, new RegExp(`Cancellation Reason: ${cancelReason.name}`));
+    assert.match(summaryText, /Call Follow-up Required: No/);
+    assert.match(summaryText, /Notes search: hot water/);
+    // An untouched filter still reads "All", never blank or omitted.
+    assert.match(summaryText, /Cancellation Type: All/);
+    assert.match(summaryText, /Created By: All/);
+  } finally {
+    server.close();
+  }
+});
+
+test('Technician & Sales Report Excel export\'s filter summary accurately lists every active filter, by name not id', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const bundle = (await server.request('GET', '/settings/bundle')).data;
+    const plumbing = bundle.trades.find((t) => t.name === 'Plumbing');
+    const sourceA = bundle.lists.lead_source[0];
+    const tech = (await server.request('POST', '/settings/technicians', { name: 'XL Filter Tech' })).data;
+
+    await server.request('POST', '/calls', {
+      callAt: '2026-04-01T09:00',
+      direction: 'Inbound',
+      callType: 'Lead',
+      booked: 'Yes',
+      leadSourceId: sourceA.id,
+      jobNumber: 'JN-XLFILT-TECH1',
+    });
+    await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_sale_made',
+      visitDate: '2026-05-01',
+      technicianId: tech.id,
+      jobNumber: 'JN-XLFILT-TECH1',
+      tradeId: plumbing.id,
+      jobTypeId: plumbing.jobTypes[0].id,
+      lead: 'Qualified',
+      invoiceNumber: 'INV-XLFILT-TECH1',
+      invoiceDate: '2026-05-01',
+      saleValueExGst: 500,
+      suburb: 'Unley (5061)',
+    });
+
+    const res = await server.rawGet(
+      `/reports/tech.xlsx?from=2026-05-01&to=2026-05-31&technicianId=${tech.id}&tradeId=${plumbing.id}` +
+        `&leadQualification=Qualified&leadSourceId=${sourceA.id}&saleMade=Yes&jobNumber=JN-XLFILT-TECH1&suburb=${encodeURIComponent('Unley (5061)')}`
+    );
+    assert.equal(res.status, 200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.buffer);
+    const summaryText = wb.getWorksheet('Summary').getSheetValues().flat().filter(Boolean).join(' | ');
+
+    assert.match(summaryText, /Technician: XL Filter Tech/);
+    assert.match(summaryText, /Trade: Plumbing/);
+    assert.match(summaryText, /Lead Qualification: Qualified/);
+    assert.match(summaryText, new RegExp(`Lead Source: ${sourceA.name}`));
+    assert.match(summaryText, /Sale Made: Yes/);
+    assert.match(summaryText, /Job Number: JN-XLFILT-TECH1/);
+    assert.match(summaryText, /Suburb: Unley \(5061\)/);
+    // Untouched filters still read "All".
+    assert.match(summaryText, /Knockback status: All/);
+    assert.match(summaryText, /Entry Type: All/);
+  } finally {
+    server.close();
+  }
+});

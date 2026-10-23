@@ -1,7 +1,8 @@
 import { all } from '../db/index.js';
 import { mondayOf, utcToAdelaideDisplay } from '../lib/adelaideTime.js';
 import { classifyRating } from '../lib/reviewRating.js';
-import { normKey } from './lookup.js';
+import { normKey, findOriginalJob } from './lookup.js';
+import { getLastEditedInfo } from '../lib/audit.js';
 
 export function pct(a, b) {
   return b ? Math.round((a / b) * 100) : 0;
@@ -94,15 +95,50 @@ function catLabel(v) {
   return v || 'Not specified';
 }
 
+// A blank value never filters; 'unassigned' means "this field is blank on
+// the record" (never excluded, as a real, selectable state); anything else
+// is matched by exact (numeric id) equality. Shared by every id-or-blank
+// filter below (Lead Source, Cancellation reason, Call-back reason, …) so
+// "Unassigned" behaves identically everywhere it's offered.
+function matchesIdOrUnassigned(value, selected) {
+  if (!selected) return true;
+  if (selected === 'unassigned') return !value;
+  return Number(value) === Number(selected);
+}
+
+function matchesYesNo(value, selected) {
+  if (!selected) return true;
+  return selected === 'Yes' ? !!value : !value;
+}
+
 // ---------------------------------------------------------------------------
 // Calls report — one raw fetch, shared by the report's own KPIs/breakdowns
 // and by drilldownCalls() below, so a figure and its drill-down can never
 // drift apart from each other.
 // ---------------------------------------------------------------------------
-function fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId } = {}) {
+function fetchCallsRaw({
+  from,
+  to,
+  handledByUserId,
+  tradeId,
+  jobTypeId,
+  leadSourceId,
+  jobNumber,
+  suburb,
+  direction,
+  callType,
+  booked,
+  cancellationType,
+  cancellationReasonId,
+  callBackReasonId,
+  followUpRequired,
+  createdByUserId,
+  lastEditedByUserId,
+  notes,
+} = {}) {
   const rows = all(
     `SELECT c.*, u.name AS handled_by_name, tr.name AS trade_name, jt.name AS job_type_name, ls.name AS lead_source_name,
-      nbr.name AS not_booked_reason_name, cr.name AS cancellation_reason_name
+      nbr.name AS not_booked_reason_name, cr.name AS cancellation_reason_name, cbr.name AS call_back_reason_name
      FROM calls c
      LEFT JOIN users u ON u.id = c.handled_by_user_id
      LEFT JOIN trades tr ON tr.id = c.trade_id
@@ -110,19 +146,40 @@ function fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId } = {}) {
      LEFT JOIN list_items ls ON ls.id = c.lead_source_id
      LEFT JOIN list_items nbr ON nbr.id = c.not_booked_reason_id
      LEFT JOIN list_items cr ON cr.id = c.cancellation_reason_id
+     LEFT JOIN list_items cbr ON cbr.id = c.call_back_reason_id
      WHERE c.archived = 0`
   );
-  return rows.filter(
+  let filtered = rows.filter(
     (c) =>
       inRange(c.call_at, from, to) &&
       (!handledByUserId || c.handled_by_user_id === Number(handledByUserId)) &&
       (!tradeId || c.trade_id === Number(tradeId)) &&
-      (!jobTypeId || c.job_type_id === Number(jobTypeId))
+      (!jobTypeId || c.job_type_id === Number(jobTypeId)) &&
+      matchesIdOrUnassigned(c.lead_source_id, leadSourceId) &&
+      (!jobNumber || normKey(c.job_number) === normKey(jobNumber)) &&
+      (!suburb || normKey(c.suburb) === normKey(suburb)) &&
+      (!direction || c.direction === direction) &&
+      (!callType || c.call_type === callType) &&
+      (!booked || c.booked === booked) &&
+      (!cancellationType || c.cancellation_type === cancellationType) &&
+      matchesIdOrUnassigned(c.cancellation_reason_id, cancellationReasonId) &&
+      matchesIdOrUnassigned(c.call_back_reason_id, callBackReasonId) &&
+      matchesYesNo(c.follow_up, followUpRequired) &&
+      (!createdByUserId || c.created_by_user_id === Number(createdByUserId)) &&
+      (!notes || (c.notes || '').toLowerCase().includes(String(notes).trim().toLowerCase()))
   );
+  if (lastEditedByUserId) {
+    const lastEdited = getLastEditedInfo(
+      'call',
+      filtered.map((c) => c.id)
+    );
+    filtered = filtered.filter((c) => lastEdited[c.id]?.userId === Number(lastEditedByUserId));
+  }
+  return filtered;
 }
 
-export function computeCallsReport({ from, to, handledByUserId, tradeId, jobTypeId } = {}) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId });
+export function computeCallsReport(filters = {}) {
+  const reportCalls = fetchCallsRaw(filters);
 
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const booked = leads.filter((c) => c.booked === 'Yes');
@@ -289,8 +346,8 @@ function pickCallsSubset(base, field) {
 // resolved against the exact same filtered rows the report itself computed
 // its numbers from. Returns null for a metric this report has no accurate
 // record-level answer for.
-export function drilldownCalls({ from, to, handledByUserId, tradeId, jobTypeId, metric, category, segment, staffName, field }) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId });
+export function drilldownCalls({ metric, category, segment, staffName, field, ...filters }) {
+  const reportCalls = fetchCallsRaw(filters);
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
 
   if (metric === 'staff') {
@@ -489,8 +546,8 @@ function computeLeadsToSalesByMarketingCategory(leads) {
 // listTechEntries() lookup that report already relies on — a sale made at
 // the visit folds into its job's own entry (by job_id), an Approved Later
 // sale and an Upsell are each their own entry (by the sale's own id).
-export function drilldownLeadsToSalesByMarketingCategory({ from, to, handledByUserId, tradeId, jobTypeId, category, field }) {
-  const reportCalls = fetchCallsRaw({ from, to, handledByUserId, tradeId, jobTypeId });
+export function drilldownLeadsToSalesByMarketingCategory({ category, field, ...filters }) {
+  const reportCalls = fetchCallsRaw(filters);
   const leads = reportCalls.filter((c) => c.call_type === 'Lead');
   const { jobNumberGroups, salesByJobNumber } = buildMarketingCategoryData(leads);
 
@@ -571,7 +628,100 @@ export function drilldownLeadsToSalesByMarketingCategory({ from, to, handledByUs
 // ---------------------------------------------------------------------------
 // Technician & sales report
 // ---------------------------------------------------------------------------
-function fetchJobsAll({ from, to, technicianId, tradeId, jobTypeId }) {
+function matchesTextOrUnassigned(value, selected) {
+  if (!selected) return true;
+  if (selected === 'unassigned') return !value;
+  return value === selected;
+}
+
+// Every active Lead call, regardless of this report's own date range — the
+// same reasoning as Leads to Sales' own sales lookup: whether a Job Number
+// traces back to a particular Lead Source doesn't depend on which period
+// the report itself happens to be scoped to.
+function fetchAllActiveLeadCalls() {
+  return all(`SELECT * FROM calls WHERE archived = 0 AND call_type = 'Lead'`);
+}
+
+// Job Number -> the lead_source_id of whichever Lead call is authoritative
+// for it (the earliest one, booked='Yes', see groupBookedLeadsByJobNumber
+// above) — null where no such call exists, read back everywhere below as
+// "Unassigned". Built once per report/drill-down call, not once per row.
+function leadSourceIdByJobNumber() {
+  const groups = groupBookedLeadsByJobNumber(fetchAllActiveLeadCalls());
+  const map = new Map();
+  groups.forEach((call, key) => map.set(key, call.lead_source_id || null));
+  return map;
+}
+
+function matchesLeadSource(jobNumber, selected, leadSourceMap) {
+  if (!selected) return true;
+  const key = normKey(jobNumber);
+  return matchesIdOrUnassigned(key ? leadSourceMap.get(key) : null, selected);
+}
+
+// Resolves a sale/upsell/call-back/pending-cancellation row back to the one
+// original job its own Job Number points to — reliable because every one of
+// these rows already carries that exact Job Number by design (see
+// schema.sql's own comments on sales.job_number/call_backs.job_number/
+// pending_cancellations.job_number). Memoized per Job Number within one
+// report/drill-down call, so a Job Number shared by several rows is only
+// ever looked up once.
+function makeOriginalJobResolver() {
+  const cache = new Map();
+  return function resolveOriginalJob(jobNumber) {
+    const key = normKey(jobNumber);
+    if (!key) return null;
+    if (!cache.has(key)) cache.set(key, findOriginalJob(jobNumber));
+    return cache.get(key);
+  };
+}
+
+// Lead Qualification/Sale Made/Knockback status/Converted Later only ever
+// describe a JOB — never a sale, upsell, call back or pending cancellation
+// in their own right. So a sale/upsell/call-back/pending-cancellation row is
+// only included once one of these filters is active by checking its
+// ORIGINAL job (never guessed, never left unfiltered just because the row
+// itself has no such column) — exactly the propagation the figures/
+// percentages built from these arrays depend on to stay meaningful together.
+function matchesJobLevelFilters(job, { leadQualification, saleMade, knockback, convertedLater }) {
+  if (!leadQualification && !saleMade && !knockback && !convertedLater) return true;
+  if (!job) return false;
+  return (
+    matchesTextOrUnassigned(job.lead, leadQualification) &&
+    matchesYesNo(job.had_sale_at_visit, saleMade) &&
+    matchesYesNo(job.knockback, knockback) &&
+    matchesYesNo(job.converted_later, convertedLater)
+  );
+}
+
+// Suburb has no column of its own on call_backs/pending_cancellations at
+// all, and on a non-Upsell sale it's always blank (only an Upsell entry
+// copies it in at creation — see schema.sql) — so for every one of these
+// four row types, Suburb is always resolved via the one original job, never
+// the row's own (sometimes blank, sometimes absent) column. A job resolves
+// its own Suburb directly; nothing to look up.
+function resolveSuburb(row, isJob, resolveOriginalJob) {
+  if (isJob) return row.suburb;
+  const job = resolveOriginalJob(row.job_number);
+  return job ? job.suburb : '';
+}
+
+function fetchJobsAll({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  leadQualification,
+  leadSourceId,
+  saleMade,
+  knockback,
+  convertedLater,
+  suburb,
+  jobNumber,
+  createdByUserId,
+  lastEditedByUserId,
+} = {}) {
   const rows = all(
     `SELECT j.*, t.name AS technician_name, tr.name AS trade_name, kr.name AS knockback_reason_name
      FROM jobs j
@@ -580,13 +730,30 @@ function fetchJobsAll({ from, to, technicianId, tradeId, jobTypeId }) {
      LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
      WHERE j.archived = 0`
   );
-  return rows.filter(
+  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  let filtered = rows.filter(
     (j) =>
       inRange(j.visit_date, from, to) &&
       (!technicianId || j.technician_id === Number(technicianId)) &&
       (!tradeId || j.trade_id === Number(tradeId)) &&
-      (!jobTypeId || j.job_type_id === Number(jobTypeId))
+      (!jobTypeId || j.job_type_id === Number(jobTypeId)) &&
+      matchesTextOrUnassigned(j.lead, leadQualification) &&
+      (!leadSourceMap || matchesLeadSource(j.job_number, leadSourceId, leadSourceMap)) &&
+      matchesYesNo(j.had_sale_at_visit, saleMade) &&
+      matchesYesNo(j.knockback, knockback) &&
+      matchesYesNo(j.converted_later, convertedLater) &&
+      (!suburb || normKey(j.suburb) === normKey(suburb)) &&
+      (!jobNumber || normKey(j.job_number) === normKey(jobNumber)) &&
+      (!createdByUserId || j.created_by_user_id === Number(createdByUserId))
   );
+  if (lastEditedByUserId) {
+    const lastEdited = getLastEditedInfo(
+      'job',
+      filtered.map((j) => j.id)
+    );
+    filtered = filtered.filter((j) => lastEdited[j.id]?.userId === Number(lastEditedByUserId));
+  }
+  return filtered;
 }
 
 // Never includes an Existing Job — Upsell row (is_upsell=1) — an upsell
@@ -596,7 +763,47 @@ function fetchJobsAll({ from, to, technicianId, tradeId, jobTypeId }) {
 // (almost always the original sale, since the upsell is logged later and
 // this keeps "the most recently logged one"). See fetchUpsellsAll() for the
 // entirely separate population Upsells are counted from instead.
-function fetchSalesAll({ from, to, technicianId, tradeId, jobTypeId }) {
+// Shared by fetchSalesAll/fetchUpsellsAll/fetchCallBacksAll/
+// fetchPendingCancelsAll below — the four job-level filters, Lead Source,
+// Suburb and Last Edited By all apply the exact same way to every one of
+// these four row types, resolved via the one original job/Job Number each
+// row already carries. `isJob` is always false here (jobs apply these
+// directly against their own columns in fetchJobsAll instead).
+function applyLinkedJobFilters(rows, entityType, { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId }, resolveOriginalJob, leadSourceMap) {
+  let filtered = rows.filter((r) => {
+    if (leadQualification || saleMade || knockback || convertedLater) {
+      if (!matchesJobLevelFilters(resolveOriginalJob(r.job_number), { leadQualification, saleMade, knockback, convertedLater })) return false;
+    }
+    if (leadSourceMap && !matchesLeadSource(r.job_number, leadSourceId, leadSourceMap)) return false;
+    if (suburb && normKey(resolveSuburb(r, false, resolveOriginalJob)) !== normKey(suburb)) return false;
+    return true;
+  });
+  if (lastEditedByUserId) {
+    const lastEdited = getLastEditedInfo(
+      entityType,
+      filtered.map((r) => r.id)
+    );
+    filtered = filtered.filter((r) => lastEdited[r.id]?.userId === Number(lastEditedByUserId));
+  }
+  return filtered;
+}
+
+function fetchSalesAll({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  leadQualification,
+  leadSourceId,
+  saleMade,
+  knockback,
+  convertedLater,
+  suburb,
+  jobNumber,
+  createdByUserId,
+  lastEditedByUserId,
+} = {}) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -610,20 +817,30 @@ function fetchSalesAll({ from, to, technicianId, tradeId, jobTypeId }) {
       inRange(s.invoice_date, from, to) &&
       (!technicianId || s.credited_technician_id === Number(technicianId)) &&
       (!tradeId || s.trade_id === Number(tradeId)) &&
-      (!jobTypeId || s.job_type_id === Number(jobTypeId))
+      (!jobTypeId || s.job_type_id === Number(jobTypeId)) &&
+      (!jobNumber || normKey(s.job_number) === normKey(jobNumber)) &&
+      (!createdByUserId || s.created_by_user_id === Number(createdByUserId))
   );
   // De-duplicate by invoice number — a duplicate is only ever counted once in
   // reports (HANDOVER §5.3), keeping the most recently logged one.
   const seen = new Set();
-  const out = [];
+  const deduped = [];
   filtered.forEach((s) => {
     const key = (s.invoice_number || '').trim().toLowerCase();
     if (!key || !seen.has(key)) {
       if (key) seen.add(key);
-      out.push(s);
+      deduped.push(s);
     }
   });
-  return out;
+  const resolveOriginalJob = makeOriginalJobResolver();
+  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  return applyLinkedJobFilters(
+    deduped,
+    'sale',
+    { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
+    resolveOriginalJob,
+    leadSourceMap
+  );
 }
 
 // Existing Job — Upsell rows only. Deliberately never de-duplicated by
@@ -633,7 +850,22 @@ function fetchSalesAll({ from, to, technicianId, tradeId, jobTypeId }) {
 // occasions — can each add a distinct, genuine upsell onto that same
 // invoice, so every row here counts, however many happen to share an
 // invoice number.
-function fetchUpsellsAll({ from, to, technicianId, tradeId, jobTypeId }) {
+function fetchUpsellsAll({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  leadQualification,
+  leadSourceId,
+  saleMade,
+  knockback,
+  convertedLater,
+  suburb,
+  jobNumber,
+  createdByUserId,
+  lastEditedByUserId,
+} = {}) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -641,16 +873,42 @@ function fetchUpsellsAll({ from, to, technicianId, tradeId, jobTypeId }) {
      LEFT JOIN trades tr ON tr.id = s.trade_id
      WHERE s.archived = 0 AND s.is_upsell = 1`
   );
-  return rows.filter(
+  const filtered = rows.filter(
     (s) =>
       inRange(s.invoice_date, from, to) &&
       (!technicianId || s.credited_technician_id === Number(technicianId)) &&
       (!tradeId || s.trade_id === Number(tradeId)) &&
-      (!jobTypeId || s.job_type_id === Number(jobTypeId))
+      (!jobTypeId || s.job_type_id === Number(jobTypeId)) &&
+      (!jobNumber || normKey(s.job_number) === normKey(jobNumber)) &&
+      (!createdByUserId || s.created_by_user_id === Number(createdByUserId))
+  );
+  const resolveOriginalJob = makeOriginalJobResolver();
+  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  return applyLinkedJobFilters(
+    filtered,
+    'sale',
+    { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
+    resolveOriginalJob,
+    leadSourceMap
   );
 }
 
-function fetchCallBacksAll({ from, to, technicianId, tradeId, jobTypeId }) {
+function fetchCallBacksAll({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  leadQualification,
+  leadSourceId,
+  saleMade,
+  knockback,
+  convertedLater,
+  suburb,
+  jobNumber,
+  createdByUserId,
+  lastEditedByUserId,
+} = {}) {
   const rows = all(
     `SELECT cb.*, ct.name AS credited_technician_name, tr.name AS trade_name
      FROM call_backs cb
@@ -658,12 +916,23 @@ function fetchCallBacksAll({ from, to, technicianId, tradeId, jobTypeId }) {
      LEFT JOIN trades tr ON tr.id = cb.trade_id
      WHERE cb.archived = 0`
   );
-  return rows.filter(
+  const filtered = rows.filter(
     (c) =>
       inRange(c.visit_date, from, to) &&
       (!technicianId || c.credited_technician_id === Number(technicianId)) &&
       (!tradeId || c.trade_id === Number(tradeId)) &&
-      (!jobTypeId || c.job_type_id === Number(jobTypeId))
+      (!jobTypeId || c.job_type_id === Number(jobTypeId)) &&
+      (!jobNumber || normKey(c.job_number) === normKey(jobNumber)) &&
+      (!createdByUserId || c.created_by_user_id === Number(createdByUserId))
+  );
+  const resolveOriginalJob = makeOriginalJobResolver();
+  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  return applyLinkedJobFilters(
+    filtered,
+    'call_back',
+    { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
+    resolveOriginalJob,
+    leadSourceMap
   );
 }
 
@@ -673,7 +942,22 @@ function fetchCallBacksAll({ from, to, technicianId, tradeId, jobTypeId }) {
 // every pending cancellation rather than guessing which job type it
 // belongs to. With no Job Type filter applied (jobTypeId falsy), every
 // pending cancellation is included exactly as before.
-function fetchPendingCancelsAll({ from, to, technicianId, tradeId, jobTypeId }) {
+function fetchPendingCancelsAll({
+  from,
+  to,
+  technicianId,
+  tradeId,
+  jobTypeId,
+  leadQualification,
+  leadSourceId,
+  saleMade,
+  knockback,
+  convertedLater,
+  suburb,
+  jobNumber,
+  createdByUserId,
+  lastEditedByUserId,
+} = {}) {
   const rows = all(
     `SELECT pc.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM pending_cancellations pc
@@ -681,22 +965,64 @@ function fetchPendingCancelsAll({ from, to, technicianId, tradeId, jobTypeId }) 
      LEFT JOIN trades tr ON tr.id = pc.trade_id
      WHERE pc.archived = 0`
   );
-  return rows.filter(
+  const filtered = rows.filter(
     (p) =>
       inRange(p.date_logged, from, to) &&
       (!technicianId || p.credited_technician_id === Number(technicianId)) &&
       (!tradeId || p.trade_id === Number(tradeId)) &&
-      (!jobTypeId || p.job_type_id === Number(jobTypeId))
+      (!jobTypeId || p.job_type_id === Number(jobTypeId)) &&
+      (!jobNumber || normKey(p.job_number) === normKey(jobNumber)) &&
+      (!createdByUserId || p.created_by_user_id === Number(createdByUserId))
+  );
+  const resolveOriginalJob = makeOriginalJobResolver();
+  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  return applyLinkedJobFilters(
+    filtered,
+    'pending_cancellation',
+    { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
+    resolveOriginalJob,
+    leadSourceMap
   );
 }
 
+// Entry Type restricts the whole report to just one record type — every
+// other population becomes genuinely empty (not a misleading zero computed
+// from an unrelated figure) so the caller can mark those sections "Not
+// applicable to this filter" rather than show an unchanged-looking KPI.
+const ENTRY_TYPE_POPULATIONS = {
+  new_job_no_sale: 'jobsAll',
+  new_job_sale_made: 'jobsAll',
+  quote_approved_later: 'salesAll',
+  existing_job_upsell: 'upsellsAll',
+  call_back: 'callBacksAll',
+  pending_cancellation: 'pendingCancelsAll',
+};
+
 function fetchTechRaw(filters) {
-  return {
+  const { entryType } = filters;
+  const raw = {
     jobsAll: fetchJobsAll(filters),
     salesAll: fetchSalesAll(filters),
     upsellsAll: fetchUpsellsAll(filters),
     callBacksAll: fetchCallBacksAll(filters),
     pendingCancelsAll: fetchPendingCancelsAll(filters),
+  };
+  if (entryType) {
+    const keep = ENTRY_TYPE_POPULATIONS[entryType];
+    Object.keys(raw).forEach((key) => {
+      if (key !== keep) raw[key] = [];
+    });
+    if (keep === 'jobsAll') {
+      raw.jobsAll = raw.jobsAll.filter((j) => (entryType === 'new_job_sale_made') === !!j.had_sale_at_visit);
+    }
+  }
+  return {
+    ...raw,
+    // null means "every population is in play" (no Entry Type filter active);
+    // otherwise the one array key (jobsAll/salesAll/upsellsAll/callBacksAll/
+    // pendingCancelsAll) that this report's figures actually reflect — every
+    // other key is genuinely empty above, not a filtered-down zero.
+    includedPopulations: entryType ? [ENTRY_TYPE_POPULATIONS[entryType]] : null,
   };
 }
 
@@ -888,9 +1214,9 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels, upsells = []) {
   };
 }
 
-export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week' } = {}) {
-  const filters = { from, to, technicianId, tradeId, jobTypeId };
-  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
+export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week', ...restFilters } = {}) {
+  const filters = { from, to, technicianId, tradeId, jobTypeId, ...restFilters };
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, includedPopulations } = fetchTechRaw(filters);
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
 
@@ -1008,7 +1334,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
   });
   const trend = Object.values(trendMap).sort((a, b) => a.period.localeCompare(b.period));
 
-  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount };
+  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, includedPopulations };
 }
 
 // A legacy job saved before Reason for Knockback was ever required — shown
@@ -1232,8 +1558,8 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
 // "By technician" table row, matching how that row's own figures are
 // computed in computeTechReport() above. Returns null for a metric this
 // report has no accurate record-level answer for.
-export function drilldownTech({ from, to, technicianId, tradeId, jobTypeId, metric, category, series, scopeTrade, scopeTechnician }) {
-  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw({ from, to, technicianId, tradeId, jobTypeId });
+export function drilldownTech({ metric, category, series, scopeTrade, scopeTechnician, ...filters }) {
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
 
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see

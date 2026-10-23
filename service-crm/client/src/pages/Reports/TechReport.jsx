@@ -4,7 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
 import { money, currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset } from '../../lib/dates.js';
-import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
+import { DateField, FilterSelect, DateRangePresetSelect, TextField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { PieCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
@@ -12,8 +12,59 @@ import KnockbackReasonsTracker, { defaultKnockbackReasonsFilters } from './Knock
 import { useSessionState } from '../../lib/useSessionState.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
+const YES_NO = ['Yes', 'No'];
+const ENTRY_TYPES = [
+  { id: 'new_job_no_sale', name: 'New Job — No Sale' },
+  { id: 'new_job_sale_made', name: 'New Job — Sale Made' },
+  { id: 'quote_approved_later', name: 'Existing Job — Quote Approved Later' },
+  { id: 'existing_job_upsell', name: 'Existing Job — Upsell' },
+  { id: 'call_back', name: 'Call Back' },
+  { id: 'pending_cancellation', name: 'Pending Cancellation' },
+];
+// "Unassigned" is a real, selectable state wherever the underlying field can
+// genuinely be blank — a legacy job saved before Lead was required, never
+// silently folded into "All". See services/reports.js's matchesTextOrUnassigned().
+const LEAD_QUALIFICATION_OPTIONS = [
+  { id: 'unassigned', name: 'Unassigned' },
+  { id: 'Qualified', name: 'Qualified' },
+  { id: 'Not Qualified', name: 'Not Qualified' },
+];
+function withUnassigned(list) {
+  return [{ id: 'unassigned', name: 'Unassigned' }, ...list];
+}
+
+// Every Advanced Filters field, blank by default. Knockback Reason stays
+// inside the already-independent Knockback Reasons tracker box rather than
+// becoming a new filter here — see that component's own reasonId filter.
+// Inspection Sheet, Option Sheet and Work Completion are deliberately not
+// offered as filters at all: none of them can be reliably propagated to
+// Sales/Upsells/Call Backs/Pending Cancellations (a sale has no Inspection
+// Sheet status of its own), so filtering Jobs by one of these while leaving
+// those other figures untouched would make Total Sales Value/Conversion %
+// misleading — narrowed Jobs sitting alongside an unfiltered Sales total.
+// The Inspection/Option Sheet completion-rate figures themselves are
+// unaffected by this and still work exactly as before.
+const EMPTY_ADVANCED = {
+  saleMade: '',
+  knockback: '',
+  convertedLater: '',
+  entryType: '',
+  suburb: '',
+  jobNumber: '',
+  createdByUserId: '',
+  lastEditedByUserId: '',
+};
+
 function defaultFilters() {
-  return { ...currentAdelaideWeek(), technicianId: '', tradeId: '', jobTypeId: '' };
+  return {
+    ...currentAdelaideWeek(),
+    technicianId: '',
+    tradeId: '',
+    jobTypeId: '',
+    leadQualification: '',
+    leadSourceId: '',
+    ...EMPTY_ADVANCED,
+  };
 }
 
 // Inspection/Option Sheet completion can be null (no Yes/No records at all —
@@ -38,6 +89,8 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     'crm.reports.tech.knockbackReasons.filters',
     defaultKnockbackReasonsFilters
   );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advancedActiveCount = Object.keys(EMPTY_ADVANCED).filter((k) => applied[k] && applied[k] !== '').length;
 
   useEffect(() => {
     setLoading(true);
@@ -52,15 +105,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // *applied* filters (from/to/technician/trade) plus whichever selector
   // that figure needs — see services/reports.js's drilldownTech().
   function openDrilldown(metric, extra) {
-    setDrilldown({
-      from: applied.from,
-      to: applied.to,
-      technicianId: applied.technicianId,
-      tradeId: applied.tradeId,
-      jobTypeId: applied.jobTypeId,
-      metric,
-      ...extra,
-    });
+    setDrilldown({ ...applied, metric, ...extra });
   }
 
   // Positive Reviews is a genuinely separate figure from everything else on
@@ -171,6 +216,18 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           onChange={(v) => patch({ jobTypeId: v })}
           options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
         />
+        <FilterSelect
+          label="Lead Qualification"
+          value={draft.leadQualification}
+          onChange={(v) => patch({ leadQualification: v })}
+          options={LEAD_QUALIFICATION_OPTIONS}
+        />
+        <FilterSelect
+          label="Lead Source"
+          value={draft.leadSourceId}
+          onChange={(v) => patch({ leadSourceId: v })}
+          options={withUnassigned(settings.lists.lead_source)}
+        />
         <a
           className="btn btn-primary"
           href={api.reports.techXlsxUrl({
@@ -196,6 +253,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
+        <AdvancedFiltersToggle open={advancedOpen} onToggle={() => setAdvancedOpen((o) => !o)} activeCount={advancedActiveCount} />
         {/* Refresh Report is the button used most often, so it always stays
             pinned to the far right of its row — marginLeft: auto here rather
             than on Export to Excel (which moved earlier to make room for the
@@ -205,6 +263,38 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
       </div>
+
+      {advancedOpen && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
+          <div className="grid-form">
+            <FilterSelect label="Sale Made" value={draft.saleMade} onChange={(v) => patch({ saleMade: v })} options={YES_NO} />
+            <FilterSelect label="Knockback status" value={draft.knockback} onChange={(v) => patch({ knockback: v })} options={YES_NO} />
+            <FilterSelect label="Converted Later" value={draft.convertedLater} onChange={(v) => patch({ convertedLater: v })} options={YES_NO} />
+            <FilterSelect label="Entry Type" value={draft.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
+            <TextField label="Suburb" value={draft.suburb} onChange={(v) => patch({ suburb: v })} />
+            <TextField label="Job Number" value={draft.jobNumber} onChange={(v) => patch({ jobNumber: v })} />
+            <FilterSelect
+              label="Created By"
+              value={draft.createdByUserId}
+              onChange={(v) => patch({ createdByUserId: v })}
+              options={withInactiveLabel(settings.staffAll)}
+            />
+            <FilterSelect
+              label="Last Edited By"
+              value={draft.lastEditedByUserId}
+              onChange={(v) => patch({ lastEditedByUserId: v })}
+              options={withInactiveLabel(settings.staffAll)}
+            />
+          </div>
+          {draft.entryType && (
+            <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 10 }}>
+              With Entry Type set, every figure below reflects only that record type — sections that don't apply to it show
+              "Not applicable to this filter" rather than an unchanged-looking zero.
+            </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="notice panel error" style={{ marginBottom: 16 }}>

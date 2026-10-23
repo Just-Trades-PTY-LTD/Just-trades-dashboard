@@ -150,6 +150,9 @@ export function createReportsRouter() {
       staff: idNameMap(all('SELECT id, name FROM users')),
       trades: idNameMap(all('SELECT id, name FROM trades')),
       jobTypes: idNameMap(all('SELECT id, name FROM job_types')),
+      leadSources: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'lead_source'")),
+      newJobCancellationReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'new_job_cancellation_reason'")),
+      callBackReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'callback_reason'")),
     };
     const wb = buildCallsWorkbook(data, req.query, lookups);
     await sendWorkbook(res, wb, 'calls-report');
@@ -162,6 +165,8 @@ export function createReportsRouter() {
       trades: idNameMap(all('SELECT id, name FROM trades')),
       jobTypes: idNameMap(all('SELECT id, name FROM job_types')),
       knockbackReasons: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'knockback_reason'")),
+      leadSources: idNameMap(all("SELECT id, name FROM list_items WHERE category = 'lead_source'")),
+      staff: idNameMap(all('SELECT id, name FROM users')),
     };
     // Knockback Reasons tracker — kbr-prefixed query params, exactly
     // matching whatever the tracker box currently has applied, so this

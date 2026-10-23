@@ -4,14 +4,47 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
 import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset, money } from '../../lib/dates.js';
-import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
+import { DateField, FilterSelect, DateRangePresetSelect, TextField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { PieCardBody, BarCardBody, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, tradeColor } from '../../components/Charts.jsx';
 import AdjustableSection from '../../components/AdjustableSection.jsx';
 import DrilldownModal from '../../components/DrilldownModal.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { CONTACT_METHOD_OPTIONS } from '../../lib/contactMethods.js';
+
+const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
+const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
+const YES_NO = ['Yes', 'No'];
+
+// A filter whose value can also legitimately be blank on the record itself
+// ("Unassigned") offers that as a real, selectable option — never silently
+// folded into "All" — so a missing Lead Source/Cancellation Reason/Call-back
+// Reason can be found rather than excluded. See services/reports.js's
+// matchesIdOrUnassigned().
+function withUnassigned(list) {
+  return [{ id: 'unassigned', name: 'Unassigned' }, ...list];
+}
+
+// Every Advanced Filters field, blank by default — kept separate from the
+// always-visible quick filters above purely so "how many are active" can be
+// counted and Clear All only ever needs to touch these (Reset Filters already
+// clears the whole filter bar, quick and advanced alike).
+const EMPTY_ADVANCED = {
+  jobNumber: '',
+  suburb: '',
+  direction: '',
+  callType: '',
+  booked: '',
+  cancellationType: '',
+  cancellationReasonId: '',
+  callBackReasonId: '',
+  followUpRequired: '',
+  createdByUserId: '',
+  lastEditedByUserId: '',
+  notes: '',
+};
 
 function defaultFilters() {
-  return { ...currentAdelaideWeek(), handledByUserId: '', tradeId: '', jobTypeId: '' };
+  return { ...currentAdelaideWeek(), handledByUserId: '', tradeId: '', jobTypeId: '', leadSourceId: '', ...EMPTY_ADVANCED };
 }
 
 export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
@@ -24,6 +57,8 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
   // never persisted as a report filter; switches both which dataset the
   // chart shows and which drill-down metric a slice click opens.
   const [tradeChartMode, setTradeChartMode] = useState('calls');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advancedActiveCount = Object.keys(EMPTY_ADVANCED).filter((k) => applied[k] && applied[k] !== '').length;
 
   useEffect(() => {
     setLoading(true);
@@ -127,12 +162,19 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
           onChange={(v) => patch({ jobTypeId: v })}
           options={draft.tradeId ? settings.jobTypesFor(draft.tradeId) : []}
         />
+        <FilterSelect
+          label="Lead Source"
+          value={draft.leadSourceId}
+          onChange={(v) => patch({ leadSourceId: v })}
+          options={withUnassigned(settings.lists.lead_source)}
+        />
         <a className="btn btn-primary" href={api.reports.callsXlsxUrl(applied)}>
           Export to Excel
         </a>
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
+        <AdvancedFiltersToggle open={advancedOpen} onToggle={() => setAdvancedOpen((o) => !o)} activeCount={advancedActiveCount} />
         {/* Refresh Report is the button used most often, so it always stays
             pinned to the far right of its row — marginLeft: auto here rather
             than on Export to Excel (which moved earlier to make room for the
@@ -142,6 +184,56 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
           {loading ? 'Refreshing…' : 'Refresh Report'}
         </button>
       </div>
+
+      {advancedOpen && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
+          <div className="grid-form">
+            <TextField label="Job Number" value={draft.jobNumber} onChange={(v) => patch({ jobNumber: v })} />
+            <TextField label="Suburb" value={draft.suburb} onChange={(v) => patch({ suburb: v })} />
+            <FilterSelect label="Contact Method" value={draft.direction} onChange={(v) => patch({ direction: v })} options={CONTACT_METHOD_OPTIONS} />
+            <FilterSelect label="Call Type" value={draft.callType} onChange={(v) => patch({ callType: v })} options={CALL_TYPES} />
+            <FilterSelect label="Booked" value={draft.booked} onChange={(v) => patch({ booked: v })} options={YES_NO} />
+            <FilterSelect
+              label="Cancellation Type"
+              value={draft.cancellationType}
+              onChange={(v) => patch({ cancellationType: v })}
+              options={CANCELLATION_TYPES}
+            />
+            <FilterSelect
+              label="Cancellation Reason"
+              value={draft.cancellationReasonId}
+              onChange={(v) => patch({ cancellationReasonId: v })}
+              options={withUnassigned(settings.lists.new_job_cancellation_reason)}
+            />
+            <FilterSelect
+              label="Call-back Reason"
+              value={draft.callBackReasonId}
+              onChange={(v) => patch({ callBackReasonId: v })}
+              options={withUnassigned(settings.lists.callback_reason)}
+            />
+            <FilterSelect
+              label="Call Follow-up Required"
+              value={draft.followUpRequired}
+              onChange={(v) => patch({ followUpRequired: v })}
+              options={YES_NO}
+            />
+            <FilterSelect
+              label="Created By"
+              value={draft.createdByUserId}
+              onChange={(v) => patch({ createdByUserId: v })}
+              options={withInactiveLabel(settings.staffAll)}
+            />
+            <FilterSelect
+              label="Last Edited By"
+              value={draft.lastEditedByUserId}
+              onChange={(v) => patch({ lastEditedByUserId: v })}
+              options={withInactiveLabel(settings.staffAll)}
+            />
+            <TextField label="Notes/comments search" value={draft.notes} onChange={(v) => patch({ notes: v })} />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="notice panel error" style={{ marginBottom: 16 }}>

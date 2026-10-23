@@ -62,7 +62,7 @@ export function getLastEditedInfo(entityType, ids) {
   if (!ids.length) return {};
   const placeholders = ids.map(() => '?').join(',');
   const rows = all(
-    `SELECT a.entity_id, a.changed_at, u.name AS changed_by
+    `SELECT a.entity_id, a.changed_at, a.changed_by_user_id, u.name AS changed_by
      FROM audit_log a
      LEFT JOIN users u ON u.id = a.changed_by_user_id
      WHERE a.entity_type = ? AND a.entity_id IN (${placeholders})
@@ -71,7 +71,10 @@ export function getLastEditedInfo(entityType, ids) {
   );
   const map = {};
   rows.forEach((r) => {
-    map[r.entity_id] = { at: r.changed_at, by: r.changed_by || '' };
+    // userId is additive (used by report filters to filter "Last Edited By"
+    // reliably by id rather than a name-string match) — every existing
+    // caller only ever reads `at`/`by`, so this changes nothing for them.
+    map[r.entity_id] = { at: r.changed_at, by: r.changed_by || '', userId: r.changed_by_user_id || null };
   });
   return map;
 }
