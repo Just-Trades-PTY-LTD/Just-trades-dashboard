@@ -174,6 +174,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       if (lookupResult.technicianId && !form.creditedTechnicianId) fill.creditedTechnicianId = lookupResult.technicianId;
       if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
       if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
+      if (lookupResult.suburb && !form.suburb) fill.suburb = lookupResult.suburb;
       if (Object.keys(fill).length) patch(fill);
     } else if (isUpsell) {
       // Deliberately never auto-fills Credited Technician — that's who made
@@ -411,6 +412,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           invoiceDate: form.invoiceDate,
           saleValueExGst: form.saleValueExGst,
           comments: form.comments,
+          suburb: form.suburb,
         };
         res = editing ? { entry: await api.tech.updateQuoteApprovedLater(editing.id, body) } : await api.tech.createQuoteApprovedLater(body);
       } else if (isUpsell) {
@@ -728,9 +730,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               invalid={invalidFields.has('lead')}
             />
           )}
-          {isUpsell && (
+          {(isExistingJob || isUpsell) && (
             <div className="field">
               <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
+              {isExistingJob && lookupResult?.found && lookupResult.suburb && form.suburb === lookupResult.suburb && (
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                  Auto-filled from the original Job Number above — still editable if it needs correcting.
+                </div>
+              )}
             </div>
           )}
         </div>

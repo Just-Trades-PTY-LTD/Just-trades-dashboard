@@ -235,9 +235,12 @@ function saleToEntry(s) {
     invoiceNumber: s.invoice_number,
     invoiceDate: s.invoice_date,
     saleValueExGst: s.sale_value_ex_gst,
-    // Only ever populated for an Upsell (its own, independently-editable
-    // copy of the original job's suburb) — blank for every other source,
-    // same convention as newJobNumber above.
+    // The raw, as-stored value — independently editable, auto-filled from
+    // the original job at entry time for both Quote Approved Later and
+    // Upsell. listTechEntries() below overwrites this with the fully
+    // resolved value (falling back to the linked job's own Suburb, then
+    // '') before returning entries, so every caller of listTechEntries sees
+    // the resolved value, never this raw one directly.
     suburb: s.suburb || '',
     comments: s.comments,
     createdByUserId: s.created_by_user_id,
@@ -425,6 +428,24 @@ export function listTechEntries({
       const key = normKey(newJobNumber);
       entries = entries.filter((e) => e.newJobNumber && normKey(e.newJobNumber) === key);
     }
+    // Resolves every non-job entry's Suburb the exact same way
+    // reports.js's resolveSuburb does: a deliberately saved value on the
+    // entry itself wins, falling back to the linked original job's own
+    // Suburb when the entry has none recorded, and to '' ("Unassigned")
+    // when neither is available. Mutates e.suburb in place so every
+    // consumer below (this filter, the free-text search, and the entries
+    // returned to the Job History table/Excel export) sees the one
+    // resolved value, never the raw stored column directly.
+    const isJobEntryKind = (e) => e.kind === 'new_job_no_sale' || e.kind === 'new_job_sale_made';
+    const originalJobCache = new Map();
+    entries.forEach((e) => {
+      if (isJobEntryKind(e) || e.suburb) return;
+      const key = normKey(e.jobNumber);
+      if (!key) return;
+      if (!originalJobCache.has(key)) originalJobCache.set(key, findOriginalJob(e.jobNumber));
+      const job = originalJobCache.get(key);
+      if (job?.suburb) e.suburb = job.suburb;
+    });
     if (suburb) {
       const key = normKey(suburb);
       entries = entries.filter((e) => normKey(e.suburb) === key);
@@ -894,11 +915,17 @@ export function createTechSalesRouter() {
         invoice_date: b.invoiceDate || '',
         sale_value_ex_gst: Number(b.saleValueExGst) || 0,
         comments: b.comments || '',
+        // Auto-filled from the ORIGINAL (knock-back) job — never the New Job
+        // Number, which has no job row of its own to carry a Suburb — but
+        // stays editable; an explicit value in the request always wins. See
+        // reports.js's resolveSuburb for how this stored value is used (and
+        // overridden by) the linked job's own Suburb in reporting.
+        suburb: b.suburb || matchedJob.suburb || '',
       };
       const { lastInsertRowid } = run(
         `INSERT INTO sales (job_id, job_number, new_job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
-          invoice_number, invoice_date, sale_value_ex_gst, comments, created_by_user_id)
-         VALUES (?, ?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id)
+         VALUES (?, ?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           matchedJob.id,
           saleValues.job_number,
@@ -911,6 +938,7 @@ export function createTechSalesRouter() {
           saleValues.invoice_date,
           saleValues.sale_value_ex_gst,
           saleValues.comments,
+          saleValues.suburb,
           req.user.id,
         ]
       );
@@ -995,11 +1023,16 @@ export function createTechSalesRouter() {
       invoice_date: b.invoiceDate ?? existing.invoice_date,
       sale_value_ex_gst: b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : existing.sale_value_ex_gst,
       comments: b.comments ?? existing.comments,
+      // A deliberately saved Suburb here is authoritative for this entry in
+      // reporting (see reports.js's resolveSuburb) — editable the same way
+      // as every other field, and this never touches the original job's own
+      // Suburb.
+      suburb: b.suburb ?? existing.suburb,
     };
     const dateLogged = b.dateLogged ?? existing.date_logged;
     run(
       `UPDATE sales SET job_number=?, new_job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
-        sale_value_ex_gst=?, comments=?, updated_at=datetime('now') WHERE id=?`,
+        sale_value_ex_gst=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
       [
         next.job_number,
         next.new_job_number,
@@ -1011,6 +1044,7 @@ export function createTechSalesRouter() {
         next.invoice_date,
         next.sale_value_ex_gst,
         next.comments,
+        next.suburb,
         req.params.id,
       ]
     );

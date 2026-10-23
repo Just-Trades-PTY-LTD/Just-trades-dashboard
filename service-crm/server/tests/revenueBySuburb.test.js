@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer } from './helpers.js';
-import { all as dbAll } from '../src/db/index.js';
+import { all as dbAll, run as dbRun } from '../src/db/index.js';
 
 // Technician & Sales Report → "Revenue by Suburb". See services/reports.js's
 // computeRevenueBySuburb()/drilldownTech's 'revenueBySuburb' case. Must
@@ -61,7 +61,7 @@ test('A sale made at the visit is attributed to its job\'s suburb', async () => 
   }
 });
 
-test('A Quote Approved Later sale is attributed to the ORIGINAL job\'s suburb, not its own (blank) column', async () => {
+test('A Quote Approved Later sale auto-fills its suburb from the ORIGINAL job at creation, and is attributed to it', async () => {
   const server = await startTestServer();
   try {
     const { plumbing, jobTypeId, knockbackReasonId, tech } = await setup(server);
@@ -84,16 +84,72 @@ test('A Quote Approved Later sale is attributed to the ORIGINAL job\'s suburb, n
       invoiceNumber: 'INV-RBS-APL',
       invoiceDate: '2026-05-10',
       saleValueExGst: 600,
+      // no suburb given — auto-filled from the matched original job
     });
 
     const sale = dbAll("SELECT suburb FROM sales WHERE invoice_number = 'INV-RBS-APL'")[0];
-    assert.equal(sale.suburb, '', "the sale's own suburb column is blank");
+    assert.equal(sale.suburb, 'Unley (5061)', "auto-filled from the original job at creation, same as Upsell");
 
     const data = (await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31')).data;
     const row = suburbRow(data, 'Unley (5061)');
     assert.ok(row, "found under the original job's suburb");
     assert.equal(row.totalSalesValueExGst, 600);
     assert.equal(row.salesCount, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test('A Quote Approved Later sale with no stored suburb (a legacy record) still resolves via the ORIGINAL job, without rewriting the row', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, knockbackReasonId, tech } = await setup(server);
+    await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_no_sale', visitDate: '2026-05-01', technicianId: tech.id, jobNumber: 'JN-RBS-LEGACY',
+      tradeId: plumbing.id, jobTypeId, lead: 'Qualified', knockbackReasonId, suburb: 'Prospect (5082)',
+    });
+    const created = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-RBS-LEGACY', newJobNumber: 'AROFLO-RBS-LEGACY', dateLogged: '2026-05-10',
+      creditedTechnicianId: tech.id, invoiceNumber: 'INV-RBS-LEGACY', invoiceDate: '2026-05-10', saleValueExGst: 450,
+    });
+    // Simulate a legacy row saved before this field existed — blank stored
+    // suburb, never rewritten by this fix.
+    dbRun("UPDATE sales SET suburb = '' WHERE id = ?", [created.data.entry.id]);
+
+    const data = (await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31')).data;
+    const row = suburbRow(data, 'Prospect (5082)');
+    assert.ok(row, "resolves via the linked original job despite the blank stored column");
+    assert.equal(row.totalSalesValueExGst, 450);
+
+    const sale = dbAll('SELECT suburb FROM sales WHERE id = ?', [created.data.entry.id])[0];
+    assert.equal(sale.suburb, '', 'the stored row itself is never backfilled just by reading a report');
+  } finally {
+    server.close();
+  }
+});
+
+test('A deliberately saved suburb on a Quote Approved Later sale overrides the original job\'s suburb for that sale\'s own attribution', async () => {
+  const server = await startTestServer();
+  try {
+    const { plumbing, jobTypeId, knockbackReasonId, tech } = await setup(server);
+    await server.request('POST', '/tech/new-job', {
+      kind: 'new_job_no_sale', visitDate: '2026-05-01', technicianId: tech.id, jobNumber: 'JN-RBS-OVERRIDE',
+      tradeId: plumbing.id, jobTypeId, lead: 'Qualified', knockbackReasonId, suburb: 'Kensington (5068)',
+    });
+    const created = await server.request('POST', '/tech/quote-approved-later', {
+      jobNumber: 'JN-RBS-OVERRIDE', newJobNumber: 'AROFLO-RBS-OVERRIDE', dateLogged: '2026-05-10',
+      creditedTechnicianId: tech.id, invoiceNumber: 'INV-RBS-OVERRIDE', invoiceDate: '2026-05-10', saleValueExGst: 700,
+      suburb: 'Corrected Suburb (5099)',
+    });
+    assert.equal(created.data.entry.suburb, 'Corrected Suburb (5099)');
+
+    const data = (await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31')).data;
+    assert.ok(suburbRow(data, 'Corrected Suburb (5099)'), 'attributed under the deliberately saved suburb');
+    assert.equal(suburbRow(data, 'Kensington (5068)'), undefined, 'never also attributed under the original job\'s own suburb');
+
+    // The original job itself is never touched.
+    const job = dbAll("SELECT suburb FROM jobs WHERE job_number = 'JN-RBS-OVERRIDE'")[0];
+    assert.equal(job.suburb, 'Kensington (5068)', "the original job's own suburb is unchanged");
   } finally {
     server.close();
   }

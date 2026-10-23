@@ -695,13 +695,16 @@ function matchesJobLevelFilters(job, { leadQualification, saleMade, knockback, c
 }
 
 // Suburb has no column of its own on call_backs/pending_cancellations at
-// all, and on a non-Upsell sale it's always blank (only an Upsell entry
-// copies it in at creation — see schema.sql) — so for every one of these
-// four row types, Suburb is always resolved via the one original job, never
-// the row's own (sometimes blank, sometimes absent) column. A job resolves
-// its own Suburb directly; nothing to look up.
+// all; on a sale (Quote Approved Later or Upsell) it's an independently-
+// editable copy, auto-filled from the original job at entry time but never
+// re-derived afterwards — a deliberately saved value on the row always wins
+// (it's the one the staff member actually confirmed), falling back to the
+// linked original job's own Suburb only when the row has none recorded, and
+// to '' ("Unassigned") when neither is available. A job resolves its own
+// Suburb directly; nothing to look up.
 function resolveSuburb(row, isJob, resolveOriginalJob) {
   if (isJob) return row.suburb;
+  if (row.suburb) return row.suburb;
   const job = resolveOriginalJob(row.job_number);
   return job ? job.suburb : '';
 }
