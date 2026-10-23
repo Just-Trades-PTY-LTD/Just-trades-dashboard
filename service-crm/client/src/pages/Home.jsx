@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
 export default function Home({ setModule, isAdmin }) {
-  const [counts, setCounts] = useState({ calls: null, jobs: null, activeFollowUps: null });
+  const [counts, setCounts] = useState({ calls: null, jobs: null, activeFollowUps: null, reviews: null });
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.calls.list({}), api.tech.entries({}), api.followUps.list({ status: 'active' })]).then(
-      ([calls, entries, followUps]) => {
-        if (alive) setCounts({ calls: calls.length, jobs: entries.length, activeFollowUps: followUps.entries.length });
+    Promise.all([api.calls.list({}), api.tech.entries({}), api.followUps.list({ status: 'active' }), api.reviews.list()]).then(
+      ([calls, entries, followUps, reviews]) => {
+        if (alive) setCounts({ calls: calls.length, jobs: entries.length, activeFollowUps: followUps.entries.length, reviews: reviews.length });
       }
     );
     return () => {
@@ -37,6 +37,12 @@ export default function Home({ setModule, isAdmin }) {
         counts.activeFollowUps === null
           ? 'View active follow-ups'
           : `${counts.activeFollowUps} active follow-up${counts.activeFollowUps === 1 ? '' : 's'}`,
+    },
+    {
+      id: 'reviews',
+      title: 'Reviews',
+      desc: 'Log new Google reviews, browse Review History, and see review performance in Reports.',
+      stat: counts.reviews === null ? 'Loading…' : `${counts.reviews} review${counts.reviews === 1 ? '' : 's'} logged`,
     },
     {
       id: 'reports',
