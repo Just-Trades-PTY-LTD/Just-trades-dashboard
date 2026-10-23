@@ -360,6 +360,32 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     { key: 'count', label: 'Sales count' },
   ], data.trend);
 
+  // Revenue by Suburb — same figures, same suburb-of-the-original-job
+  // attribution as the on-screen section (see services/reports.js's
+  // computeRevenueBySuburb), so the Total row here always sums to exactly
+  // this workbook's own Total sale value (ex GST) above.
+  const revenueBySuburb = wb.addWorksheet('Revenue by Suburb');
+  addTitleBlock(revenueBySuburb, 'Technician & Sales Report — Revenue by Suburb', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
+  const suburbTotal = data.revenueBySuburb.reduce(
+    (acc, r) => ({
+      suburb: 'Total',
+      totalSalesValueExGst: acc.totalSalesValueExGst + r.totalSalesValueExGst,
+      salesCount: acc.salesCount + r.salesCount,
+    }),
+    { suburb: 'Total', totalSalesValueExGst: 0, salesCount: 0 }
+  );
+  suburbTotal.averageSaleValue = suburbTotal.salesCount ? suburbTotal.totalSalesValueExGst / suburbTotal.salesCount : 0;
+  addDataTable(
+    revenueBySuburb,
+    [
+      { key: 'suburb', label: 'Suburb', width: 26 },
+      { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
+      { key: 'salesCount', label: 'Number of Sales' },
+      { key: 'averageSaleValue', label: 'Average Sale Value', value: (r) => money(r.averageSaleValue), numFmt: CURRENCY_FORMAT, width: 16 },
+    ],
+    [...data.revenueBySuburb, suburbTotal]
+  );
+
   // Knockback Reasons tracker — its own two sheets, built from
   // knockbackReasonsFilters/knockbackReasonsData. Only Trade/Reason
   // (kf.tradeId/kf.reasonId) are this box's own filters; its date range AND

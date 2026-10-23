@@ -125,7 +125,13 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount } = data;
+  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb } = data;
+
+  const REVENUE_BY_SUBURB_COLUMNS = [
+    ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => `${money(r.totalSalesValueExGst)}`],
+    ['salesCount', 'Number of Sales', (r) => r.salesCount],
+    ['averageSaleValue', 'Average Sale Value', (r) => `${money(r.averageSaleValue)}`],
+  ];
 
   // Converted Later bonus adjustment — computed fresh on every
   // report run from the underlying jobs/sales (see services/reports.js).
@@ -601,6 +607,50 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
               </table>
             </div>
           )}
+        </AdjustableSection>
+
+        <AdjustableSection id="revenueBySuburb" title="Revenue by Suburb" defaultSize="lg" layout={layout}>
+          {(cfg) =>
+            revenueBySuburb.length === 0 ? (
+              <div className="empty-state">No sales in this range yet.</div>
+            ) : (
+              <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Suburb</th>
+                      {REVENUE_BY_SUBURB_COLUMNS.map(([key, label]) => (
+                        <th key={key}>{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {revenueBySuburb.map((r) => (
+                      <tr key={r.suburb}>
+                        <td
+                          className="clickable-stat"
+                          onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: 'totalSalesValue' })}
+                          title={`View the records behind ${r.suburb}`}
+                        >
+                          {r.suburb}
+                        </td>
+                        {REVENUE_BY_SUBURB_COLUMNS.map(([key, label, render]) => (
+                          <td
+                            key={key}
+                            className="clickable-stat"
+                            onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: key })}
+                            title={`View the records behind ${r.suburb} — ${label}`}
+                          >
+                            {render(r)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
         </AdjustableSection>
 
         <KnockbackReasonsTracker

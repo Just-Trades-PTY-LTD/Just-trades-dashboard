@@ -108,8 +108,8 @@ export default function CallsReport({ jumpToJN, drilldown, setDrilldown }) {
     ['leadToBookingPct', 'Lead-to-Booking %', (r) => `${r.leadToBookingPct}%`],
     ['bookedToSalePct', 'Booked-to-Sale %', (r) => `${r.bookedToSalePct}%`],
     ['overallLeadToSalePct', 'Overall Lead-to-Sale %', (r) => `${r.overallLeadToSalePct}%`],
-    ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => `$${money(r.totalSalesValueExGst)}`],
-    ['averageSaleValue', 'Average Sale Value', (r) => `$${money(r.averageSaleValue)}`],
+    ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => `${money(r.totalSalesValueExGst)}`],
+    ['averageSaleValue', 'Average Sale Value', (r) => `${money(r.averageSaleValue)}`],
   ];
 
   const kpiRows = [

@@ -106,6 +106,7 @@ test('technician & sales report Excel export produces a workbook with Summary, B
       'By trade',
       'By technician',
       'Charts data',
+      'Revenue by Suburb',
       'Knockback Reasons Summary',
       'Knockback Records',
     ]);

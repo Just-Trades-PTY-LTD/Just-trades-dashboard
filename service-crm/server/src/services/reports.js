@@ -1214,6 +1214,39 @@ function computeMetrics(jobs, sales, callbacks, pendingCancels, upsells = []) {
   };
 }
 
+function suburbLabel(v) {
+  return v || 'Unassigned';
+}
+
+// Groups this report's own (already fully filtered) sales/upsells by the
+// suburb of each one's original job — the exact same resolution already
+// used by the Suburb filter (see resolveSuburb/makeOriginalJobResolver
+// above), so the result can never drift from what that filter would find.
+// `totalSalesValueExGst` includes Upsell value (matching company.
+// totalSaleExGst exactly, so the sum across every suburb here reconciles
+// with that KPI); `salesCount`/`averageSaleValue` are original (non-upsell)
+// sales only, matching company.sales/avgSaleExGst's own population — the
+// same asymmetry the main report's own Value/Sales figures already have.
+function computeRevenueBySuburb(salesAll, upsellsAll) {
+  const resolveOriginalJob = makeOriginalJobResolver();
+  const byCategory = new Map();
+  function bucket(suburb) {
+    if (!byCategory.has(suburb)) byCategory.set(suburb, { suburb, totalSalesValueExGst: 0, salesCount: 0 });
+    return byCategory.get(suburb);
+  }
+  salesAll.forEach((s) => {
+    const b = bucket(suburbLabel(resolveSuburb(s, false, resolveOriginalJob)));
+    b.totalSalesValueExGst += num(s.sale_value_ex_gst);
+    b.salesCount += 1;
+  });
+  upsellsAll.forEach((u) => {
+    bucket(suburbLabel(resolveSuburb(u, false, resolveOriginalJob))).totalSalesValueExGst += num(u.sale_value_ex_gst);
+  });
+  return Array.from(byCategory.values())
+    .map((r) => ({ ...r, averageSaleValue: r.salesCount ? r.totalSalesValueExGst / r.salesCount : 0 }))
+    .sort((a, b) => b.totalSalesValueExGst - a.totalSalesValueExGst || a.suburb.localeCompare(b.suburb));
+}
+
 export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week', ...restFilters } = {}) {
   const filters = { from, to, technicianId, tradeId, jobTypeId, ...restFilters };
   const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, includedPopulations } = fetchTechRaw(filters);
@@ -1334,7 +1367,9 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
   });
   const trend = Object.values(trendMap).sort((a, b) => a.period.localeCompare(b.period));
 
-  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, includedPopulations };
+  const revenueBySuburb = computeRevenueBySuburb(salesAll, upsellsAll);
+
+  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, includedPopulations, revenueBySuburb };
 }
 
 // A legacy job saved before Reason for Knockback was ever required — shown
@@ -1558,9 +1593,28 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
 // "By technician" table row, matching how that row's own figures are
 // computed in computeTechReport() above. Returns null for a metric this
 // report has no accurate record-level answer for.
-export function drilldownTech({ metric, category, series, scopeTrade, scopeTechnician, ...filters }) {
+export function drilldownTech({ metric, category, series, scopeTrade, scopeTechnician, field, ...filters }) {
   const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
 
+  if (metric === 'revenueBySuburb') {
+    const resolveOriginalJob = makeOriginalJobResolver();
+    const matchesCategory = (row) => suburbLabel(resolveSuburb(row, false, resolveOriginalJob)) === category;
+    const matchingSales = salesAll.filter(matchesCategory);
+    const matchingUpsells = upsellsAll.filter(matchesCategory);
+    // Number of Sales / Average Sale Value are built from original (non-
+    // Upsell) sales only — same population as Sales (invoices)/Average Sale
+    // on the main report — so their drill-down shows only those records.
+    // Total Sales Value (ex GST) includes Upsell value, so its drill-down
+    // shows both, exactly matching what was summed.
+    if (field === 'salesCount' || field === 'averageSaleValue') {
+      const labels = { salesCount: 'Number of Sales', averageSaleValue: 'Average Sale Value' };
+      return { rows: tagSales(matchingSales), label: `${category} — ${labels[field]}` };
+    }
+    return {
+      rows: [...tagSales(matchingSales), ...tagUpsells(matchingUpsells)],
+      label: `${category} — Total Sales Value (ex GST)`,
+    };
+  }
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see
     // computeTechReport's salesByTradePie) — its drill-down shows both.
