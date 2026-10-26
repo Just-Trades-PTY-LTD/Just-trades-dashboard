@@ -129,6 +129,13 @@ export const api = {
     users: () => request('GET', '/aroflo-test/users'),
     scheduleZones: () => request('GET', '/aroflo-test/schedule-zones'),
   },
+  aroflo: {
+    // The real New Job form's lookup — a clean summary, not the admin-only
+    // test page's raw data. Always resolves (never throws): a problem of any
+    // kind comes back as { found: false, message }, never an HTTP error, so
+    // it never blocks manual entry.
+    lookup: (jn) => request('GET', `/aroflo/lookup${qs({ jn })}`),
+  },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',
     techCsvUrl: () => '/api/export/tech-entries.csv',

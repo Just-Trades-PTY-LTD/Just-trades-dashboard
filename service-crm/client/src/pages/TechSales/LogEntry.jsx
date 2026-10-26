@@ -109,10 +109,18 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
   const [invalidFields, setInvalidFields] = useState(new Set());
+  // New Job only: the last "Look up in AroFlo" result, and what Suburb held
+  // immediately before it was applied — purely so a conflicting call-based
+  // suburb can still be shown for reference, never to revert the field.
+  const [arofloResult, setArofloResult] = useState(null);
+  const [arofloLoading, setArofloLoading] = useState(false);
+  const [priorSuburb, setPriorSuburb] = useState('');
 
   useEffect(() => {
     setForm(editing ? fromEntry(editing) : emptyForm());
     setInvalidFields(new Set());
+    setArofloResult(null);
+    setPriorSuburb('');
   }, [editing]);
 
   function patch(p) {
@@ -246,6 +254,50 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   function changeEntryType(kind) {
     setForm(emptyForm(kind));
     setInvalidFields(new Set());
+  }
+
+  // New Job only — a deliberate, optional lookup. Suburb is the one field
+  // applied immediately on a confident match (the click itself is the
+  // deliberate action that authorises it), because AroFlo's own job address
+  // is what actually sends a technician to a location, making it the more
+  // trustworthy of the two sources when it disagrees with a call-based
+  // guess. Whatever Suburb held before is kept (priorSuburb) purely to show
+  // as a reference if it conflicts, never to revert the field. Comments
+  // fills in only if still blank. Everything else (Task Type, invoices, a
+  // Pending job's scheduled return) is shown for the user to apply
+  // themselves — never silently attached.
+  async function runArofloLookup() {
+    if (!form.jobNumber.trim()) return;
+    setArofloLoading(true);
+    setArofloResult(null);
+    try {
+      const result = await api.aroflo.lookup(form.jobNumber.trim());
+      setArofloResult(result);
+      if (result.found) {
+        setPriorSuburb(form.suburb);
+        const fill = {};
+        if (result.suburb) fill.suburb = result.suburb;
+        if (result.description && !form.comments) fill.comments = result.description;
+        if (Object.keys(fill).length) patch(fill);
+      }
+    } catch (err) {
+      setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
+    } finally {
+      setArofloLoading(false);
+    }
+  }
+
+  function applyArofloInvoice(inv) {
+    patch({ invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate || form.invoiceDate, saleValueExGst: inv.saleValueExGst });
+  }
+
+  function applyArofloSchedule() {
+    if (!arofloResult?.scheduled) return;
+    patch({
+      workCompletion: 'Install scheduled — different day',
+      installTechnicianId: arofloResult.scheduled.matchedTechnicianId || form.installTechnicianId,
+      installDate: arofloResult.scheduled.date || form.installDate,
+    });
   }
 
   // Returns { missing: string[], fields: Set<string> } — every required
@@ -640,6 +692,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Job number (JN) *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <button
+              className="btn"
+              type="button"
+              disabled={!form.jobNumber.trim() || arofloLoading}
+              onClick={runArofloLookup}
+              style={{ marginTop: 6, width: '100%' }}
+            >
+              {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
+            </button>
             {newJobDuplicateCheck?.found && (
               <div className="lookup-box lookup-missing">
                 Job Number {form.jobNumber} already exists (visit {newJobDuplicateCheck.visitDate}
@@ -650,12 +711,77 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           </div>
           <div className="field">
             <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
-            {callLookup?.found && callLookup.suburb && form.suburb === callLookup.suburb && (
+            {arofloResult?.found && arofloResult.suburb && form.suburb === arofloResult.suburb && (
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                Auto-filled from AroFlo's job address — still editable if it needs correcting.
+                {priorSuburb && priorSuburb !== arofloResult.suburb && ` (A Calls & Contacts record for this Job Number suggested "${priorSuburb}" instead.)`}
+              </div>
+            )}
+            {(!arofloResult?.suburb) && callLookup?.found && callLookup.suburb && form.suburb === callLookup.suburb && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
                 Auto-filled from the matching Calls &amp; Contacts record for this Job Number — still editable if it needs correcting.
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {isNewJob && arofloResult && (
+        <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>AroFlo</div>
+          {!arofloResult.found ? (
+            <div style={{ fontSize: 12.5, color: 'var(--ink-muted)' }}>{arofloResult.message}</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-muted)', marginBottom: 8 }}>
+                AroFlo status: {arofloResult.status || '—'}
+                {arofloResult.taskType && <> · AroFlo task type: {arofloResult.taskType}</>}
+              </div>
+              {arofloResult.invoices.length > 0 && isSaleMade && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Invoice(s) found — select one to use, or enter manually</div>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Date</th>
+                        <th>Value ex GST</th>
+                        <th>Status</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {arofloResult.invoices.map((inv) => (
+                        <tr key={inv.invoiceNumber}>
+                          <td className="mono">{inv.invoiceNumber}</td>
+                          <td className="mono">{inv.invoiceDate}</td>
+                          <td>${inv.saleValueExGst}</td>
+                          <td>{inv.status}</td>
+                          <td>
+                            <button className="btn" type="button" onClick={() => applyArofloInvoice(inv)}>
+                              Use this
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {arofloResult.scheduled && isSaleMade && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+                  <span>
+                    AroFlo shows a scheduled return visit: <strong>{arofloResult.scheduled.technicianName}</strong> on{' '}
+                    <strong>{arofloResult.scheduled.date}</strong>
+                    {!arofloResult.scheduled.matchedTechnicianId && ' (no confident match to a technician on file — select one below)'}.
+                  </span>
+                  <button className="btn" type="button" onClick={applyArofloSchedule}>
+                    Use for install technician/date
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -891,6 +1017,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           onChange={(v) => patch({ comments: v })}
           invalid={invalidFields.has('comments')}
         />
+        {isNewJob && arofloResult?.found && arofloResult.description && form.comments === arofloResult.description && (
+          <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+            Started from AroFlo's own job description — still editable.
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

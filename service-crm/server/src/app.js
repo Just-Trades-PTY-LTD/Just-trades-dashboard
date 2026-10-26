@@ -21,6 +21,7 @@ import { createAuditRouter } from './routes/audit.js';
 import { createFollowUpsRouter } from './routes/followUps.js';
 import { createReviewsRouter } from './routes/reviews.js';
 import { createArofloTestRouter } from './routes/arofloTest.js';
+import { createArofloLookupRouter } from './routes/arofloLookup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.resolve(__dirname, '../../client/dist');
@@ -119,6 +120,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use('/api/follow-ups', createFollowUpsRouter());
   app.use('/api/reviews', createReviewsRouter());
   app.use('/api/aroflo-test', createArofloTestRouter());
+  app.use('/api/aroflo', createArofloLookupRouter());
 
   // In production this one server serves the built React app too, so the
   // trial site is a single deployable service. In local dev, client/dist
