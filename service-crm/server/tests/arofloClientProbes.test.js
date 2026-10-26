@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 process.env.AROFLO_PAT = 'test-token-should-never-appear-in-any-result';
 process.env.AROFLO_BASE_URL = 'http://mock.test/v2';
 
-const { listTaskTypes, listLocations, listAroFloUsers, probeTaskHistory, probeLocationDetail } = await import('../src/aroflo/client.js');
+const { listTaskTypes, listLocations, listAroFloUsers, listScheduleZones, probeTaskHistory, probeLocationDetail } = await import(
+  '../src/aroflo/client.js'
+);
 
 function stubFetch(handler) {
   const original = global.fetch;
@@ -78,13 +80,15 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
   });
   try {
     const results = await probeTaskHistory('BU-1', 'TASK-1');
-    assert.equal(results.length, 6, 'tries every candidate, not just the first');
+    assert.equal(results.length, 8, 'tries every candidate, including both scheduleZone guesses');
     const tried = results.map((r) => r.tried);
     assert.deepEqual(tried, [
       '/tasks/TASK-1/timesheets',
       '/timesheets',
       '/tasks/TASK-1/schedules',
       '/schedules',
+      "/schedules (scheduleZone='BU-1')",
+      "/schedules (scheduleZone='default')",
       '/tasks/TASK-1/history',
       '/tasks/TASK-1/activity',
     ]);
@@ -94,7 +98,42 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
     results
       .filter((r) => r.tried !== '/timesheets')
       .forEach((r) => assert.equal(r.available, false, `${r.tried} should be unavailable`));
-    assert.equal(seen.length, 6, 'ran sequentially, not fanned out in parallel beyond the six candidates');
+    assert.equal(seen.length, 8, 'ran sequentially, not fanned out in parallel beyond the eight candidates');
+  } finally {
+    restore();
+  }
+});
+
+test("probeTaskHistory's two scheduleZone guesses actually send distinct query params, even though they share the same path", async () => {
+  const seenQueries = [];
+  const restore = stubFetch(async (url) => {
+    if (url.pathname === '/v2/schedules') seenQueries.push(url.searchParams.get('scheduleZone'));
+    return jsonResponse(404, { error: 'not found' });
+  });
+  try {
+    await probeTaskHistory('BU-1', 'TASK-1');
+    // The plain /schedules attempt sends no scheduleZone at all; the two
+    // guesses that follow it do, with different values.
+    assert.deepEqual(seenQueries, [null, 'BU-1', 'default']);
+  } finally {
+    restore();
+  }
+});
+
+test('listScheduleZones tries each candidate zones endpoint and reports every result', async () => {
+  const restore = stubFetch(async (url) => {
+    if (url.pathname.endsWith('/zones')) return jsonResponse(200, { items: [{ id: 'Z1', name: 'Metro' }] });
+    return jsonResponse(404, { error: 'not found' });
+  });
+  try {
+    const results = await listScheduleZones('BU-1');
+    assert.deepEqual(
+      results.map((r) => r.tried),
+      ['/schedulezones', '/schedule-zones', '/zones']
+    );
+    assert.equal(results[0].available, false);
+    assert.equal(results[2].available, true);
+    assert.deepEqual(results[2].data, { items: [{ id: 'Z1', name: 'Metro' }] });
   } finally {
     restore();
   }

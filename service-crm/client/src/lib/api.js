@@ -127,6 +127,7 @@ export const api = {
     taskTypes: () => request('GET', '/aroflo-test/task-types'),
     locations: () => request('GET', '/aroflo-test/locations'),
     users: () => request('GET', '/aroflo-test/users'),
+    scheduleZones: () => request('GET', '/aroflo-test/schedule-zones'),
   },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',

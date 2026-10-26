@@ -12,6 +12,7 @@ import {
   listTaskTypes,
   listLocations,
   listAroFloUsers,
+  listScheduleZones,
 } from '../aroflo/client.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
@@ -158,6 +159,7 @@ export function createArofloTestRouter() {
   router.get('/task-types', (req, res) => listingRoute(req, res, listTaskTypes));
   router.get('/locations', (req, res) => listingRoute(req, res, listLocations));
   router.get('/users', (req, res) => listingRoute(req, res, listAroFloUsers));
+  router.get('/schedule-zones', (req, res) => listingRoute(req, res, listScheduleZones));
 
   return router;
 }

@@ -134,10 +134,13 @@ export async function getInvoicesForTask(businessUnitId, taskId) {
 // raw underlying error — same sanitization as arofloGet(), just returned
 // instead of thrown so the caller can show "not available on this account"
 // next to whatever did work.
-async function arofloProbe(path, params = {}) {
+// `label` is purely for display when more than one probe shares the same
+// `path` but with different params (e.g. several scheduleZone guesses
+// against /schedules) — the actual request always uses `path`+`params`.
+async function arofloProbe(path, params = {}, label = path) {
   try {
     const body = await arofloGet(path, params);
-    return { tried: path, available: true, data: body };
+    return { tried: label, available: true, data: body };
   } catch (err) {
     if (err instanceof ArofloNotConfiguredError) throw err; // not a probe-specific failure
     const status = err instanceof ArofloRequestError ? err.status : 0;
@@ -149,7 +152,7 @@ async function arofloProbe(path, params = {}) {
     // parameter this guess got wrong.
     const detail = err instanceof ArofloRequestError ? err.body : null;
     return {
-      tried: path,
+      tried: label,
       available: false,
       status,
       note: status === 404 ? 'endpoint not found on this account' : 'request failed',
@@ -165,19 +168,44 @@ async function arofloProbe(path, params = {}) {
 // naming convention already proven to work; a 404 is a normal, useful
 // result (it means that guess doesn't exist on this account), not a bug.
 export async function probeTaskHistory(businessUnitId, taskId) {
+  // A real account's own response to the plain /schedules guess named the
+  // exact field it wanted: "Please provide a value for the 'scheduleZone'
+  // field." Its valid values aren't known yet (see listScheduleZones below,
+  // the proper way to find out) — these two are only ever cheap, harmless
+  // guesses while that's unconfirmed, never a substitute for it.
   const candidates = [
     ['/tasks/' + encodeURIComponent(taskId) + '/timesheets', {}],
     ['/timesheets', { businessUnitId, taskId }],
     ['/tasks/' + encodeURIComponent(taskId) + '/schedules', {}],
     ['/schedules', { businessUnitId, taskId }],
+    ['/schedules', { businessUnitId, taskId, scheduleZone: businessUnitId }, "/schedules (scheduleZone='" + businessUnitId + "')"],
+    ['/schedules', { businessUnitId, taskId, scheduleZone: 'default' }, "/schedules (scheduleZone='default')"],
     ['/tasks/' + encodeURIComponent(taskId) + '/history', {}],
     ['/tasks/' + encodeURIComponent(taskId) + '/activity', {}],
   ];
   const results = [];
-  for (const [path, params] of candidates) {
+  for (const [path, params, label] of candidates) {
     // Sequential, not parallel — this is a small, deliberate, low-volume
     // investigation tool, not something that should ever hammer AroFlo's
     // API with a burst of speculative requests.
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await arofloProbe(path, params, label));
+  }
+  return results;
+}
+
+// Discovering valid scheduleZone values properly, rather than guessing —
+// tries a few plausible names for a zones listing endpoint. If any of these
+// comes back available, its data is the real list of valid scheduleZone
+// values to use above instead of the two blind guesses.
+export async function listScheduleZones(businessUnitId) {
+  const candidates = [
+    ['/schedulezones', { businessUnitId, limit: 100 }],
+    ['/schedule-zones', { businessUnitId, limit: 100 }],
+    ['/zones', { businessUnitId, limit: 100 }],
+  ];
+  const results = [];
+  for (const [path, params] of candidates) {
     // eslint-disable-next-line no-await-in-loop
     results.push(await arofloProbe(path, params));
   }

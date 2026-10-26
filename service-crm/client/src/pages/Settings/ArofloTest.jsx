@@ -98,6 +98,7 @@ export default function ArofloTest() {
   const [taskTypes, setTaskTypes] = useState(null);
   const [locations, setLocations] = useState(null);
   const [users, setUsers] = useState(null);
+  const [scheduleZones, setScheduleZones] = useState(null);
 
   async function runLookup() {
     const value = jn.trim();
@@ -157,11 +158,27 @@ export default function ArofloTest() {
           <button className="btn" type="button" onClick={() => runListing(api.arofloTest.users, setUsers)}>
             List all Users
           </button>
+          <button className="btn" type="button" onClick={() => runListing(api.arofloTest.scheduleZones, setScheduleZones)}>
+            List Schedule Zones
+          </button>
         </div>
       </div>
       <ListingPanel title="Task Types" state={taskTypes} />
       <ListingPanel title="Locations" state={locations} />
       <ListingPanel title="Users" state={users} />
+      {scheduleZones?.loading && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16, fontSize: 13, color: 'var(--ink-muted)' }}>Loading…</div>
+      )}
+      {scheduleZones?.error && (
+        <div className="panel" style={{ padding: 16, marginBottom: 16, color: 'var(--danger, #a3323a)' }}>{scheduleZones.error}</div>
+      )}
+      {scheduleZones?.data && (
+        <ProbeResultTable
+          title="Schedule Zones"
+          help="/schedules came back requiring a 'scheduleZone' value on a real job lookup — these are a few guesses at what endpoint might list the valid values to use there instead of blindly guessing one."
+          results={scheduleZones.data}
+        />
+      )}
 
       {error && (
         <div className="panel" style={{ padding: 16, marginBottom: 16, color: 'var(--danger, #a3323a)' }}>
