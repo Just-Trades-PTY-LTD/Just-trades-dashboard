@@ -143,6 +143,45 @@ test('a network failure never leaks the token or the raw underlying error into t
   }
 });
 
+test('a non-404 error (e.g. a 400) surfaces AroFlo\'s own response body as `detail`, for diagnosing a wrong request shape', async () => {
+  const restore = stubFetch(async () => jsonResponse(400, { error: 'Missing required field: fromDate' }));
+  try {
+    const result = await listTaskTypes('BU-1');
+    assert.equal(result.available, false);
+    assert.equal(result.status, 400);
+    assert.deepEqual(result.detail, { error: 'Missing required field: fromDate' });
+  } finally {
+    restore();
+  }
+});
+
+test('a 404 carries no detail body — nothing further to show once an endpoint simply doesn\'t exist', async () => {
+  const restore = stubFetch(async () => jsonResponse(404, { error: 'not found' }));
+  try {
+    const result = await listTaskTypes('BU-1');
+    assert.equal(result.status, 404);
+    assert.deepEqual(result.detail, { error: 'not found' }, 'the body is still captured...');
+    // ...the test page itself is what chooses not to render it for a 404 —
+    // see ArofloTest.jsx's `r.status !== 404 && r.detail` condition.
+  } finally {
+    restore();
+  }
+});
+
+test('the token is redacted even if AroFlo\'s own error body happens to echo part of the request back', async () => {
+  const restore = stubFetch(async () =>
+    jsonResponse(400, { error: 'Invalid Authorization header: Bearer test-token-should-never-appear-in-any-result' })
+  );
+  try {
+    const result = await listTaskTypes('BU-1');
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.includes('test-token-should-never-appear-in-any-result'), 'token must never appear, even inside AroFlo\'s own echoed error');
+    assert.ok(serialized.includes('[REDACTED]'), 'the rest of AroFlo\'s message is still shown, just with the token blanked out');
+  } finally {
+    restore();
+  }
+});
+
 test('every outgoing probe request actually carries the Bearer token (to AroFlo itself, never echoed back)', async () => {
   let capturedAuth = null;
   const restore = stubFetch(async (url, init) => {

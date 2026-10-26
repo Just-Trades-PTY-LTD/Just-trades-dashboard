@@ -9,9 +9,33 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 export class ArofloNotConfiguredError extends Error {}
 export class ArofloRequestError extends Error {
-  constructor(message, status) {
+  constructor(message, status, body) {
     super(message);
     this.status = status;
+    // AroFlo's own error response body, if any and if it parsed as JSON —
+    // e.g. a validation message explaining exactly what a 400 wants. Only
+    // ever AroFlo's own text, but still redacted below as a hard guarantee
+    // our own token can never appear in it (e.g. if AroFlo ever echoed back
+    // part of the request in a diagnostic message).
+    this.body = body ?? null;
+  }
+}
+
+// Defence in depth: strips the literal token value out of anything before it
+// can reach a log, a thrown error, or this test page — even AroFlo's own
+// response body, on the off chance it ever echoed part of the request back
+// in a diagnostic message.
+function redactToken(value) {
+  if (value === null || value === undefined) return value;
+  const token = config.aroflo.apiToken;
+  if (!token) return value;
+  const serialized = JSON.stringify(value);
+  if (!serialized.includes(token)) return value;
+  const redacted = serialized.split(token).join('[REDACTED]');
+  try {
+    return JSON.parse(redacted);
+  } catch {
+    return redacted;
   }
 }
 
@@ -53,7 +77,7 @@ async function arofloGet(path, params = {}) {
   }
 
   if (!res.ok) {
-    throw new ArofloRequestError(`AroFlo returned an error (${res.status}).`, res.status);
+    throw new ArofloRequestError(`AroFlo returned an error (${res.status}).`, res.status, redactToken(body));
   }
   return body;
 }
@@ -117,7 +141,20 @@ async function arofloProbe(path, params = {}) {
   } catch (err) {
     if (err instanceof ArofloNotConfiguredError) throw err; // not a probe-specific failure
     const status = err instanceof ArofloRequestError ? err.status : 0;
-    return { tried: path, available: false, status, note: status === 404 ? 'endpoint not found on this account' : 'request failed' };
+    // A 404 means the endpoint name itself doesn't exist here — nothing more
+    // to learn. Any other status (e.g. a 400) means AroFlo recognised the
+    // path but rejected this request shape, so AroFlo's own response body
+    // (already redacted of the token in arofloGet) is worth surfacing
+    // verbatim — it's often a validation message naming the actual
+    // parameter this guess got wrong.
+    const detail = err instanceof ArofloRequestError ? err.body : null;
+    return {
+      tried: path,
+      available: false,
+      status,
+      note: status === 404 ? 'endpoint not found on this account' : 'request failed',
+      detail,
+    };
   }
 }
 

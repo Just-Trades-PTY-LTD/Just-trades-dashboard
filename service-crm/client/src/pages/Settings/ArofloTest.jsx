@@ -34,9 +34,20 @@ function ProbeResultTable({ title, help, results }) {
                       {JSON.stringify(r.data, null, 2)}
                     </pre>
                   ) : (
-                    <span style={{ color: 'var(--ink-muted)' }}>
-                      not available{r.status ? ` (HTTP ${r.status})` : ''} — {r.note}
-                    </span>
+                    <div>
+                      <span style={{ color: 'var(--ink-muted)' }}>
+                        not available{r.status ? ` (HTTP ${r.status})` : ''} — {r.note}
+                      </span>
+                      {/* A 404 means the path doesn't exist — nothing further to show.
+                          Anything else (e.g. a 400) means AroFlo recognised the endpoint
+                          but rejected this request shape — its own response often says
+                          exactly what parameter it wanted instead. */}
+                      {r.status !== 404 && r.detail && (
+                        <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '6px 0 0' }}>
+                          {JSON.stringify(r.detail, null, 2)}
+                        </pre>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>
@@ -63,8 +74,15 @@ function ListingPanel({ title, state }) {
             {JSON.stringify(state.data.data, null, 2)}
           </pre>
         ) : (
-          <div style={{ color: 'var(--ink-muted)' }}>
-            Not available on this account{state.data.status ? ` (HTTP ${state.data.status})` : ''} — {state.data.note}
+          <div>
+            <div style={{ color: 'var(--ink-muted)' }}>
+              Not available on this account{state.data.status ? ` (HTTP ${state.data.status})` : ''} — {state.data.note}
+            </div>
+            {state.data.status !== 404 && state.data.detail && (
+              <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '6px 0 0' }}>
+                {JSON.stringify(state.data.detail, null, 2)}
+              </pre>
+            )}
           </div>
         )
       )}
