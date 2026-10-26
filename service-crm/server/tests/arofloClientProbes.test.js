@@ -87,8 +87,8 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
       '/timesheets',
       '/tasks/TASK-1/schedules',
       '/schedules',
-      "/schedules (scheduleZone='BU-1')",
-      "/schedules (scheduleZone='default')",
+      "/schedules (scheduleZone='TASK')",
+      "/schedules (scheduleZone='USER')",
       '/tasks/TASK-1/history',
       '/tasks/TASK-1/activity',
     ]);
@@ -104,17 +104,23 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
   }
 });
 
-test("probeTaskHistory's two scheduleZone guesses actually send distinct query params, even though they share the same path", async () => {
+test("probeTaskHistory's two scheduleZone attempts send the confirmed TASK/USER enum values, alongside the existing taskId", async () => {
   const seenQueries = [];
   const restore = stubFetch(async (url) => {
-    if (url.pathname === '/v2/schedules') seenQueries.push(url.searchParams.get('scheduleZone'));
+    if (url.pathname === '/v2/schedules') {
+      seenQueries.push({ scheduleZone: url.searchParams.get('scheduleZone'), taskId: url.searchParams.get('taskId') });
+    }
     return jsonResponse(404, { error: 'not found' });
   });
   try {
     await probeTaskHistory('BU-1', 'TASK-1');
     // The plain /schedules attempt sends no scheduleZone at all; the two
-    // guesses that follow it do, with different values.
-    assert.deepEqual(seenQueries, [null, 'BU-1', 'default']);
+    // informed attempts that follow it do, both still carrying taskId.
+    assert.deepEqual(seenQueries, [
+      { scheduleZone: null, taskId: 'TASK-1' },
+      { scheduleZone: 'TASK', taskId: 'TASK-1' },
+      { scheduleZone: 'USER', taskId: 'TASK-1' },
+    ]);
   } finally {
     restore();
   }

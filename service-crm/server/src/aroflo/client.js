@@ -169,17 +169,20 @@ async function arofloProbe(path, params = {}, label = path) {
 // result (it means that guess doesn't exist on this account), not a bug.
 export async function probeTaskHistory(businessUnitId, taskId) {
   // A real account's own response to the plain /schedules guess named the
-  // exact field it wanted: "Please provide a value for the 'scheduleZone'
-  // field." Its valid values aren't known yet (see listScheduleZones below,
-  // the proper way to find out) — these two are only ever cheap, harmless
-  // guesses while that's unconfirmed, never a substitute for it.
+  // exact field it wanted, then named its valid values once a wrong one was
+  // tried: "Invalid scheduleZone. Valid values are: TASK, USER." So this
+  // isn't a geographic/dispatch zone at all — it's a scope selector (query
+  // by task vs. by user). TASK is the informed attempt here, since a taskId
+  // is already in hand; USER is tried too purely to see what AroFlo names
+  // as the missing user-identifying parameter, for a future per-technician
+  // lookup — not because it's expected to succeed without one.
   const candidates = [
     ['/tasks/' + encodeURIComponent(taskId) + '/timesheets', {}],
     ['/timesheets', { businessUnitId, taskId }],
     ['/tasks/' + encodeURIComponent(taskId) + '/schedules', {}],
     ['/schedules', { businessUnitId, taskId }],
-    ['/schedules', { businessUnitId, taskId, scheduleZone: businessUnitId }, "/schedules (scheduleZone='" + businessUnitId + "')"],
-    ['/schedules', { businessUnitId, taskId, scheduleZone: 'default' }, "/schedules (scheduleZone='default')"],
+    ['/schedules', { businessUnitId, taskId, scheduleZone: 'TASK' }, "/schedules (scheduleZone='TASK')"],
+    ['/schedules', { businessUnitId, taskId, scheduleZone: 'USER' }, "/schedules (scheduleZone='USER')"],
     ['/tasks/' + encodeURIComponent(taskId) + '/history', {}],
     ['/tasks/' + encodeURIComponent(taskId) + '/activity', {}],
   ];
