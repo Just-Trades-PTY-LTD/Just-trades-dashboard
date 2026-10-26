@@ -10,9 +10,8 @@ import assert from 'node:assert/strict';
 process.env.AROFLO_PAT = 'test-token-should-never-appear-in-any-result';
 process.env.AROFLO_BASE_URL = 'http://mock.test/v2';
 
-const { listTaskTypes, listLocations, listAroFloUsers, listScheduleZones, probeTaskHistory, probeLocationDetail } = await import(
-  '../src/aroflo/client.js'
-);
+const { listTaskTypes, listLocations, listAroFloUsers, listScheduleZones, probeTaskHistory, probeLocationDetail, probeCustomFields } =
+  await import('../src/aroflo/client.js');
 
 function stubFetch(handler) {
   const original = global.fetch;
@@ -173,6 +172,36 @@ test('probeLocationDetail fetches the given id when present', async () => {
     const result = await probeLocationDetail('LOC-99');
     assert.equal(result.available, true);
     assert.deepEqual(result.data, { id: 'LOC-99', suburb: 'Blackwood', postcode: '5051' });
+  } finally {
+    restore();
+  }
+});
+
+test('probeCustomFields tries every candidate independently and reports each result', async () => {
+  const seen = [];
+  const restore = stubFetch(async (url) => {
+    seen.push(url.pathname + url.search);
+    if (url.pathname === '/v2/tasks/TASK-1' && url.searchParams.get('customfields') === '1') {
+      return jsonResponse(200, { id: 'TASK-1', customFields: { leadSource: 'Online Enquiry', occupant: 'Homeowner' } });
+    }
+    return jsonResponse(404, { error: 'not found' });
+  });
+  try {
+    const results = await probeCustomFields('BU-1', 'TASK-1');
+    assert.equal(results.length, 5, 'tries every candidate');
+    const tried = results.map((r) => r.tried);
+    assert.deepEqual(tried, [
+      '/tasks/{id} (includeCustomFields=1)',
+      '/tasks/{id} (customfields=1)',
+      '/tasks/TASK-1/customfields',
+      '/customfields',
+      '/customfields (no taskId — field definitions only)',
+    ]);
+    const hit = results.find((r) => r.tried === '/tasks/{id} (customfields=1)');
+    assert.equal(hit.available, true);
+    assert.deepEqual(hit.data.customFields, { leadSource: 'Online Enquiry', occupant: 'Homeowner' });
+    results.filter((r) => r.tried !== hit.tried).forEach((r) => assert.equal(r.available, false));
+    assert.equal(seen.length, 5, 'ran sequentially, not fanned out beyond the five candidates');
   } finally {
     restore();
   }

@@ -254,6 +254,13 @@ export default function ArofloTest() {
               results={result.investigation.locationDetail}
             />
           )}
+          {result.investigation?.customFields && (
+            <ProbeResultTable
+              title="Additional investigation — custom fields e.g. Lead Source (experimental)"
+              help="AroFlo's own task UI can show custom fields like 'Lead Source' and 'Occupant', but none have ever appeared in GET /tasks/{id}'s own response — these candidates try a few likely ways to request them instead. A 404 just means that guess isn't how this account's API is set up."
+              results={result.investigation.customFields}
+            />
+          )}
 
           <div className="panel" style={{ padding: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>Raw response</div>

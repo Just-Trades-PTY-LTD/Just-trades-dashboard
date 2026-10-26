@@ -233,6 +233,29 @@ export async function probeLocationDetail(locationId) {
   return arofloProbe('/locations/' + encodeURIComponent(locationId), {});
 }
 
+// Custom fields (e.g. "Lead Source", "Occupant") have shown up in AroFlo's
+// own task UI but never once in GET /tasks/{id}'s own response across every
+// job tested — so this is either a separate endpoint or needs an extra
+// parameter to include them, not a guess at a field name within the
+// existing payload. Every candidate here is a guess at how that might be
+// requested; a 404 is a normal, informative result, same as every other
+// probe in this file.
+export async function probeCustomFields(businessUnitId, taskId) {
+  const candidates = [
+    ['/tasks/' + encodeURIComponent(taskId), { includeCustomFields: 1 }, "/tasks/{id} (includeCustomFields=1)"],
+    ['/tasks/' + encodeURIComponent(taskId), { customfields: 1 }, '/tasks/{id} (customfields=1)'],
+    ['/tasks/' + encodeURIComponent(taskId) + '/customfields', {}],
+    ['/customfields', { businessUnitId, taskId }],
+    ['/customfields', { businessUnitId }, '/customfields (no taskId — field definitions only)'],
+  ];
+  const results = [];
+  for (const [path, params, label] of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await arofloProbe(path, params, label));
+  }
+  return results;
+}
+
 // ---- Business-unit-wide reference listings (for future Trade/Job Type and
 // Suburb mapping tables — never auto-applied, just surfaced for review) ----
 export async function listTaskTypes(businessUnitId) {

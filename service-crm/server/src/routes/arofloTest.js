@@ -9,6 +9,7 @@ import {
   getInvoicesForTask,
   probeTaskHistory,
   probeLocationDetail,
+  probeCustomFields,
   listTaskTypes,
   listLocations,
   listAroFloUsers,
@@ -110,15 +111,16 @@ export function createArofloTestRouter() {
       // failure. These never affect the `summary`/`raw` fields above, and a
       // problem with any of them never breaks the rest of this lookup.
       const locationId = detail.location?.id || detail.location?.locationId || null;
-      const [history, locationDetail] = await Promise.all([
+      const [history, locationDetail, customFields] = await Promise.all([
         probeTaskHistory(businessUnit.id, task.id),
         probeLocationDetail(locationId),
+        probeCustomFields(businessUnit.id, task.id),
       ]);
 
       res.json({
         found: true,
         summary: summarize(detail, invoices),
-        investigation: { history, locationDetail },
+        investigation: { history, locationDetail, customFields },
         raw: { task: detail, invoices },
       });
     } catch (err) {
