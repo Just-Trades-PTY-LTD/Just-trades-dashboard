@@ -13,10 +13,18 @@ import {
 // zero writes to AroFlo and zero writes to this CRM's own database — it only
 // looks a job number up in AroFlo and shows what comes back. Nothing here
 // touches the live New Job form, jobs/sales tables, or any existing report.
-function summarize(task, invoices) {
-  const assignedUsers = (task.resources || [])
-    .filter((r) => r.resourceType === 'USER' && r.status === 'ASSIGNED')
-    .map((r) => r.resource);
+//
+// Investigation update: this used to collapse technician/schedule/location
+// data into a few guessed fields (e.g. `assignedUsers` from task.resources
+// alone), which is how testing missed that a technician name was actually
+// sitting under task.schedule.resources instead. This now surfaces every
+// raw field from those three areas (task.resources, task.schedule,
+// task.location) AS-IS, under clearly separate names, rather than picking
+// one source and presenting it as "the" technician/suburb. None of this
+// decides or labels anything as the attending/selling technician — that
+// judgement call is deliberately left to whoever reads this test page, and
+// stays that way until a reliable rule is confirmed across real jobs.
+export function summarize(task, invoices) {
   return {
     arofloTaskId: task.id,
     jobNumber: task.jobNumber,
@@ -26,11 +34,31 @@ function summarize(task, invoices) {
     taskType: task.taskType?.name || null,
     suburb: task.location?.suburb || null,
     locationText: task.locationText || null,
+    // The full location object, whatever AroFlo sends (id, postcode, state,
+    // GPS, etc., if present) — `suburb` above is only ever one field of
+    // this, pulled out purely for convenience.
+    location: task.location || null,
     enteredBy: task.enteredBy || null,
     reportedBy: task.reportedBy || null,
     requestedDateTime: task.requestedDateTime || null,
     invoiced: task.invoiced ?? null,
-    assignedUsers,
+    // Raw, unfiltered task-level resource assignments. NOT necessarily who
+    // attended or sold the job — just whatever AroFlo returns here,
+    // including any id field alongside a name, exactly as sent.
+    taskResources: task.resources || [],
+    // The schedule block embedded on this task, in full and unmodified —
+    // covers resources/startTime/endTime and anything else AroFlo includes
+    // here. If a task ever carries more than one schedule/visit record,
+    // whatever shape AroFlo sends (object or array) appears here exactly as
+    // returned, nothing reshaped or picked out.
+    schedule: task.schedule || null,
+    // Pulled out individually purely for a quicker read in this summary
+    // table — never a different value than what's already inside `schedule`
+    // above, and never auto-labelled as the attending or selling
+    // technician: it's "scheduled", nothing more is assumed about it.
+    scheduleResources: task.schedule?.resources || [],
+    scheduleStartTime: task.schedule?.startTime || null,
+    scheduleEndTime: task.schedule?.endTime || null,
     invoiceCount: invoices.length,
     invoices: invoices.map((inv) => ({
       id: inv.id,
