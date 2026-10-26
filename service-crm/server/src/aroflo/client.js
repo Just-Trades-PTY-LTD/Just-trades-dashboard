@@ -101,3 +101,67 @@ export async function getInvoicesForTask(businessUnitId, taskId) {
   }
   return invoices;
 }
+
+// ---- Stage 1 investigation probes ----
+// Unlike arofloGet() above, these never throw on a 404/error — an
+// unconfirmed endpoint name is an expected, informative outcome here (it
+// tells us the guess was wrong), not a failure that should break the rest
+// of the lookup. Still GET-only, still never logs/exposes the token or the
+// raw underlying error — same sanitization as arofloGet(), just returned
+// instead of thrown so the caller can show "not available on this account"
+// next to whatever did work.
+async function arofloProbe(path, params = {}) {
+  try {
+    const body = await arofloGet(path, params);
+    return { tried: path, available: true, data: body };
+  } catch (err) {
+    if (err instanceof ArofloNotConfiguredError) throw err; // not a probe-specific failure
+    const status = err instanceof ArofloRequestError ? err.status : 0;
+    return { tried: path, available: false, status, note: status === 404 ? 'endpoint not found on this account' : 'request failed' };
+  }
+}
+
+// Candidate endpoints for information not available on GET /tasks/{id} once
+// a task is completed, or not confirmed to exist at all on this account's
+// APIv2 — see the Stage 1 test page's own comments for why each is being
+// tried. Every path here is a guess based on the task/invoice/businessunit
+// naming convention already proven to work; a 404 is a normal, useful
+// result (it means that guess doesn't exist on this account), not a bug.
+export async function probeTaskHistory(businessUnitId, taskId) {
+  const candidates = [
+    ['/tasks/' + encodeURIComponent(taskId) + '/timesheets', {}],
+    ['/timesheets', { businessUnitId, taskId }],
+    ['/tasks/' + encodeURIComponent(taskId) + '/schedules', {}],
+    ['/schedules', { businessUnitId, taskId }],
+    ['/tasks/' + encodeURIComponent(taskId) + '/history', {}],
+    ['/tasks/' + encodeURIComponent(taskId) + '/activity', {}],
+  ];
+  const results = [];
+  for (const [path, params] of candidates) {
+    // Sequential, not parallel — this is a small, deliberate, low-volume
+    // investigation tool, not something that should ever hammer AroFlo's
+    // API with a burst of speculative requests.
+    // eslint-disable-next-line no-await-in-loop
+    results.push(await arofloProbe(path, params));
+  }
+  return results;
+}
+
+export async function probeLocationDetail(locationId) {
+  if (!locationId) return null;
+  return arofloProbe('/locations/' + encodeURIComponent(locationId), {});
+}
+
+// ---- Business-unit-wide reference listings (for future Trade/Job Type and
+// Suburb mapping tables — never auto-applied, just surfaced for review) ----
+export async function listTaskTypes(businessUnitId) {
+  return arofloProbe('/tasktypes', { businessUnitId, limit: 100 });
+}
+
+export async function listLocations(businessUnitId) {
+  return arofloProbe('/locations', { businessUnitId, limit: 100 });
+}
+
+export async function listAroFloUsers(businessUnitId) {
+  return arofloProbe('/users', { businessUnitId, limit: 100 });
+}

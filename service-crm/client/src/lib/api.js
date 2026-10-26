@@ -124,6 +124,9 @@ export const api = {
   },
   arofloTest: {
     lookup: (jn) => request('GET', `/aroflo-test/lookup${qs({ jn })}`),
+    taskTypes: () => request('GET', '/aroflo-test/task-types'),
+    locations: () => request('GET', '/aroflo-test/locations'),
+    users: () => request('GET', '/aroflo-test/users'),
   },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',

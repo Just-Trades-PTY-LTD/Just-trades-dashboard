@@ -7,6 +7,11 @@ import {
   findTaskByJobNumber,
   getTaskDetail,
   getInvoicesForTask,
+  probeTaskHistory,
+  probeLocationDetail,
+  listTaskTypes,
+  listLocations,
+  listAroFloUsers,
 } from '../aroflo/client.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
@@ -96,9 +101,23 @@ export function createArofloTestRouter() {
         getInvoicesForTask(businessUnit.id, task.id),
       ]);
 
+      // Experimental, read-only probes for information GET /tasks/{id}
+      // doesn't reliably carry (historical attendance on a completed job,
+      // a structured location record). Each one either comes back with
+      // data or a clean "not available" result — see probeTaskHistory's own
+      // comment for why a 404 here is a normal, useful outcome, never a
+      // failure. These never affect the `summary`/`raw` fields above, and a
+      // problem with any of them never breaks the rest of this lookup.
+      const locationId = detail.location?.id || detail.location?.locationId || null;
+      const [history, locationDetail] = await Promise.all([
+        probeTaskHistory(businessUnit.id, task.id),
+        probeLocationDetail(locationId),
+      ]);
+
       res.json({
         found: true,
         summary: summarize(detail, invoices),
+        investigation: { history, locationDetail },
         raw: { task: detail, invoices },
       });
     } catch (err) {
@@ -113,6 +132,32 @@ export function createArofloTestRouter() {
       throw err;
     }
   });
+
+  // Business-unit-wide reference listings — not tied to one job number, for
+  // investigating the complete set of AroFlo Task Types (future Trade/Job
+  // Type mapping) and whether a structured Locations list exists at all.
+  // Same rules as /lookup: GET-only, admin-only, never writes anything,
+  // never surfaces the token. A probe that comes back unavailable (e.g. a
+  // 404) is a normal, informative result here, not an error state.
+  async function listingRoute(req, res, probeFn) {
+    try {
+      const businessUnits = await listBusinessUnits();
+      const businessUnit = businessUnits[0];
+      if (!businessUnit) {
+        return res.status(502).json({ error: 'AroFlo returned no business units for this account.' });
+      }
+      res.json(await probeFn(businessUnit.id));
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
+  }
+
+  router.get('/task-types', (req, res) => listingRoute(req, res, listTaskTypes));
+  router.get('/locations', (req, res) => listingRoute(req, res, listLocations));
+  router.get('/users', (req, res) => listingRoute(req, res, listAroFloUsers));
 
   return router;
 }
