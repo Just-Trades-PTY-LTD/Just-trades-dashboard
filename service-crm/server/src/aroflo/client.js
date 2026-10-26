@@ -95,17 +95,40 @@ export async function listBusinessUnits() {
 // There is no job-number filter on the list endpoint, so this pages through
 // every task (no status filter applied, so archived/older jobs are never
 // excluded up front) and scans client-side for an exact jobNumber match.
+// AroFlo's documented `sortBy=jobnumber` with `ascending=false` puts the
+// newest jobs first, so a recent JN is normally found on page 1 instead of
+// near the end — this matters because the account is capped at 5,000
+// requests a day. Once a page that really is in descending order ends
+// below the target, the target can't appear on any later page, so paging
+// stops there. That early stop is only taken when the page's own order
+// proves the sort was applied, so if AroFlo ever ignored sortBy this falls
+// back to the original full scan rather than missing a job.
 const MAX_LIST_PAGES = 25;
 const LIST_PAGE_SIZE = 100;
+
+function isDescendingByJobNumber(items) {
+  for (let i = 1; i < items.length; i += 1) {
+    if (Number(items[i].jobNumber) > Number(items[i - 1].jobNumber)) return false;
+  }
+  return true;
+}
 
 export async function findTaskByJobNumber(businessUnitId, jobNumber) {
   const target = Number(jobNumber);
   for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
-    const body = await arofloGet('/tasks', { businessUnitId, page, limit: LIST_PAGE_SIZE });
+    const body = await arofloGet('/tasks', {
+      businessUnitId,
+      sortBy: 'jobnumber',
+      ascending: 'false',
+      page,
+      limit: LIST_PAGE_SIZE,
+    });
     const items = body?.items || [];
     const match = items.find((item) => Number(item.jobNumber) === target);
     if (match) return match;
     if (items.length < LIST_PAGE_SIZE) break; // last page
+    const lowest = Number(items[items.length - 1].jobNumber);
+    if (lowest < target && isDescendingByJobNumber(items)) break; // already past it
   }
   return null;
 }
