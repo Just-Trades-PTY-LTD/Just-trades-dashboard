@@ -157,11 +157,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const newJobDuplicateCheck = useJobLookup(isNewJob && !editing ? form.jobNumber : '', 'job');
 
   // The earliest Calls & Contacts record sharing this Job Number — the
-  // linked/original booking, never a later, unrelated contact — used only to
-  // auto-populate a brand-new job's Suburb below. Runs on both create and
-  // edit (like the autofill effect just below), gated only by the form's own
-  // Suburb still being blank, so it never overwrites a value already set.
-  const callSuburbLookup = useJobLookup(isNewJob ? form.jobNumber : '', 'call');
+  // linked/original booking, never a later, unrelated contact — used to
+  // auto-populate a brand-new job's Suburb, Trade and Job Type below (staff
+  // already select Trade/Job Type when logging the call — an exact
+  // reference to this CRM's own lists, never a guess). Runs on both create
+  // and edit (like the autofill effect just below), gated only by each
+  // field still being blank, so it never overwrites a value already set.
+  const callLookup = useJobLookup(isNewJob ? form.jobNumber : '', 'call');
 
   // Silently autofill the credited technician, trade and job type from the
   // matched job/sale, the way the prototype's lookup effect did — filled in
@@ -213,15 +215,21 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callBackJobLookup, isCallBack]);
 
-  // Suburb: auto-populated from the matched call above, but only when there's
-  // actually a suburb on it to use — a matching call with none recorded (or
-  // no matching call at all) leaves this blank for manual selection instead,
-  // exactly as if nothing had matched.
+  // Suburb/Trade/Job Type: each auto-populated independently from the
+  // matched call above, only when there's actually a value on it to use and
+  // only into a field that's still blank — a matching call missing one of
+  // these (or no matching call at all) leaves that field blank for manual
+  // selection instead, exactly as if nothing had matched. Never overwrites a
+  // value already set, whether that came from the user or another autofill.
   useEffect(() => {
-    if (!isNewJob || !callSuburbLookup?.found || !callSuburbLookup.suburb || form.suburb) return;
-    patch({ suburb: callSuburbLookup.suburb });
+    if (!isNewJob || !callLookup?.found) return;
+    const fill = {};
+    if (callLookup.suburb && !form.suburb) fill.suburb = callLookup.suburb;
+    if (callLookup.tradeId && !form.tradeId) fill.tradeId = callLookup.tradeId;
+    if (callLookup.jobTypeId && !form.jobTypeId) fill.jobTypeId = callLookup.jobTypeId;
+    if (Object.keys(fill).length) patch(fill);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callSuburbLookup, isNewJob]);
+  }, [callLookup, isNewJob]);
 
   // Quote Follow-up trial — default the due date once, the first time the
   // checkbox is checked for this entry; never overwrites a value the staff
@@ -642,7 +650,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           </div>
           <div className="field">
             <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
-            {callSuburbLookup?.found && callSuburbLookup.suburb && form.suburb === callSuburbLookup.suburb && (
+            {callLookup?.found && callLookup.suburb && form.suburb === callLookup.suburb && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
                 Auto-filled from the matching Calls &amp; Contacts record for this Job Number — still editable if it needs correcting.
               </div>
@@ -721,6 +729,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             placeholder={form.tradeId ? '—' : 'Choose a trade first'}
             invalid={invalidFields.has('jobTypeId')}
           />
+          {isNewJob && callLookup?.found && (callLookup.tradeId === form.tradeId || callLookup.jobTypeId === form.jobTypeId) && (
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: -8 }}>
+              Trade/Job type auto-filled from the matching Calls &amp; Contacts record for this Job Number — still editable if it
+              needs correcting.
+            </div>
+          )}
           {isNewJob && (
             <SelectField
               label="Lead *"

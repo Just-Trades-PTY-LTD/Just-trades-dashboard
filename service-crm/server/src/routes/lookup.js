@@ -53,14 +53,25 @@ export function createLookupRouter() {
   });
 
   // The earliest Calls & Contacts record sharing this Job Number — used to
-  // auto-populate a brand-new job's Suburb. `found: true` just means a
-  // matching call exists; `suburb` can still legitimately be '' if that
-  // call never recorded one (the caller should treat that the same as no
-  // match — never fall through to a different, later call).
+  // auto-populate a brand-new job's Suburb, Trade and Job Type. `found: true`
+  // just means a matching call exists; any of these can still legitimately
+  // be blank/null if that call never recorded them (the caller should treat
+  // that the same as no match — never fall through to a different, later
+  // call, and never guess).
   router.get('/call', (req, res) => {
     const call = findOriginalBookingCall(req.query.jn || '');
     if (!call) return res.json({ found: false });
-    res.json({ found: true, suburb: call.suburb || '', callId: call.id, callAt: call.call_at });
+    res.json({
+      found: true,
+      suburb: call.suburb || '',
+      callId: call.id,
+      callAt: call.call_at,
+      // Staff already select these when logging the call — an exact
+      // reference to this CRM's own Trade/Job Type lists, never a guess or
+      // text match, same convention as job.trade_id/job.job_type_id above.
+      tradeId: call.trade_id || null,
+      jobTypeId: call.job_type_id || null,
+    });
   });
 
   return router;
