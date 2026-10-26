@@ -80,7 +80,7 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
   });
   try {
     const results = await probeTaskHistory('BU-1', 'TASK-1');
-    assert.equal(results.length, 8, 'tries every candidate, including both scheduleZone guesses');
+    assert.equal(results.length, 10, 'tries every candidate, including all four scheduleZone follow-ups');
     const tried = results.map((r) => r.tried);
     assert.deepEqual(tried, [
       '/tasks/TASK-1/timesheets',
@@ -88,7 +88,9 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
       '/tasks/TASK-1/schedules',
       '/schedules',
       "/schedules (scheduleZone='TASK')",
+      "/schedules (scheduleZone='TASK', zoneId=businessUnitId)",
       "/schedules (scheduleZone='USER')",
+      "/schedules (scheduleZone='USER', currentDate='" + new Date().toISOString().slice(0, 10) + "')",
       '/tasks/TASK-1/history',
       '/tasks/TASK-1/activity',
     ]);
@@ -98,28 +100,33 @@ test('probeTaskHistory tries every candidate path sequentially and reports each 
     results
       .filter((r) => r.tried !== '/timesheets')
       .forEach((r) => assert.equal(r.available, false, `${r.tried} should be unavailable`));
-    assert.equal(seen.length, 8, 'ran sequentially, not fanned out in parallel beyond the eight candidates');
+    assert.equal(seen.length, 10, 'ran sequentially, not fanned out in parallel beyond the ten candidates');
   } finally {
     restore();
   }
 });
 
-test("probeTaskHistory's two scheduleZone attempts send the confirmed TASK/USER enum values, alongside the existing taskId", async () => {
+test('probeTaskHistory\'s scheduleZone follow-ups send the confirmed enum values plus zoneId/currentDate, alongside the existing taskId', async () => {
   const seenQueries = [];
   const restore = stubFetch(async (url) => {
     if (url.pathname === '/v2/schedules') {
-      seenQueries.push({ scheduleZone: url.searchParams.get('scheduleZone'), taskId: url.searchParams.get('taskId') });
+      seenQueries.push({
+        scheduleZone: url.searchParams.get('scheduleZone'),
+        taskId: url.searchParams.get('taskId'),
+        zoneId: url.searchParams.get('zoneId'),
+        currentDate: url.searchParams.get('currentDate'),
+      });
     }
     return jsonResponse(404, { error: 'not found' });
   });
   try {
     await probeTaskHistory('BU-1', 'TASK-1');
-    // The plain /schedules attempt sends no scheduleZone at all; the two
-    // informed attempts that follow it do, both still carrying taskId.
     assert.deepEqual(seenQueries, [
-      { scheduleZone: null, taskId: 'TASK-1' },
-      { scheduleZone: 'TASK', taskId: 'TASK-1' },
-      { scheduleZone: 'USER', taskId: 'TASK-1' },
+      { scheduleZone: null, taskId: 'TASK-1', zoneId: null, currentDate: null },
+      { scheduleZone: 'TASK', taskId: 'TASK-1', zoneId: null, currentDate: null },
+      { scheduleZone: 'TASK', taskId: 'TASK-1', zoneId: 'BU-1', currentDate: null },
+      { scheduleZone: 'USER', taskId: 'TASK-1', zoneId: null, currentDate: null },
+      { scheduleZone: 'USER', taskId: 'TASK-1', zoneId: null, currentDate: new Date().toISOString().slice(0, 10) },
     ]);
   } finally {
     restore();

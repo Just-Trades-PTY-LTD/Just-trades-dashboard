@@ -170,19 +170,32 @@ async function arofloProbe(path, params = {}, label = path) {
 export async function probeTaskHistory(businessUnitId, taskId) {
   // A real account's own response to the plain /schedules guess named the
   // exact field it wanted, then named its valid values once a wrong one was
-  // tried: "Invalid scheduleZone. Valid values are: TASK, USER." So this
-  // isn't a geographic/dispatch zone at all — it's a scope selector (query
-  // by task vs. by user). TASK is the informed attempt here, since a taskId
-  // is already in hand; USER is tried too purely to see what AroFlo names
-  // as the missing user-identifying parameter, for a future per-technician
-  // lookup — not because it's expected to succeed without one.
+  // tried ("Invalid scheduleZone. Valid values are: TASK, USER" — a scope
+  // selector, not a geographic zone), then named the NEXT missing field for
+  // each scope in turn: TASK wants a zoneId (valid values unknown — every
+  // listing endpoint guess tried via listScheduleZones below came back 404,
+  // so businessUnitId is tried here purely because it's the only id-shaped
+  // value already in hand, not because it's expected to be right), and USER
+  // wants a currentDate (today's date — an actual value, not a guess, to
+  // see what field is still missing after it).
+  const todayIso = new Date().toISOString().slice(0, 10);
   const candidates = [
     ['/tasks/' + encodeURIComponent(taskId) + '/timesheets', {}],
     ['/timesheets', { businessUnitId, taskId }],
     ['/tasks/' + encodeURIComponent(taskId) + '/schedules', {}],
     ['/schedules', { businessUnitId, taskId }],
     ['/schedules', { businessUnitId, taskId, scheduleZone: 'TASK' }, "/schedules (scheduleZone='TASK')"],
+    [
+      '/schedules',
+      { businessUnitId, taskId, scheduleZone: 'TASK', zoneId: businessUnitId },
+      "/schedules (scheduleZone='TASK', zoneId=businessUnitId)",
+    ],
     ['/schedules', { businessUnitId, taskId, scheduleZone: 'USER' }, "/schedules (scheduleZone='USER')"],
+    [
+      '/schedules',
+      { businessUnitId, taskId, scheduleZone: 'USER', currentDate: todayIso },
+      "/schedules (scheduleZone='USER', currentDate='" + todayIso + "')",
+    ],
     ['/tasks/' + encodeURIComponent(taskId) + '/history', {}],
     ['/tasks/' + encodeURIComponent(taskId) + '/activity', {}],
   ];
