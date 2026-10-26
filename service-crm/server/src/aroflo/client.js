@@ -233,6 +233,16 @@ export async function probeLocationDetail(locationId) {
   return arofloProbe('/locations/' + encodeURIComponent(locationId), {});
 }
 
+// A task's `client` reference (the customer record) only ever showed up in
+// the full task detail once — a genuinely new lead, not a blind guess: a
+// property like "Lead Source" is often tracked once per customer in a
+// field-service system, not per job, so it's worth checking whether AroFlo
+// exposes custom fields there instead of on the task itself.
+export async function probeClientDetail(clientId) {
+  if (!clientId) return null;
+  return arofloProbe('/clients/' + encodeURIComponent(clientId), {});
+}
+
 // Custom fields (e.g. "Lead Source", "Occupant") have shown up in AroFlo's
 // own task UI but never once in GET /tasks/{id}'s own response across every
 // job tested — so this is either a separate endpoint or needs an extra

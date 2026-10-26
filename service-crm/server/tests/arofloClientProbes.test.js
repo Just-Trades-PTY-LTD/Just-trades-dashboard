@@ -10,8 +10,16 @@ import assert from 'node:assert/strict';
 process.env.AROFLO_PAT = 'test-token-should-never-appear-in-any-result';
 process.env.AROFLO_BASE_URL = 'http://mock.test/v2';
 
-const { listTaskTypes, listLocations, listAroFloUsers, listScheduleZones, probeTaskHistory, probeLocationDetail, probeCustomFields } =
-  await import('../src/aroflo/client.js');
+const {
+  listTaskTypes,
+  listLocations,
+  listAroFloUsers,
+  listScheduleZones,
+  probeTaskHistory,
+  probeLocationDetail,
+  probeCustomFields,
+  probeClientDetail,
+} = await import('../src/aroflo/client.js');
 
 function stubFetch(handler) {
   const original = global.fetch;
@@ -172,6 +180,32 @@ test('probeLocationDetail fetches the given id when present', async () => {
     const result = await probeLocationDetail('LOC-99');
     assert.equal(result.available, true);
     assert.deepEqual(result.data, { id: 'LOC-99', suburb: 'Blackwood', postcode: '5051' });
+  } finally {
+    restore();
+  }
+});
+
+test('probeClientDetail is a no-op (no request at all) when there is no client id', async () => {
+  const restore = stubFetch(async () => {
+    throw new Error('fetch should never be called when clientId is falsy');
+  });
+  try {
+    const result = await probeClientDetail(null);
+    assert.equal(result, null);
+  } finally {
+    restore();
+  }
+});
+
+test('probeClientDetail fetches the given id when present', async () => {
+  const restore = stubFetch(async (url) => {
+    assert.equal(url.pathname, '/v2/clients/CLI-1');
+    return jsonResponse(200, { id: 'CLI-1', name: 'Luke Zhang', customFields: { 'Lead Source': 'Online Enquiry' } });
+  });
+  try {
+    const result = await probeClientDetail('CLI-1');
+    assert.equal(result.available, true);
+    assert.deepEqual(result.data, { id: 'CLI-1', name: 'Luke Zhang', customFields: { 'Lead Source': 'Online Enquiry' } });
   } finally {
     restore();
   }

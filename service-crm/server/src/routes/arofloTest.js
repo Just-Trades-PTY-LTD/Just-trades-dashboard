@@ -9,6 +9,7 @@ import {
   getInvoicesForTask,
   probeTaskHistory,
   probeLocationDetail,
+  probeClientDetail,
   probeCustomFields,
   listTaskTypes,
   listLocations,
@@ -45,6 +46,9 @@ export function summarize(task, invoices) {
     // GPS, etc., if present) — `suburb` above is only ever one field of
     // this, pulled out purely for convenience.
     location: task.location || null,
+    // The customer record this task belongs to — only noticed once a full
+    // response was actually inspected; never surfaced before now.
+    client: task.client || null,
     enteredBy: task.enteredBy || null,
     reportedBy: task.reportedBy || null,
     requestedDateTime: task.requestedDateTime || null,
@@ -111,16 +115,17 @@ export function createArofloTestRouter() {
       // failure. These never affect the `summary`/`raw` fields above, and a
       // problem with any of them never breaks the rest of this lookup.
       const locationId = detail.location?.id || detail.location?.locationId || null;
-      const [history, locationDetail, customFields] = await Promise.all([
+      const [history, locationDetail, customFields, clientDetail] = await Promise.all([
         probeTaskHistory(businessUnit.id, task.id),
         probeLocationDetail(locationId),
         probeCustomFields(businessUnit.id, task.id),
+        probeClientDetail(detail.client?.id || null),
       ]);
 
       res.json({
         found: true,
         summary: summarize(detail, invoices),
-        investigation: { history, locationDetail, customFields },
+        investigation: { history, locationDetail, customFields, clientDetail },
         raw: { task: detail, invoices },
       });
     } catch (err) {

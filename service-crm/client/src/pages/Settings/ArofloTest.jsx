@@ -261,6 +261,13 @@ export default function ArofloTest() {
               results={result.investigation.customFields}
             />
           )}
+          {result.investigation?.clientDetail && (
+            <ProbeResultTable
+              title="Additional investigation — client/customer record (experimental)"
+              help="Only tried when the task's own `client` reference carries an id — if Lead Source is tracked once per customer rather than per job, this is where it would show up instead."
+              results={result.investigation.clientDetail}
+            />
+          )}
 
           <div className="panel" style={{ padding: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>Raw response</div>
