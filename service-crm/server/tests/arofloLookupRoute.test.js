@@ -44,7 +44,7 @@ const TASK_BASE = {
   location: null,
 };
 
-function mockAroFlo({ task, invoices = [] }) {
+function mockAroFlo({ task, invoices = [], clientCustomFields }) {
   return stubAroFloFetch(async (u) => {
     if (u.pathname === '/v2/businessunits') return jsonResponse(200, { items: [{ id: 'BU-1' }] });
     if (u.pathname === '/v2/tasks') {
@@ -53,6 +53,9 @@ function mockAroFlo({ task, invoices = [] }) {
     }
     if (u.pathname === `/v2/tasks/${task.id}`) return jsonResponse(200, task);
     if (u.pathname === '/v2/invoices') return jsonResponse(200, { items: invoices });
+    if (task.client?.id && u.pathname === `/v2/customfields/CLIENTS/${task.client.id}`) {
+      return clientCustomFields ? jsonResponse(200, clientCustomFields) : jsonResponse(404, { error: 'not found' });
+    }
     return jsonResponse(404, { error: 'not found' });
   });
 }
@@ -96,6 +99,51 @@ test('a Pending task with a scheduled return visit, a matching technician and on
       // Install" (AroFlo's free-text name) — a confident match.
       const tech = (await server.request('GET', '/settings/bundle')).data.technicians.find((t) => t.name === 'Ryan Smith');
       assert.equal(res.data.scheduled.matchedTechnicianId, tech.id);
+    } finally {
+      restore();
+    }
+  } finally {
+    server.close();
+  }
+});
+
+test('a client with a Lead Source custom field: leadSource is surfaced as a plain reference value', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const restore = mockAroFlo({
+      task: { ...TASK_BASE, status: 'COMPLETED', locationText: '', resources: [], schedule: null, client: { id: 'CLI-1' } },
+      clientCustomFields: {
+        count: 2,
+        items: [
+          { id: 'K89000229TR', customField: { name: 'Lead Source', value: 'Online Enquiry' } },
+          { id: 'K89000229V0', customField: { name: 'Occupant', value: 'Homeowner' } },
+        ],
+      },
+    });
+    try {
+      const res = await server.request('GET', '/aroflo/lookup?jn=2535');
+      assert.equal(res.data.found, true);
+      assert.equal(res.data.leadSource, 'Online Enquiry');
+    } finally {
+      restore();
+    }
+  } finally {
+    server.close();
+  }
+});
+
+test('no client, or no Lead Source field on the client: leadSource is null, never a thrown error', async () => {
+  const server = await startTestServer();
+  try {
+    await server.login();
+    const restore = mockAroFlo({
+      task: { ...TASK_BASE, status: 'COMPLETED', locationText: '', resources: [], schedule: null },
+    });
+    try {
+      const res = await server.request('GET', '/aroflo/lookup?jn=2535');
+      assert.equal(res.data.found, true);
+      assert.equal(res.data.leadSource, null);
     } finally {
       restore();
     }

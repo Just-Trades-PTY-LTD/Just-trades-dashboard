@@ -41,9 +41,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm(user?.id));
   const [invalidFields, setInvalidFields] = useState(new Set());
+  // Lead calls only: AroFlo's own "Lead Source" custom field, read from the
+  // matching job's customer record — surfaced as a plain reference value
+  // only. Its option list doesn't line up 1:1 with this CRM's own Lead
+  // Source list, so it's never auto-applied to leadSourceId; staff read it
+  // and pick the closest match above themselves.
+  const [arofloLeadSource, setArofloLeadSource] = useState(null);
+  const [arofloLoading, setArofloLoading] = useState(false);
 
   useEffect(() => {
     setInvalidFields(new Set());
+    setArofloLeadSource(null);
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -76,6 +84,22 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   function resetForm() {
     setForm(emptyForm(user?.id));
+    setArofloLeadSource(null);
+  }
+
+  async function runArofloLeadSourceLookup(jobNumber) {
+    const jn = (jobNumber || '').trim();
+    if (!jn) return;
+    setArofloLoading(true);
+    setArofloLeadSource(null);
+    try {
+      const result = await api.aroflo.lookup(jn);
+      setArofloLeadSource(result.found ? result.leadSource || null : null);
+    } catch {
+      setArofloLeadSource(null);
+    } finally {
+      setArofloLoading(false);
+    }
   }
 
   async function handleSubmit(e) {
@@ -228,6 +252,12 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
           {showLeadSource && (
             <SelectField label="Where did the lead come from?" value={form.leadSourceId} onChange={(v) => patch({ leadSourceId: v })} options={settings.lists.lead_source} />
           )}
+          {showLeadSource && arofloLeadSource && (
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4, gridColumn: '1 / -1' }}>
+              AroFlo shows this customer's Lead Source as <strong>{arofloLeadSource}</strong> — pick the closest match above (not applied
+              automatically, since AroFlo's own list of options doesn't line up exactly with this one).
+            </div>
+          )}
         </div>
       )}
 
@@ -237,6 +267,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
             <label>Job number (JN)</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
             {showJobLookup && <JobLookupBox jobNumber={form.jobNumber} mode={lookupMode} result={lookupResult} />}
+            {form.callType === 'Lead' && (
+              <button
+                type="button"
+                className="btn"
+                style={{ width: '100%', marginTop: 6 }}
+                disabled={!form.jobNumber.trim() || arofloLoading}
+                onClick={() => runArofloLeadSourceLookup(form.jobNumber)}
+              >
+                {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
+              </button>
+            )}
           </div>
         )}
         <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />

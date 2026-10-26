@@ -8,6 +8,7 @@ import {
   findTaskByJobNumber,
   getTaskDetail,
   getInvoicesForTask,
+  getCustomFieldValue,
 } from '../aroflo/client.js';
 import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
@@ -77,6 +78,13 @@ export function createArofloLookupRouter() {
       if (!task) return res.json({ found: false, message: `No matching AroFlo job found for "${jn}".` });
 
       const [detail, invoices] = await Promise.all([getTaskDetail(task.id), getInvoicesForTask(businessUnit.id, task.id)]);
+      // AroFlo tracks "Lead Source" per customer (the CLIENTS zone), not per
+      // job — its option list doesn't line up 1:1 with this CRM's own Lead
+      // Source list (e.g. AroFlo's single "Google" vs. this CRM's separate
+      // "Google search"/"Google ads"), so this is surfaced as a reference
+      // value only for staff to read and pick the closest match themselves —
+      // never auto-applied to a call's own leadSourceId.
+      const leadSource = await getCustomFieldValue('CLIENTS', detail.client?.id || null, 'Lead Source');
 
       res.json({
         found: true,
@@ -87,6 +95,7 @@ export function createArofloLookupRouter() {
         // never fall back to guessing, same contract as every other
         // suburb auto-fill already in this app.
         suburb: matchSuburbFromLocationText(detail.locationText),
+        leadSource,
         invoices: invoices.map((inv) => ({
           invoiceNumber: inv.invoiceNumber || '',
           invoiceDate: inv.invoicedDateTime ? inv.invoicedDateTime.slice(0, 10) : '',

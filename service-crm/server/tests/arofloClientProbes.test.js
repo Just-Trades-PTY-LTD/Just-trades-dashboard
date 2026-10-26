@@ -19,6 +19,7 @@ const {
   probeLocationDetail,
   probeCustomFields,
   probeClientDetail,
+  getCustomFieldValue,
 } = await import('../src/aroflo/client.js');
 
 function stubFetch(handler) {
@@ -215,9 +216,12 @@ test('probeCustomFields uses the documented path-based endpoint for the TASKS zo
   const restore = stubFetch(async (url) => {
     assert.equal(url.pathname, '/v2/customfields/TASKS/TASK-1');
     assert.equal(url.search, '');
+    // Real shape confirmed against a live account: each entry sits directly
+    // under `items`, not nested under an `items[].fields[]` as the written
+    // docs' schema implied.
     return jsonResponse(200, {
       count: 1,
-      items: [{ fields: [{ id: 'DBSG0000008', customField: { name: 'Lead Source', value: 'Online Enquiry' } }] }],
+      items: [{ id: 'K890006EXD0', customField: { name: 'Call Out', value: 'No Fee' } }],
     });
   });
   try {
@@ -225,7 +229,7 @@ test('probeCustomFields uses the documented path-based endpoint for the TASKS zo
     assert.equal(results.length, 1, 'no client id — only the TASKS zone is tried');
     assert.equal(results[0].tried, '/customfields/TASKS/{taskId}');
     assert.equal(results[0].available, true);
-    assert.equal(results[0].data.items[0].fields[0].customField.name, 'Lead Source');
+    assert.equal(results[0].data.items[0].customField.name, 'Call Out');
   } finally {
     restore();
   }
@@ -237,7 +241,13 @@ test('probeCustomFields also tries the CLIENTS zone when a client id is known', 
     seen.push(url.pathname);
     if (url.pathname === '/v2/customfields/TASKS/TASK-1') return jsonResponse(404, { error: 'not found' });
     if (url.pathname === '/v2/customfields/CLIENTS/CLI-1') {
-      return jsonResponse(200, { count: 1, items: [{ fields: [{ id: 'X', customField: { name: 'Occupant', value: 'Homeowner' } }] }] });
+      return jsonResponse(200, {
+        count: 2,
+        items: [
+          { id: 'K89000229TR', customField: { name: 'Lead Source', value: 'Online Enquiry' } },
+          { id: 'K89000229V0', customField: { name: 'Occupant', value: 'Homeowner' } },
+        ],
+      });
     }
     throw new Error(`unexpected request to ${url.pathname}`);
   });
@@ -249,7 +259,45 @@ test('probeCustomFields also tries the CLIENTS zone when a client id is known', 
     assert.equal(results[0].available, false);
     assert.equal(results[1].tried, '/customfields/CLIENTS/{clientId}');
     assert.equal(results[1].available, true);
-    assert.equal(results[1].data.items[0].fields[0].customField.name, 'Occupant');
+    assert.equal(results[1].data.items[0].customField.name, 'Lead Source');
+  } finally {
+    restore();
+  }
+});
+
+test('getCustomFieldValue returns null without a request when id is falsy', async () => {
+  const restore = stubFetch(async () => {
+    throw new Error('fetch should never be called when id is falsy');
+  });
+  try {
+    assert.equal(await getCustomFieldValue('CLIENTS', null, 'Lead Source'), null);
+  } finally {
+    restore();
+  }
+});
+
+test('getCustomFieldValue finds a named field (case-insensitively) among a client\'s custom fields', async () => {
+  const restore = stubFetch(async (url) => {
+    assert.equal(url.pathname, '/v2/customfields/CLIENTS/CLI-1');
+    return jsonResponse(200, {
+      count: 2,
+      items: [
+        { id: 'K89000229TR', customField: { name: 'Lead Source', value: 'Online Enquiry' } },
+        { id: 'K89000229V0', customField: { name: 'Occupant', value: 'Homeowner' } },
+      ],
+    });
+  });
+  try {
+    assert.equal(await getCustomFieldValue('CLIENTS', 'CLI-1', 'lead source'), 'Online Enquiry');
+  } finally {
+    restore();
+  }
+});
+
+test('getCustomFieldValue returns null when that field isn\'t present, and never throws on a 404', async () => {
+  const restore = stubFetch(async () => jsonResponse(404, { error: 'not found' }));
+  try {
+    assert.equal(await getCustomFieldValue('CLIENTS', 'CLI-1', 'Lead Source'), null);
   } finally {
     restore();
   }

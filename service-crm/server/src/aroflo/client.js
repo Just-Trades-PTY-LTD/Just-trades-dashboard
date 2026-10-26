@@ -266,6 +266,36 @@ export async function probeCustomFields(taskId, clientId) {
   return results;
 }
 
+// ---- Production custom-field value lookup ----
+// Unlike probeCustomFields() above (which reports every zone's raw result
+// for admin investigation), this is for the real, non-admin lookup routes:
+// it returns one named field's value directly, or null whenever the zone,
+// the entity, or that particular field isn't available — never throws, same
+// "a lookup problem never blocks manual entry" contract as arofloProbe().
+// A real account's response nests each field directly under `items` (e.g.
+// `items[0].customField.name`); this also checks a nested `items[].fields[]`
+// in case another zone ever shapes it like AroFlo's own documentation shows
+// instead, so either response shape is read correctly.
+export async function getCustomFieldValue(zone, id, fieldName) {
+  if (!id) return null;
+  let body;
+  try {
+    body = await arofloGet(`/customfields/${zone}/${encodeURIComponent(id)}`);
+  } catch {
+    return null;
+  }
+  const target = fieldName.toLowerCase();
+  for (const item of body?.items || []) {
+    const entries = Array.isArray(item.fields) ? item.fields : [item];
+    for (const entry of entries) {
+      if ((entry.customField?.name || '').toLowerCase() === target) {
+        return entry.customField.value ?? null;
+      }
+    }
+  }
+  return null;
+}
+
 // ---- Business-unit-wide reference listings (for future Trade/Job Type and
 // Suburb mapping tables — never auto-applied, just surfaced for review) ----
 export async function listTaskTypes(businessUnitId) {
