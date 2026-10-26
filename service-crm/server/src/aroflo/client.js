@@ -244,24 +244,24 @@ export async function probeClientDetail(clientId) {
 }
 
 // Custom fields (e.g. "Lead Source", "Occupant") have shown up in AroFlo's
-// own task UI but never once in GET /tasks/{id}'s own response across every
-// job tested — so this is either a separate endpoint or needs an extra
-// parameter to include them, not a guess at a field name within the
-// existing payload. Every candidate here is a guess at how that might be
-// requested; a 404 is a normal, informative result, same as every other
-// probe in this file.
-export async function probeCustomFields(businessUnitId, taskId) {
-  const candidates = [
-    ['/tasks/' + encodeURIComponent(taskId), { includeCustomFields: 1 }, "/tasks/{id} (includeCustomFields=1)"],
-    ['/tasks/' + encodeURIComponent(taskId), { customfields: 1 }, '/tasks/{id} (customfields=1)'],
-    ['/tasks/' + encodeURIComponent(taskId) + '/customfields', {}],
-    ['/customfields', { businessUnitId, taskId }],
-    ['/customfields', { businessUnitId }, '/customfields (no taskId — field definitions only)'],
-  ];
+// own task UI but never once in GET /tasks/{id}'s own response, and five
+// earlier query-param guesses here all either 404'd or were silently
+// ignored. AroFlo's own API documentation ("List custom fields for a zone
+// and entity") confirms the real shape is path-based, not query-param
+// based: GET /customfields/:zone/:id, where zone is one of a fixed enum
+// (TASKS, CLIENTS, LOCATIONS, etc.) and id is that entity's own id. Tried
+// here for the TASKS zone (the task itself) and, when a client id is known,
+// the CLIENTS zone too — Lead Source may be tracked per-customer rather
+// than per-job.
+export async function probeCustomFields(taskId, clientId) {
   const results = [];
-  for (const [path, params, label] of candidates) {
-    // eslint-disable-next-line no-await-in-loop
-    results.push(await arofloProbe(path, params, label));
+  results.push(
+    await arofloProbe('/customfields/TASKS/' + encodeURIComponent(taskId), {}, '/customfields/TASKS/{taskId}'),
+  );
+  if (clientId) {
+    results.push(
+      await arofloProbe('/customfields/CLIENTS/' + encodeURIComponent(clientId), {}, '/customfields/CLIENTS/{clientId}'),
+    );
   }
   return results;
 }

@@ -118,7 +118,7 @@ export function createArofloTestRouter() {
       const [history, locationDetail, customFields, clientDetail] = await Promise.all([
         probeTaskHistory(businessUnit.id, task.id),
         probeLocationDetail(locationId),
-        probeCustomFields(businessUnit.id, task.id),
+        probeCustomFields(task.id, detail.client?.id || null),
         probeClientDetail(detail.client?.id || null),
       ]);
 

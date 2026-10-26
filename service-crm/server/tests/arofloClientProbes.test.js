@@ -211,31 +211,45 @@ test('probeClientDetail fetches the given id when present', async () => {
   }
 });
 
-test('probeCustomFields tries every candidate independently and reports each result', async () => {
-  const seen = [];
+test('probeCustomFields uses the documented path-based endpoint for the TASKS zone', async () => {
   const restore = stubFetch(async (url) => {
-    seen.push(url.pathname + url.search);
-    if (url.pathname === '/v2/tasks/TASK-1' && url.searchParams.get('customfields') === '1') {
-      return jsonResponse(200, { id: 'TASK-1', customFields: { leadSource: 'Online Enquiry', occupant: 'Homeowner' } });
-    }
-    return jsonResponse(404, { error: 'not found' });
+    assert.equal(url.pathname, '/v2/customfields/TASKS/TASK-1');
+    assert.equal(url.search, '');
+    return jsonResponse(200, {
+      count: 1,
+      items: [{ fields: [{ id: 'DBSG0000008', customField: { name: 'Lead Source', value: 'Online Enquiry' } }] }],
+    });
   });
   try {
-    const results = await probeCustomFields('BU-1', 'TASK-1');
-    assert.equal(results.length, 5, 'tries every candidate');
-    const tried = results.map((r) => r.tried);
-    assert.deepEqual(tried, [
-      '/tasks/{id} (includeCustomFields=1)',
-      '/tasks/{id} (customfields=1)',
-      '/tasks/TASK-1/customfields',
-      '/customfields',
-      '/customfields (no taskId — field definitions only)',
-    ]);
-    const hit = results.find((r) => r.tried === '/tasks/{id} (customfields=1)');
-    assert.equal(hit.available, true);
-    assert.deepEqual(hit.data.customFields, { leadSource: 'Online Enquiry', occupant: 'Homeowner' });
-    results.filter((r) => r.tried !== hit.tried).forEach((r) => assert.equal(r.available, false));
-    assert.equal(seen.length, 5, 'ran sequentially, not fanned out beyond the five candidates');
+    const results = await probeCustomFields('TASK-1', null);
+    assert.equal(results.length, 1, 'no client id — only the TASKS zone is tried');
+    assert.equal(results[0].tried, '/customfields/TASKS/{taskId}');
+    assert.equal(results[0].available, true);
+    assert.equal(results[0].data.items[0].fields[0].customField.name, 'Lead Source');
+  } finally {
+    restore();
+  }
+});
+
+test('probeCustomFields also tries the CLIENTS zone when a client id is known', async () => {
+  const seen = [];
+  const restore = stubFetch(async (url) => {
+    seen.push(url.pathname);
+    if (url.pathname === '/v2/customfields/TASKS/TASK-1') return jsonResponse(404, { error: 'not found' });
+    if (url.pathname === '/v2/customfields/CLIENTS/CLI-1') {
+      return jsonResponse(200, { count: 1, items: [{ fields: [{ id: 'X', customField: { name: 'Occupant', value: 'Homeowner' } }] }] });
+    }
+    throw new Error(`unexpected request to ${url.pathname}`);
+  });
+  try {
+    const results = await probeCustomFields('TASK-1', 'CLI-1');
+    assert.equal(results.length, 2);
+    assert.deepEqual(seen, ['/v2/customfields/TASKS/TASK-1', '/v2/customfields/CLIENTS/CLI-1']);
+    assert.equal(results[0].tried, '/customfields/TASKS/{taskId}');
+    assert.equal(results[0].available, false);
+    assert.equal(results[1].tried, '/customfields/CLIENTS/{clientId}');
+    assert.equal(results[1].available, true);
+    assert.equal(results[1].data.items[0].fields[0].customField.name, 'Occupant');
   } finally {
     restore();
   }
