@@ -7,6 +7,7 @@ import { DateField, NumberField, SelectField, TextAreaField, YesNoField, Checkbo
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
 
 const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
@@ -269,6 +270,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // call/job-based guess already on the field. Whatever Suburb held before
   // is kept (priorSuburb) purely to show as a reference if it conflicts,
   // never to revert the field. Comments fills in only if still blank.
+  // When editing an entry that's already saved, none of that is applied —
+  // Suburb and Comments are offered as "Use this" suggestions instead (see
+  // lib/arofloFill.js), so a lookup can never quietly change a saved record.
   // Everything else (Task Type, invoices, a Pending job's scheduled visit)
   // is shown for the user to apply themselves — never silently attached.
   async function runArofloLookup(jobNumber, { applySuburb } = {}) {
@@ -279,20 +283,23 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     try {
       const result = await api.aroflo.lookup(jn);
       setArofloResult(result);
-      if (result.found) {
-        const fill = {};
-        if (applySuburb && result.suburb) {
-          setPriorSuburb(form.suburb);
-          fill.suburb = result.suburb;
-        }
-        if (result.description && !form.comments) fill.comments = result.description;
-        if (Object.keys(fill).length) patch(fill);
-      }
+      const fill = arofloAutoFill({ result, form, applySuburb, editing: !!editing });
+      if (fill.suburb) setPriorSuburb(form.suburb);
+      if (Object.keys(fill).length) patch(fill);
     } catch (err) {
       setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
     } finally {
       setArofloLoading(false);
     }
+  }
+
+  // Editing only: staff chose AroFlo's suburb/description over what's saved.
+  const suburbSuggestion = arofloSuburbSuggestion({ result: arofloResult, form, editing: !!editing });
+  const commentsSuggestion = arofloCommentsSuggestion({ result: arofloResult, form, editing: !!editing });
+
+  function applyArofloSuburbSuggestion() {
+    setPriorSuburb(form.suburb);
+    patch({ suburb: suburbSuggestion });
   }
 
   function applyArofloInvoice(inv) {
@@ -761,8 +768,23 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
             {arofloResult?.found && arofloResult.suburb && form.suburb === arofloResult.suburb && (
               <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-                Auto-filled from AroFlo's job address — still editable if it needs correcting.
-                {priorSuburb && priorSuburb !== arofloResult.suburb && ` (A Calls & Contacts record for this Job Number suggested "${priorSuburb}" instead.)`}
+                {editing ? "Taken from AroFlo's job address" : "Auto-filled from AroFlo's job address"} — still editable if it needs correcting.
+                {priorSuburb &&
+                  priorSuburb !== arofloResult.suburb &&
+                  (editing
+                    ? ` (Previously saved as "${priorSuburb}".)`
+                    : ` (A Calls & Contacts record for this Job Number suggested "${priorSuburb}" instead.)`)}
+              </div>
+            )}
+            {suburbSuggestion && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 6 }}>
+                <span>
+                  AroFlo's job address suggests <strong>{suburbSuggestion}</strong>
+                  {form.suburb ? ' — not applied, this entry keeps its saved suburb unless you choose this.' : '.'}
+                </span>
+                <button className="btn btn-sm" type="button" onClick={applyArofloSuburbSuggestion}>
+                  Use this
+                </button>
               </div>
             )}
             {(!arofloResult?.suburb) && callLookup?.found && callLookup.suburb && form.suburb === callLookup.suburb && (
@@ -943,8 +965,21 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
               {arofloResult?.found && arofloResult.suburb && form.suburb === arofloResult.suburb && (
                 <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-                  Auto-filled from AroFlo's job address — still editable if it needs correcting.
-                  {priorSuburb && priorSuburb !== arofloResult.suburb && ` (The original job's own suburb was "${priorSuburb}".)`}
+                  {editing ? "Taken from AroFlo's job address" : "Auto-filled from AroFlo's job address"} — still editable if it needs correcting.
+                  {priorSuburb &&
+                    priorSuburb !== arofloResult.suburb &&
+                    (editing ? ` (Previously saved as "${priorSuburb}".)` : ` (The original job's own suburb was "${priorSuburb}".)`)}
+                </div>
+              )}
+              {suburbSuggestion && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 6 }}>
+                  <span>
+                    AroFlo's job address suggests <strong>{suburbSuggestion}</strong>
+                    {form.suburb ? ' — not applied, this entry keeps its saved suburb unless you choose this.' : '.'}
+                  </span>
+                  <button className="btn btn-sm" type="button" onClick={applyArofloSuburbSuggestion}>
+                    Use this
+                  </button>
                 </div>
               )}
               {!arofloResult?.suburb && lookupResult?.found && lookupResult.suburb && form.suburb === lookupResult.suburb && (
@@ -1095,6 +1130,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         {(isNewJob || isExistingJob || isUpsell || isCallBack) && arofloResult?.found && arofloResult.description && form.comments === arofloResult.description && (
           <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
             Started from AroFlo's own job description — still editable.
+          </div>
+        )}
+        {commentsSuggestion && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 6 }}>
+            <span>AroFlo has a job description for this job — not applied.</span>
+            <button className="btn btn-sm" type="button" onClick={() => patch({ comments: commentsSuggestion })}>
+              Use AroFlo's description
+            </button>
           </div>
         )}
       </div>
