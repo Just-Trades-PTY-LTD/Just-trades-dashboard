@@ -91,7 +91,7 @@ test('a Pending task with a scheduled return visit, a matching technician and on
       assert.equal(res.data.description, 'Connect power to shed.');
       assert.equal(res.data.suburb, 'Blackwood (5159)');
       assert.equal(res.data.invoices.length, 1);
-      assert.deepEqual(res.data.invoices[0], { invoiceNumber: '2115', invoiceDate: '2026-10-07', saleValueExGst: 4757, status: 'IN_PROGRESS' });
+      assert.deepEqual(res.data.invoices[0], { invoiceNumber: '2115', invoiceDate: '2026-10-07', saleValueExGst: 4757, status: 'IN_PROGRESS', isDraft: true });
       assert.ok(res.data.scheduled);
       assert.equal(res.data.scheduled.technicianName, 'Ryan Smith El Install');
       assert.equal(res.data.scheduled.date, '2026-10-28');

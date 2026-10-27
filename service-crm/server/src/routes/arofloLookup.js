@@ -9,7 +9,10 @@ import {
   getTaskDetail,
   getInvoicesForTask,
   getCustomFieldValue,
+  listTaskLabours,
+  listTaskSchedules,
 } from '../aroflo/client.js';
+import { summarizeLabour, summarizeVisits, isDraftInvoiceStatus } from '../aroflo/activity.js';
 import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
@@ -86,6 +89,17 @@ export function createArofloLookupRouter() {
       // never auto-applied to a call's own leadSourceId.
       const leadSource = await getCustomFieldValue('CLIENTS', detail.client?.id || null, 'Lead Source');
 
+      // Labour logged and visits booked on this job — display only, and only
+      // when the caller asks (the Technician & Sales form does; the Lead
+      // Source lookup on calls doesn't), so the two extra AroFlo calls are
+      // never spent where nothing would show them. null for either means
+      // AroFlo couldn't answer — never a reason to fail the lookup.
+      let activity;
+      if (req.query.activity === '1') {
+        const [labours, schedules] = await Promise.all([listTaskLabours(task.id), listTaskSchedules(businessUnit.id, task.id)]);
+        activity = { labour: summarizeLabour(labours), visits: summarizeVisits(schedules) };
+      }
+
       res.json({
         found: true,
         status: detail.status || '',
@@ -101,8 +115,10 @@ export function createArofloLookupRouter() {
           invoiceDate: inv.invoicedDateTime ? inv.invoicedDateTime.slice(0, 10) : '',
           saleValueExGst: inv.totalAmountEx ?? 0,
           status: inv.status || '',
+          isDraft: isDraftInvoiceStatus(inv.status),
         })),
         scheduled: buildScheduled(detail),
+        activity,
       });
     } catch (err) {
       if (err instanceof ArofloNotConfiguredError) {

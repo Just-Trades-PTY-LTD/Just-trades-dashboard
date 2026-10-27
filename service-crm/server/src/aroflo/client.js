@@ -298,6 +298,32 @@ export async function getCustomFieldValue(zone, id, fieldName) {
   return null;
 }
 
+// ---- Production attendance lookup ----
+// Labour logged on a task and its booked visits, for the live form's
+// read-only "AroFlo activity" table. Same contract as getCustomFieldValue():
+// null whenever AroFlo can't answer (permissions, an error, unreachable) —
+// never throws, so a problem here never blocks the rest of the lookup.
+// Proven on the real account (Stage 3 test page): labour on every job
+// tested, booked visits on a pending job. Callers must whitelist what they
+// pass on — both responses include staff contact details and labour rates.
+export async function listTaskLabours(taskId) {
+  try {
+    const body = await arofloGet(`/tasks/${encodeURIComponent(taskId)}/labours`, { limit: 100 });
+    return body?.items || [];
+  } catch {
+    return null;
+  }
+}
+
+export async function listTaskSchedules(businessUnitId, taskId) {
+  try {
+    const body = await arofloGet('/schedules', { scheduleZone: 'TASK', zoneId: taskId, businessUnitId });
+    return body?.items || [];
+  } catch {
+    return null;
+  }
+}
+
 // ---- Business-unit-wide reference listings (for future Trade/Job Type and
 // Suburb mapping tables — never auto-applied, just surfaced for review) ----
 export async function listTaskTypes(businessUnitId) {

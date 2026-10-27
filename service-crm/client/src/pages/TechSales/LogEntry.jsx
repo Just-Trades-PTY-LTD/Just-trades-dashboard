@@ -106,6 +106,62 @@ function fromEntry(entry) {
   };
 }
 
+// Read-only "AroFlo activity" — time logged on the job and visits booked,
+// in Adelaide time. Display only: there's deliberately no "Use this" here.
+// One job can have several technicians across several days (e.g. a service
+// visit plus a separate install), so which entry is "the" visit or "the"
+// technician is left to staff, and AroFlo's own short names ("Ryan S") can't
+// be matched to the CRM's technicians safely.
+function ActivityTable({ title, rows, emptyText }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{title}</div>
+      {rows === null ? (
+        <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>AroFlo didn't return this — check AroFlo directly if needed.</div>
+      ) : rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{emptyText}</div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Technician (AroFlo)</th>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Hours</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.date}-${r.start}-${r.technician}-${i}`}>
+                <td>
+                  {r.technician || '—'}
+                  {r.position && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{r.position}</div>}
+                </td>
+                <td className="mono">{r.date || '—'}</td>
+                <td className="mono">{r.start ? `${r.start}${r.finish ? `–${r.finish}` : ''}` : '—'}</td>
+                <td className="mono">{r.hours ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function ArofloActivity({ activity }) {
+  if (!activity) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
+        For reference only — nothing below is filled in or saved. Times are Adelaide time.
+      </div>
+      <ActivityTable title="Time logged in AroFlo" rows={activity.labour} emptyText="No time logged on this job yet." />
+      <ActivityTable title="Visits booked in AroFlo" rows={activity.visits} emptyText="No visits booked in AroFlo for this job (completed jobs usually show none)." />
+    </div>
+  );
+}
+
 export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
@@ -281,7 +337,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     setArofloLoading(true);
     setArofloResult(null);
     try {
-      const result = await api.aroflo.lookup(jn);
+      const result = await api.aroflo.lookup(jn, { activity: true });
       setArofloResult(result);
       const fill = arofloAutoFill({ result, form, applySuburb, editing: !!editing });
       if (fill.suburb) setPriorSuburb(form.suburb);
@@ -826,7 +882,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                           <td className="mono">{inv.invoiceNumber}</td>
                           <td className="mono">{inv.invoiceDate}</td>
                           <td>${inv.saleValueExGst}</td>
-                          <td>{inv.status}</td>
+                          <td>
+                            {inv.status}
+                            {inv.isDraft && (
+                              <span className="badge badge-warn" style={{ marginLeft: 6 }} title="Not yet approved in AroFlo — the amount can still change">
+                                Draft
+                              </span>
+                            )}
+                          </td>
                           <td>
                             <button className="btn" type="button" onClick={() => applyArofloInvoice(inv)}>
                               Use this
@@ -836,6 +899,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                       ))}
                     </tbody>
                   </table>
+                  {arofloResult.invoices.some((inv) => inv.isDraft) && (
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                      Draft invoices aren't approved in AroFlo yet — their amount and date can still change. Check AroFlo before using one.
+                    </div>
+                  )}
                 </div>
               )}
               {arofloResult.scheduled && isSaleMade && (
@@ -870,6 +938,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                   )}
                 </div>
               )}
+              <ArofloActivity activity={arofloResult.activity} />
             </>
           )}
         </div>

@@ -133,7 +133,7 @@ export const api = {
     // test page's raw data. Always resolves (never throws): a problem of any
     // kind comes back as { found: false, message }, never an HTTP error, so
     // it never blocks manual entry.
-    lookup: (jn) => request('GET', `/aroflo/lookup${qs({ jn })}`),
+    lookup: (jn, { activity } = {}) => request('GET', `/aroflo/lookup${qs({ jn, activity: activity ? 1 : undefined })}`),
   },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',
