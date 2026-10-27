@@ -98,7 +98,6 @@ export default function ArofloTest() {
   const [taskTypes, setTaskTypes] = useState(null);
   const [locations, setLocations] = useState(null);
   const [users, setUsers] = useState(null);
-  const [scheduleZones, setScheduleZones] = useState(null);
 
   async function runLookup() {
     const value = jn.trim();
@@ -148,7 +147,7 @@ export default function ArofloTest() {
           this account at all, ahead of building any future mapping table. A "not available" result just means that guess isn't
           how this account's API is set up.
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <button className="btn" type="button" onClick={() => runListing(api.arofloTest.taskTypes, setTaskTypes)}>
             List all Task Types
           </button>
@@ -158,27 +157,11 @@ export default function ArofloTest() {
           <button className="btn" type="button" onClick={() => runListing(api.arofloTest.users, setUsers)}>
             List all Users
           </button>
-          <button className="btn" type="button" onClick={() => runListing(api.arofloTest.scheduleZones, setScheduleZones)}>
-            List Schedule Zones
-          </button>
         </div>
       </div>
       <ListingPanel title="Task Types" state={taskTypes} />
       <ListingPanel title="Locations" state={locations} />
       <ListingPanel title="Users" state={users} />
-      {scheduleZones?.loading && (
-        <div className="panel" style={{ padding: 16, marginBottom: 16, fontSize: 13, color: 'var(--ink-muted)' }}>Loading…</div>
-      )}
-      {scheduleZones?.error && (
-        <div className="panel" style={{ padding: 16, marginBottom: 16, color: 'var(--danger, #a3323a)' }}>{scheduleZones.error}</div>
-      )}
-      {scheduleZones?.data && (
-        <ProbeResultTable
-          title="Schedule Zones"
-          help="/schedules came back requiring a 'scheduleZone' value on a real job lookup — these are a few guesses at what endpoint might list the valid values to use there instead of blindly guessing one."
-          results={scheduleZones.data}
-        />
-      )}
 
       {error && (
         <div className="panel" style={{ padding: 16, marginBottom: 16, color: 'var(--danger, #a3323a)' }}>
@@ -242,10 +225,35 @@ export default function ArofloTest() {
 
           {result.investigation && (
             <ProbeResultTable
-              title="Additional investigation — historical attendance / schedule (experimental)"
-              help="Candidate endpoints tried for this specific task, beyond what GET /tasks/{id} already carries — for finding the technician/date on a COMPLETED job, where the summary's own schedule fields come back empty. A 404 here just means that guess isn't how this account's API is set up."
+              title="Who worked on / is booked for this job — labour, scheduled visits, assigned technicians"
+              help="AroFlo's documented endpoints for this job: labour entries (time actually logged — who, which day, hours), every booked visit, and who's assigned, each with AroFlo's own user id. The summary's schedule fields above only ever hold the NEXT upcoming visit, which is why they're empty on a completed job. Pay and charge rates are removed before anything is shown. Read-only — nothing here is saved or applied anywhere."
               results={result.investigation.history}
             />
+          )}
+          {result.investigation?.suburbComparison && (
+            <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Suburb — each AroFlo source side by side</div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginBottom: 10 }}>
+                The live New Job form currently uses only the first row. The other two are shown here purely to check, across real
+                jobs, whether they'd be more reliable. Nothing here is applied anywhere.
+              </div>
+              <table className="data-table">
+                <tbody>
+                  {[
+                    ['Matched from the job address text (used today)', result.investigation.suburbComparison.matchedFromAddressText],
+                    ['Job’s own site location', result.investigation.suburbComparison.taskLocation],
+                    ['Customer record’s address', result.investigation.suburbComparison.customerAddress],
+                  ].map(([label, value]) => (
+                    <tr key={label}>
+                      <td style={{ fontWeight: 600, width: 300 }}>{label}</td>
+                      <td>
+                        {!value ? '—' : typeof value === 'string' ? value : `${value.suburb}${value.postcode ? ` (${value.postcode})` : ''}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {result.investigation?.locationDetail && (
             <ProbeResultTable

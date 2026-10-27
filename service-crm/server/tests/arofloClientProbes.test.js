@@ -14,8 +14,8 @@ const {
   listTaskTypes,
   listLocations,
   listAroFloUsers,
-  listScheduleZones,
   probeTaskHistory,
+  withoutRates,
   probeLocationDetail,
   probeCustomFields,
   probeClientDetail,
@@ -41,12 +41,12 @@ function jsonResponse(status, body) {
 
 test('a confirmed endpoint (200) is reported as available, with its data intact', async () => {
   const restore = stubFetch(async (url) => {
-    assert.equal(url.pathname, '/v2/tasktypes');
+    assert.equal(url.pathname, '/v2/types/tasks');
     return jsonResponse(200, { items: [{ id: 1, name: 'Fans' }] });
   });
   try {
     const result = await listTaskTypes('BU-1');
-    assert.equal(result.tried, '/tasktypes');
+    assert.equal(result.tried, '/types/tasks');
     assert.equal(result.available, true);
     assert.deepEqual(result.data, { items: [{ id: 1, name: 'Fans' }] });
   } finally {
@@ -77,87 +77,88 @@ test('listAroFloUsers follows the same available/unavailable shape', async () =>
   }
 });
 
-test('probeTaskHistory tries every candidate path sequentially and reports each result independently', async () => {
+test('probeTaskHistory tries the three documented endpoints, in order, and reports each independently', async () => {
   const seen = [];
   const restore = stubFetch(async (url) => {
-    seen.push(url.pathname + url.search);
-    if (url.pathname.endsWith('/timesheets') && !url.pathname.includes('tasks/')) {
-      return jsonResponse(200, { items: [{ userId: 'U1', hours: 4 }] });
-    }
+    seen.push(url);
+    if (url.pathname === '/v2/tasks/TASK-1/labours') return jsonResponse(200, { items: [{ id: 'L1', hours: 4 }] });
+    if (url.pathname === '/v2/schedules') return jsonResponse(400, { error: 'Scheduling permission required' });
     return jsonResponse(404, { error: 'not found' });
   });
   try {
     const results = await probeTaskHistory('BU-1', 'TASK-1');
-    assert.equal(results.length, 10, 'tries every candidate, including all four scheduleZone follow-ups');
-    const tried = results.map((r) => r.tried);
-    assert.deepEqual(tried, [
-      '/tasks/TASK-1/timesheets',
-      '/timesheets',
-      '/tasks/TASK-1/schedules',
-      '/schedules',
-      "/schedules (scheduleZone='TASK')",
-      "/schedules (scheduleZone='TASK', zoneId=businessUnitId)",
-      "/schedules (scheduleZone='USER')",
-      "/schedules (scheduleZone='USER', currentDate='" + new Date().toISOString().slice(0, 10) + "')",
-      '/tasks/TASK-1/history',
-      '/tasks/TASK-1/activity',
-    ]);
-    const timesheetsByQuery = results.find((r) => r.tried === '/timesheets');
-    assert.equal(timesheetsByQuery.available, true);
-    assert.deepEqual(timesheetsByQuery.data, { items: [{ userId: 'U1', hours: 4 }] });
-    results
-      .filter((r) => r.tried !== '/timesheets')
-      .forEach((r) => assert.equal(r.available, false, `${r.tried} should be unavailable`));
-    assert.equal(seen.length, 10, 'ran sequentially, not fanned out in parallel beyond the ten candidates');
+    assert.deepEqual(
+      results.map((r) => r.tried),
+      ['/tasks/{taskId}/labours', "/schedules (scheduleZone='TASK', zoneId={taskId})", '/tasks/{taskId}/resources'],
+    );
+    assert.equal(results[0].available, true);
+    assert.deepEqual(results[0].data, { items: [{ id: 'L1', hours: 4 }] });
+    assert.equal(results[1].available, false);
+    assert.equal(results[1].status, 400);
+    assert.deepEqual(results[1].detail, { error: 'Scheduling permission required' });
+    assert.equal(results[2].available, false);
+    assert.equal(seen.length, 3, 'one request per endpoint, nothing else');
   } finally {
     restore();
   }
 });
 
-test('probeTaskHistory\'s scheduleZone follow-ups send the confirmed enum values plus zoneId/currentDate, alongside the existing taskId', async () => {
-  const seenQueries = [];
+test("the schedules probe sends the task's own id as zoneId, never the business unit's", async () => {
+  let query = null;
   const restore = stubFetch(async (url) => {
-    if (url.pathname === '/v2/schedules') {
-      seenQueries.push({
-        scheduleZone: url.searchParams.get('scheduleZone'),
-        taskId: url.searchParams.get('taskId'),
-        zoneId: url.searchParams.get('zoneId'),
-        currentDate: url.searchParams.get('currentDate'),
+    if (url.pathname === '/v2/schedules') query = Object.fromEntries(url.searchParams);
+    return jsonResponse(404, { error: 'not found' });
+  });
+  try {
+    await probeTaskHistory('BU-1', 'TASK-1');
+    assert.deepEqual(query, { scheduleZone: 'TASK', zoneId: 'TASK-1', businessUnitId: 'BU-1' });
+  } finally {
+    restore();
+  }
+});
+
+test('labour pay and charge rates never reach the result, at any depth', async () => {
+  const restore = stubFetch(async (url) => {
+    if (url.pathname === '/v2/tasks/TASK-1/labours') {
+      return jsonResponse(200, {
+        items: [
+          {
+            id: 'L1',
+            hours: 4,
+            costRate: 55,
+            sellRate: 120,
+            user: { id: 'U1', givenName: 'Ryan', familyName: 'Smith' },
+            workType: { id: 'W1', name: 'Normal', sellRate: 120, quoteRate: 110 },
+            overhead: { id: 'O1', costRate: 10, sellRate: 20 },
+          },
+        ],
       });
     }
     return jsonResponse(404, { error: 'not found' });
   });
   try {
-    await probeTaskHistory('BU-1', 'TASK-1');
-    assert.deepEqual(seenQueries, [
-      { scheduleZone: null, taskId: 'TASK-1', zoneId: null, currentDate: null },
-      { scheduleZone: 'TASK', taskId: 'TASK-1', zoneId: null, currentDate: null },
-      { scheduleZone: 'TASK', taskId: 'TASK-1', zoneId: 'BU-1', currentDate: null },
-      { scheduleZone: 'USER', taskId: 'TASK-1', zoneId: null, currentDate: null },
-      { scheduleZone: 'USER', taskId: 'TASK-1', zoneId: null, currentDate: new Date().toISOString().slice(0, 10) },
-    ]);
+    const [labours] = await probeTaskHistory('BU-1', 'TASK-1');
+    assert.deepEqual(labours.data, {
+      items: [
+        {
+          id: 'L1',
+          hours: 4,
+          user: { id: 'U1', givenName: 'Ryan', familyName: 'Smith' },
+          workType: { id: 'W1', name: 'Normal' },
+          overhead: { id: 'O1' },
+        },
+      ],
+    });
+    assert.doesNotMatch(JSON.stringify(labours), /Rate/);
   } finally {
     restore();
   }
 });
 
-test('listScheduleZones tries each candidate zones endpoint and reports every result', async () => {
-  const restore = stubFetch(async (url) => {
-    if (url.pathname.endsWith('/zones')) return jsonResponse(200, { items: [{ id: 'Z1', name: 'Metro' }] });
-    return jsonResponse(404, { error: 'not found' });
-  });
-  try {
-    const results = await listScheduleZones('BU-1');
-    assert.deepEqual(
-      results.map((r) => r.tried),
-      ['/schedulezones', '/schedule-zones', '/zones']
-    );
-    assert.equal(results[0].available, false);
-    assert.equal(results[2].available, true);
-    assert.deepEqual(results[2].data, { items: [{ id: 'Z1', name: 'Metro' }] });
-  } finally {
-    restore();
-  }
+test('withoutRates leaves everything else untouched, including null and non-object values', () => {
+  assert.equal(withoutRates(null), null);
+  assert.equal(withoutRates('x'), 'x');
+  assert.deepEqual(withoutRates({ a: [1, { sellRate: 1, b: null }] }), { a: [1, { b: null }] });
 });
 
 test('probeLocationDetail is a no-op (no request at all) when there is no location id', async () => {

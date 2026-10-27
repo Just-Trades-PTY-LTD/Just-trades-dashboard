@@ -14,8 +14,8 @@ import {
   listTaskTypes,
   listLocations,
   listAroFloUsers,
-  listScheduleZones,
 } from '../aroflo/client.js';
+import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
 // zero writes to AroFlo and zero writes to this CRM's own database — it only
@@ -82,6 +82,21 @@ export function summarize(task, invoices) {
   };
 }
 
+// The suburb each AroFlo source gives for this task, side by side, so real
+// jobs can show which one is reliable before the live form relies on any
+// but the first: the address-text match the New Job form uses today, the
+// task's own structured location (empty on every job tested so far), and
+// the customer record's address, used when a job has no separate site.
+// Display only — nothing here is applied anywhere.
+export function compareSuburbSources(task, clientDetail) {
+  const clientAddress = clientDetail?.available ? clientDetail.data?.address : null;
+  return {
+    matchedFromAddressText: matchSuburbFromLocationText(task.locationText),
+    taskLocation: task.location?.suburb ? { suburb: task.location.suburb, postcode: task.location.postCode ?? null } : null,
+    customerAddress: clientAddress?.suburb ? { suburb: clientAddress.suburb, postcode: clientAddress.postcode ?? null } : null,
+  };
+}
+
 export function createArofloTestRouter() {
   const router = Router();
   router.use(requireAdmin);
@@ -125,7 +140,13 @@ export function createArofloTestRouter() {
       res.json({
         found: true,
         summary: summarize(detail, invoices),
-        investigation: { history, locationDetail, customFields, clientDetail },
+        investigation: {
+          history,
+          locationDetail,
+          customFields,
+          clientDetail,
+          suburbComparison: compareSuburbSources(detail, clientDetail),
+        },
         raw: { task: detail, invoices },
       });
     } catch (err) {
@@ -166,7 +187,6 @@ export function createArofloTestRouter() {
   router.get('/task-types', (req, res) => listingRoute(req, res, listTaskTypes));
   router.get('/locations', (req, res) => listingRoute(req, res, listLocations));
   router.get('/users', (req, res) => listingRoute(req, res, listAroFloUsers));
-  router.get('/schedule-zones', (req, res) => listingRoute(req, res, listScheduleZones));
 
   return router;
 }

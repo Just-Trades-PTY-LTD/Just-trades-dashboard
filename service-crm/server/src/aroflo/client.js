@@ -184,71 +184,50 @@ async function arofloProbe(path, params = {}, label = path) {
   }
 }
 
-// Candidate endpoints for information not available on GET /tasks/{id} once
-// a task is completed, or not confirmed to exist at all on this account's
-// APIv2 — see the Stage 1 test page's own comments for why each is being
-// tried. Every path here is a guess based on the task/invoice/businessunit
-// naming convention already proven to work; a 404 is a normal, useful
-// result (it means that guess doesn't exist on this account), not a bug.
+// Who worked on / is booked for a task — the three read-only endpoints
+// AroFlo's own APIv2 reference documents for this (docs.api.aroflo.com),
+// replacing the earlier guesses (/timesheets, /tasks/{id}/history, etc.)
+// that only ever 404'd. GET /tasks/{id} itself can't answer this for a
+// completed job: per the same docs, its `schedule` is only ever the NEXT
+// upcoming visit, so it's empty once the work is done.
+// - labours: the time actually logged on the job (who, which day, hours).
+// - schedules: every booked visit; scheduleZone=TASK wants the task's own
+//   id as zoneId (the earlier probe sent the business unit's id instead).
+// - resources: who's assigned, each with AroFlo's own user id.
+// Labour entries carry pay/charge rates the CRM never needs — they're
+// stripped before anything is returned (see withoutRates below).
 export async function probeTaskHistory(businessUnitId, taskId) {
-  // A real account's own response to the plain /schedules guess named the
-  // exact field it wanted, then named its valid values once a wrong one was
-  // tried ("Invalid scheduleZone. Valid values are: TASK, USER" — a scope
-  // selector, not a geographic zone), then named the NEXT missing field for
-  // each scope in turn: TASK wants a zoneId (valid values unknown — every
-  // listing endpoint guess tried via listScheduleZones below came back 404,
-  // so businessUnitId is tried here purely because it's the only id-shaped
-  // value already in hand, not because it's expected to be right), and USER
-  // wants a currentDate (today's date — an actual value, not a guess, to
-  // see what field is still missing after it).
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const id = encodeURIComponent(taskId);
   const candidates = [
-    ['/tasks/' + encodeURIComponent(taskId) + '/timesheets', {}],
-    ['/timesheets', { businessUnitId, taskId }],
-    ['/tasks/' + encodeURIComponent(taskId) + '/schedules', {}],
-    ['/schedules', { businessUnitId, taskId }],
-    ['/schedules', { businessUnitId, taskId, scheduleZone: 'TASK' }, "/schedules (scheduleZone='TASK')"],
-    [
-      '/schedules',
-      { businessUnitId, taskId, scheduleZone: 'TASK', zoneId: businessUnitId },
-      "/schedules (scheduleZone='TASK', zoneId=businessUnitId)",
-    ],
-    ['/schedules', { businessUnitId, taskId, scheduleZone: 'USER' }, "/schedules (scheduleZone='USER')"],
-    [
-      '/schedules',
-      { businessUnitId, taskId, scheduleZone: 'USER', currentDate: todayIso },
-      "/schedules (scheduleZone='USER', currentDate='" + todayIso + "')",
-    ],
-    ['/tasks/' + encodeURIComponent(taskId) + '/history', {}],
-    ['/tasks/' + encodeURIComponent(taskId) + '/activity', {}],
+    ['/tasks/' + id + '/labours', { limit: 100 }, '/tasks/{taskId}/labours'],
+    ['/schedules', { scheduleZone: 'TASK', zoneId: taskId, businessUnitId }, "/schedules (scheduleZone='TASK', zoneId={taskId})"],
+    ['/tasks/' + id + '/resources', {}, '/tasks/{taskId}/resources'],
   ];
   const results = [];
   for (const [path, params, label] of candidates) {
-    // Sequential, not parallel — this is a small, deliberate, low-volume
-    // investigation tool, not something that should ever hammer AroFlo's
-    // API with a burst of speculative requests.
+    // Sequential, not parallel — a small, deliberate, low-volume
+    // investigation tool that should never burst requests at AroFlo.
     // eslint-disable-next-line no-await-in-loop
-    results.push(await arofloProbe(path, params, label));
+    const result = await arofloProbe(path, params, label);
+    results.push(result.available ? { ...result, data: withoutRates(result.data) } : result);
   }
   return results;
 }
 
-// Discovering valid scheduleZone values properly, rather than guessing —
-// tries a few plausible names for a zones listing endpoint. If any of these
-// comes back available, its data is the real list of valid scheduleZone
-// values to use above instead of the two blind guesses.
-export async function listScheduleZones(businessUnitId) {
-  const candidates = [
-    ['/schedulezones', { businessUnitId, limit: 100 }],
-    ['/schedule-zones', { businessUnitId, limit: 100 }],
-    ['/zones', { businessUnitId, limit: 100 }],
-  ];
-  const results = [];
-  for (const [path, params] of candidates) {
-    // eslint-disable-next-line no-await-in-loop
-    results.push(await arofloProbe(path, params));
-  }
-  return results;
+// Removes every costRate/sellRate/quoteRate field, at any depth, from a
+// probe's data. Labour entries (and the work type / overhead nested inside
+// them) carry these whenever the token's AroFlo user is allowed to see
+// them; the CRM has no use for pay or charge rates, so they never reach the
+// test page.
+const RATE_KEYS = new Set(['costRate', 'sellRate', 'quoteRate']);
+export function withoutRates(value) {
+  if (Array.isArray(value)) return value.map(withoutRates);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !RATE_KEYS.has(key))
+      .map(([key, v]) => [key, withoutRates(v)]),
+  );
 }
 
 export async function probeLocationDetail(locationId) {
@@ -322,7 +301,7 @@ export async function getCustomFieldValue(zone, id, fieldName) {
 // ---- Business-unit-wide reference listings (for future Trade/Job Type and
 // Suburb mapping tables — never auto-applied, just surfaced for review) ----
 export async function listTaskTypes(businessUnitId) {
-  return arofloProbe('/tasktypes', { businessUnitId, limit: 100 });
+  return arofloProbe('/types/tasks', { businessUnitId, limit: 100 });
 }
 
 export async function listLocations(businessUnitId) {
