@@ -82,11 +82,3 @@ export function summarizeVisits(items) {
     .sort(byDateTime);
 }
 
-// AroFlo's invoice statuses before approval (In Progress, Pending Approval —
-// per its APIv2 reference) mean the amount can still change. Compared with
-// spacing, case and punctuation ignored, since the exact wording AroFlo
-// returns hasn't been confirmed on a draft invoice yet.
-const DRAFT_STATUSES = new Set(['inprogress', 'pendingapproval', 'draft']);
-export function isDraftInvoiceStatus(status) {
-  return DRAFT_STATUSES.has(String(status || '').toLowerCase().replace(/[^a-z]/g, ''));
-}

@@ -12,7 +12,7 @@ import {
   listTaskLabours,
   listTaskSchedules,
 } from '../aroflo/client.js';
-import { summarizeLabour, summarizeVisits, isDraftInvoiceStatus } from '../aroflo/activity.js';
+import { summarizeLabour, summarizeVisits } from '../aroflo/activity.js';
 import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
@@ -115,7 +115,6 @@ export function createArofloLookupRouter() {
           invoiceDate: inv.invoicedDateTime ? inv.invoicedDateTime.slice(0, 10) : '',
           saleValueExGst: inv.totalAmountEx ?? 0,
           status: inv.status || '',
-          isDraft: isDraftInvoiceStatus(inv.status),
         })),
         scheduled: buildScheduled(detail),
         activity,

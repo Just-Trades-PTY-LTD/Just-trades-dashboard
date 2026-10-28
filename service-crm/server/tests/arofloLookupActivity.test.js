@@ -72,7 +72,7 @@ function arofloHandler({ laboursStatus = 200, schedulesStatus = 200 } = {}) {
 const COUNTED_TABLES = ['calls', 'jobs', 'sales', 'call_backs', 'pending_cancellations', 'audit_log'];
 const rowCounts = () => Object.fromEntries(COUNTED_TABLES.map((t) => [t, dbAll(`SELECT COUNT(*) AS n FROM ${t}`)[0].n]));
 
-test('with activity=1: labour and booked visits in Adelaide time, drafts flagged, no contact details, no writes', async () => {
+test('with activity=1: labour and booked visits in Adelaide time, no contact details, no writes', async () => {
   const server = await startTestServer();
   try {
     await server.login();
@@ -87,10 +87,10 @@ test('with activity=1: labour and booked visits in Adelaide time, drafts flagged
         visits: [{ technician: 'Ryan S El Install', position: 'Electrician - Installer', date: '2026-10-28', start: '07:00', finish: '16:00', hours: 9 }],
       });
       assert.deepEqual(
-        res.data.invoices.map((i) => [i.invoiceNumber, i.isDraft]),
+        res.data.invoices.map((i) => [i.invoiceNumber, i.status]),
         [
-          ['INV-1', true],
-          ['INV-2', false],
+          ['INV-1', 'Pending Approval'],
+          ['INV-2', 'Processed'],
         ],
       );
       assert.doesNotMatch(JSON.stringify(res.data), /example\.test|0421|sellRate|test-token/);

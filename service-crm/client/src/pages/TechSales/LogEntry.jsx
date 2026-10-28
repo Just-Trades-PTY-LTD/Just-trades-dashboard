@@ -882,14 +882,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                           <td className="mono">{inv.invoiceNumber}</td>
                           <td className="mono">{inv.invoiceDate}</td>
                           <td>${inv.saleValueExGst}</td>
-                          <td>
-                            {inv.status}
-                            {inv.isDraft && (
-                              <span className="badge badge-warn" style={{ marginLeft: 6 }} title="Not yet approved in AroFlo — the amount can still change">
-                                Draft
-                              </span>
-                            )}
-                          </td>
+                          <td>{inv.status}</td>
                           <td>
                             <button className="btn" type="button" onClick={() => applyArofloInvoice(inv)}>
                               Use this
@@ -899,11 +892,6 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                       ))}
                     </tbody>
                   </table>
-                  {arofloResult.invoices.some((inv) => inv.isDraft) && (
-                    <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-                      Draft invoices aren't approved in AroFlo yet — their amount and date can still change. Check AroFlo before using one.
-                    </div>
-                  )}
                 </div>
               )}
               {arofloResult.scheduled && isSaleMade && (

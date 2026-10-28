@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toLocalDateTime, summarizeLabour, summarizeVisits, isDraftInvoiceStatus } from '../src/aroflo/activity.js';
+import { toLocalDateTime, summarizeLabour, summarizeVisits } from '../src/aroflo/activity.js';
 
 // Shapes below are taken from real AroFlo responses seen on the test page
 // (JN 2432 and two completed jobs), with contact details kept in to prove
@@ -67,13 +67,4 @@ test("AroFlo couldn't answer (null) stays null so the form can say so; an empty 
   assert.equal(summarizeLabour(null), null);
   assert.equal(summarizeVisits(null), null);
   assert.deepEqual(summarizeVisits([]), []);
-});
-
-test('draft invoice statuses are recognised regardless of spacing and case', () => {
-  for (const s of ['In Progress', 'IN_PROGRESS', 'inprogress', 'Pending Approval', 'PENDING_APPROVAL', 'Draft']) {
-    assert.equal(isDraftInvoiceStatus(s), true, s);
-  }
-  for (const s of ['Approved', 'Processed', 'PAID', '', null, undefined]) {
-    assert.equal(isDraftInvoiceStatus(s), false, String(s));
-  }
 });
