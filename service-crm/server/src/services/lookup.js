@@ -69,6 +69,25 @@ export function findOriginalBookingCall(jobNumber) {
   );
 }
 
+/** The Lead call the reports credit this Job Number's Lead Source to — the
+ * earliest active Lead call booked "Yes" (ties broken by id), exactly the
+ * rule services/reports.js applies in groupBookedLeadsByJobNumber(). Used
+ * only to warn on the New Job form when a job has none, so its Lead Source
+ * would show as "Unassigned"; never changes what the reports count. */
+export function findReportingLeadCall(jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  return get(
+    `SELECT c.*, ls.name AS lead_source_name
+     FROM calls c
+     LEFT JOIN list_items ls ON ls.id = c.lead_source_id
+     WHERE c.archived = 0 AND c.call_type = 'Lead' AND c.booked = 'Yes' AND lower(trim(c.job_number)) = ?
+     ORDER BY c.call_at ASC, c.id ASC
+     LIMIT 1`,
+    [key]
+  );
+}
+
 export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
   const key = normKey(invoiceNumber);
   if (!key) return null;

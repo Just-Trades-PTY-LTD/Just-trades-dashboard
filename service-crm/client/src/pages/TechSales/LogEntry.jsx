@@ -8,6 +8,7 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
+import { leadCallStatus } from '../../lib/leadCallStatus.js';
 
 const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
@@ -819,6 +820,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                 Job — Quote Approved Later" or "Call Back" instead.
               </div>
             )}
+            {(() => {
+              // Where this job's Lead Source will come from in the reports —
+              // a heads-up only, never blocks saving.
+              const status = leadCallStatus(form.jobNumber, callLookup);
+              return status && <div className={`lookup-box lookup-${status.tone}`}>{status.text}</div>;
+            })()}
           </div>
           <div className="field">
             <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
