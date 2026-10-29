@@ -76,9 +76,11 @@ export default function DataPanel() {
           )
         )
           return;
-        await api.export.restore(parsed);
-        setMessage('Backup restored. Reloading…');
-        setTimeout(() => window.location.reload(), 1000);
+        const result = await api.export.restore(parsed);
+        setMessage(
+          `Backup restored. The data from before the restore was saved as ${result.safetySnapshot} in the automatic backups list. Reloading…`
+        );
+        setTimeout(() => window.location.reload(), 2500);
       } catch (err) {
         setMessage(`That file could not be restored: ${err.message}`);
       }
@@ -104,7 +106,9 @@ export default function DataPanel() {
       <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>Data — export, backup and restore</div>
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         CSV exports are a snapshot for spreadsheets, not a full backup — archived records are included and flagged. Use the JSON backup
-        to fully restore this CRM's data (staff accounts are not included in the backup).
+        to fully restore this CRM's data. Staff account names and emails are included so every record stays linked, but passwords never
+        are, and a restore never changes existing staff accounts. Before any restore, the server saves a snapshot of the current data
+        to the automatic backups list below, so a restore can be undone.
       </div>
       {message && <div className="notice panel" style={{ marginBottom: 14 }}>{message}</div>}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>

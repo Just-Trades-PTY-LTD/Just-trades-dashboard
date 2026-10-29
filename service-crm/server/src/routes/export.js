@@ -1,12 +1,16 @@
 import { Router } from 'express';
-import { prepare, run, transaction } from '../db/index.js';
-import { BACKUP_TABLES, buildBackupPayload, listAutomaticBackups, readAutomaticBackup } from '../db/backup.js';
+import { run, transaction } from '../db/index.js';
+import { buildBackupPayload, listAutomaticBackups, readAutomaticBackup, writeAutomaticBackup } from '../db/backup.js';
+import { restoreFromBackup, RestoreError } from '../db/restore.js';
+import path from 'node:path';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { toCSV } from '../lib/csv.js';
 import { config } from '../config.js';
 import { CALL_COLUMNS, TECH_COLUMNS } from '../lib/historyColumns.js';
 
-export function createExportRouter({ getCallRows, getTechEntryRows }) {
+// dbPath: the database this server actually opened (equal to config.dbPath
+// in production), where automatic backups live alongside it.
+export function createExportRouter({ getCallRows, getTechEntryRows, dbPath = config.dbPath }) {
   const router = Router();
   router.use(requireAuth);
 
@@ -39,11 +43,11 @@ export function createExportRouter({ getCallRows, getTechEntryRows }) {
   // for application-level mistakes, on top of whatever the Export full
   // backup button above has been used to save elsewhere.
   router.get('/auto-backups', requireAdmin, (req, res) => {
-    res.json(listAutomaticBackups(config.dbPath));
+    res.json(listAutomaticBackups(dbPath));
   });
 
   router.get('/auto-backups/:filename', requireAdmin, (req, res) => {
-    const content = readAutomaticBackup(config.dbPath, req.params.filename);
+    const content = readAutomaticBackup(dbPath, req.params.filename);
     if (!content) return res.status(404).json({ error: 'Backup not found.' });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${req.params.filename}"`);
@@ -51,24 +55,20 @@ export function createExportRouter({ getCallRows, getTechEntryRows }) {
   });
 
   router.post('/restore', requireAdmin, (req, res) => {
-    const { tables } = req.body || {};
-    if (!tables || typeof tables !== 'object') return res.status(400).json({ error: 'That file could not be read as a CRM backup.' });
+    // A snapshot of the current data first, so any restore can be undone
+    // from the automatic backups list. No snapshot, no restore.
+    let safetySnapshot;
     try {
-      transaction(() => {
-        // Delete in reverse dependency order, then reinsert in forward order.
-        [...BACKUP_TABLES].reverse().forEach((t) => run(`DELETE FROM ${t}`));
-        BACKUP_TABLES.forEach((t) => {
-          const rows = Array.isArray(tables[t]) ? tables[t] : [];
-          if (!rows.length) return;
-          const columns = Object.keys(rows[0]);
-          const placeholders = columns.map(() => '?').join(',');
-          const insert = prepare(`INSERT INTO ${t} (${columns.join(',')}) VALUES (${placeholders})`);
-          rows.forEach((row) => insert.run(...columns.map((c) => row[c])));
-        });
-      });
-      res.json({ ok: true });
+      safetySnapshot = path.basename(writeAutomaticBackup(dbPath));
     } catch (err) {
-      res.status(400).json({ error: `Restore failed: ${err.message}` });
+      return res.status(500).json({ error: `Restore cancelled — a safety snapshot of the current data couldn't be saved first (${err.message}). Nothing was changed.` });
+    }
+    try {
+      const result = restoreFromBackup(req.body);
+      res.json({ ok: true, safetySnapshot, ...result });
+    } catch (err) {
+      const message = err instanceof RestoreError ? err.message : `Restore failed: ${err.message}. Nothing was changed.`;
+      res.status(400).json({ error: message, safetySnapshot });
     }
   });
 

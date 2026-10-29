@@ -19,13 +19,23 @@ export const BACKUP_TABLES = [
   'audit_log',
   'reviews',
   'review_technicians',
+  'follow_ups',
+  'follow_up_events',
 ];
+
+// Backed up, but only replaced on restore when the backup file has them, so
+// restoring a backup made before they were included keeps current values.
+export const OPTIONAL_BACKUP_TABLES = ['app_settings'];
 
 export function buildBackupPayload() {
   const backup = { exportedAt: new Date().toISOString(), tables: {} };
-  BACKUP_TABLES.forEach((t) => {
+  [...BACKUP_TABLES, ...OPTIONAL_BACKUP_TABLES].forEach((t) => {
     backup.tables[t] = all(`SELECT * FROM ${t}`);
   });
+  // Staff accounts WITHOUT password hashes — only so a restore onto a fresh
+  // install can keep every record linked to the account that made it (see
+  // db/restore.js). A restore never changes existing accounts.
+  backup.tables.users = all('SELECT id, name, email, role, active, created_at FROM users');
   return backup;
 }
 

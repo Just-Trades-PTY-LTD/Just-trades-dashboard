@@ -103,7 +103,11 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   // internal HTTP hop.
   app.set('trust proxy', 1);
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
-  app.use(express.json());
+  // A full backup is far bigger than the default 100kb body limit, so only
+  // the restore route accepts large uploads.
+  const defaultJson = express.json();
+  const restoreJson = express.json({ limit: '100mb' });
+  app.use((req, res, next) => (req.path === '/api/export/restore' ? restoreJson : defaultJson)(req, res, next));
   app.use(cookieParser());
   app.use(attachUser);
 
@@ -114,7 +118,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use('/api/calls', createCallsRouter());
   app.use('/api/tech', createTechSalesRouter());
   app.use('/api/lookup', createLookupRouter());
-  app.use('/api/export', createExportRouter({ getCallRows: listCalls, getTechEntryRows: listTechEntries }));
+  app.use('/api/export', createExportRouter({ getCallRows: listCalls, getTechEntryRows: listTechEntries, dbPath: resolvedDbPath }));
   app.use('/api/reports', createReportsRouter());
   app.use('/api/audit', createAuditRouter());
   app.use('/api/follow-ups', createFollowUpsRouter());
