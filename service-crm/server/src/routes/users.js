@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { all, get, run } from '../db/index.js';
+import { all, get, run, transaction } from '../db/index.js';
 import { hashPassword } from '../lib/password.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 
@@ -50,24 +50,35 @@ export function createUsersRouter() {
     const user = get('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!user) return res.status(404).json({ error: 'User not found.' });
     const { name, role, active, password } = req.body || {};
-    if (name !== undefined) run('UPDATE users SET name = ? WHERE id = ?', [name, user.id]);
-    if (role !== undefined) run('UPDATE users SET role = ? WHERE id = ?', [role === 'admin' ? 'admin' : 'staff', user.id]);
-    if (active !== undefined) {
-      if (!active && user.id === req.user.id) {
-        return res.status(400).json({ error: "You can't deactivate your own account." });
-      }
-      if (!active && user.role === 'admin' && user.active) {
-        const { n: activeAdmins } = get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1");
-        if (activeAdmins <= 1) {
-          return res.status(400).json({ error: "You can't deactivate the last active administrator account." });
-        }
-      }
-      run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, user.id]);
+    const newRole = role === undefined ? undefined : role === 'admin' ? 'admin' : 'staff';
+
+    // Every check runs before anything is saved, so a refused request never
+    // leaves part of the change applied (e.g. a new name saved alongside a
+    // rejected deactivation).
+    if (active !== undefined && !active && user.id === req.user.id) {
+      return res.status(400).json({ error: "You can't deactivate your own account." });
     }
-    if (password) {
-      if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
-      run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(password), user.id]);
+    // Deactivating OR demoting the last active administrator would leave
+    // nobody able to manage staff accounts or Settings.
+    const losesAdmin = user.role === 'admin' && user.active && ((active !== undefined && !active) || newRole === 'staff');
+    if (losesAdmin) {
+      const { n: activeAdmins } = get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1");
+      if (activeAdmins <= 1) {
+        return res.status(400).json({
+          error: newRole === 'staff'
+            ? "You can't change the last active administrator to staff — make another account an administrator first."
+            : "You can't deactivate the last active administrator account.",
+        });
+      }
     }
+    if (password && password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    transaction(() => {
+      if (name !== undefined) run('UPDATE users SET name = ? WHERE id = ?', [name, user.id]);
+      if (newRole !== undefined) run('UPDATE users SET role = ? WHERE id = ?', [newRole, user.id]);
+      if (active !== undefined) run('UPDATE users SET active = ? WHERE id = ?', [active ? 1 : 0, user.id]);
+      if (password) run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(password), user.id]);
+    });
     res.json(publicUser(get('SELECT * FROM users WHERE id = ?', [user.id])));
   });
 

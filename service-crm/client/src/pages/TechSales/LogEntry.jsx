@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
@@ -173,8 +173,22 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const [arofloResult, setArofloResult] = useState(null);
   const [arofloLoading, setArofloLoading] = useState(false);
   const [priorSuburb, setPriorSuburb] = useState('');
+  // True while a save is in flight. The ref blocks a second submit straight
+  // away (a fast double-click lands before React re-renders the disabled
+  // button); the state greys the button out.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  // The form as of the latest render, and a counter bumped whenever an
+  // in-flight AroFlo lookup should no longer apply — so a slow lookup fills
+  // against what's on screen when it returns, not what was there when the
+  // button was clicked, and never lands on a form that has since moved on.
+  const formRef = useRef(form);
+  formRef.current = form;
+  const arofloSeq = useRef(0);
 
   useEffect(() => {
+    arofloSeq.current += 1;
+    setArofloLoading(false);
     setForm(editing ? fromEntry(editing) : emptyForm());
     setInvalidFields(new Set());
     setArofloResult(null);
@@ -310,6 +324,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   }, [form.followUpRequired, form.visitDate]);
 
   function changeEntryType(kind) {
+    arofloSeq.current += 1;
+    setArofloLoading(false);
     setForm(emptyForm(kind));
     setInvalidFields(new Set());
     setArofloResult(null);
@@ -335,18 +351,34 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   async function runArofloLookup(jobNumber, { applySuburb } = {}) {
     const jn = (jobNumber || '').trim();
     if (!jn) return;
+    const seq = ++arofloSeq.current;
+    const kindAtStart = form.kind;
     setArofloLoading(true);
     setArofloResult(null);
+    // Still the latest lookup, for the same entry type and a Job Number
+    // field that still holds this number? Otherwise its answer is dropped.
+    const stillApplies = () => {
+      const current = formRef.current;
+      return (
+        seq === arofloSeq.current &&
+        current.kind === kindAtStart &&
+        [current.jobNumber, current.newJobNumber].some((v) => (v || '').trim() === jn)
+      );
+    };
     try {
       const result = await api.aroflo.lookup(jn, { activity: true });
+      if (!stillApplies()) return;
       setArofloResult(result);
-      const fill = arofloAutoFill({ result, form, applySuburb, editing: !!editing });
-      if (fill.suburb) setPriorSuburb(form.suburb);
-      if (Object.keys(fill).length) patch(fill);
+      const current = formRef.current;
+      if (arofloAutoFill({ result, form: current, applySuburb, editing: !!editing }).suburb) setPriorSuburb(current.suburb);
+      // Re-checked inside the update against the very latest form, so text
+      // typed into Comments while the lookup was running is never replaced.
+      setForm((f) => ({ ...f, ...arofloAutoFill({ result, form: f, applySuburb, editing: !!editing }) }));
     } catch (err) {
+      if (!stillApplies()) return;
       setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
     } finally {
-      setArofloLoading(false);
+      if (seq === arofloSeq.current) setArofloLoading(false);
     }
   }
 
@@ -519,6 +551,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       }
     }
     setInvalidFields(new Set());
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       let res;
       if (isNewJob) {
@@ -619,6 +654,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       if (!editing) changeEntryType(form.kind);
     } catch (err) {
       setNotice(err.message, true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
@@ -632,6 +670,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         label="Entry type *"
         value={form.kind}
         onChange={changeEntryType}
+        // Locked while editing: switching type resets the form, and saving
+        // would then send that blank form to the other type's update with
+        // this record's id — blanking it, or an unrelated record that shares
+        // the id. To log it as a different type, cancel and start a new entry.
+        disabled={!!editing}
         options={ENTRY_TYPES.filter(([id]) => id !== 'pending_cancellation' || form.kind === 'pending_cancellation').map(([id, label]) => ({
           id,
           name: label,
@@ -1207,8 +1250,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-        <button type="submit" className="btn btn-primary">
-          {editing ? 'Update entry' : 'Save entry'}
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : editing ? 'Update entry' : 'Save entry'}
         </button>
         {editing && (
           <button type="button" className="btn" onClick={onCancelEdit}>

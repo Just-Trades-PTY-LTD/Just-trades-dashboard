@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useSettings } from '../../lib/SettingsContext.jsx';
@@ -41,6 +41,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm(user?.id));
   const [invalidFields, setInvalidFields] = useState(new Set());
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
   // Lead calls only: AroFlo's own "Lead Source" custom field, read from the
   // matching job's customer record — surfaced as a plain reference value
   // only. Its option list doesn't line up 1:1 with this CRM's own Lead
@@ -126,6 +128,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       return;
     }
     setInvalidFields(new Set());
+    // Blocks a second submit while this one is in flight — see LogEntry.jsx.
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       if (editing) {
         await api.calls.update(editing.id, form);
@@ -138,6 +144,9 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       if (!editing) resetForm();
     } catch (err) {
       setNotice(err.message, true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
@@ -292,8 +301,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-        <button type="submit" className="btn btn-primary">
-          {editing ? 'Update call' : 'Save call'}
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : editing ? 'Update call' : 'Save call'}
         </button>
         {editing && (
           <button type="button" className="btn" onClick={onCancelEdit}>
