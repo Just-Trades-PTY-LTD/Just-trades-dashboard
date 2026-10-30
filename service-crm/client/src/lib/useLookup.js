@@ -17,13 +17,19 @@ export function useJobLookup(jobNumber, mode) {
     // flagging a genuinely different JN right after it's typed).
     setResult(null);
     clearTimeout(debounceRef.current);
+    // An answer for a Job Number that's since been changed is ignored — a
+    // slow lookup for the old number must never land after the new one.
+    let current = true;
     debounceRef.current = setTimeout(() => {
       const fn = mode === 'sale' ? api.lookup.sale : mode === 'call' ? api.lookup.call : api.lookup.job;
       fn(jobNumber)
-        .then(setResult)
-        .catch(() => setResult(null));
+        .then((r) => current && setResult(r))
+        .catch(() => current && setResult(null));
     }, 250);
-    return () => clearTimeout(debounceRef.current);
+    return () => {
+      current = false;
+      clearTimeout(debounceRef.current);
+    };
   }, [jobNumber, mode]);
 
   return result;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { nextLookupFill } from '../../lib/lookupFill.js';
 import { api } from '../../lib/api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useSettings } from '../../lib/SettingsContext.jsx';
@@ -168,9 +169,14 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   // Silently autofill trade/job type from whatever the JN matched, the same
   // way other auto-populated fields work — filled in, but never locked.
+  // Follows the Job Number: correcting it takes back what the old job filled
+  // (unless staff changed it) — see lib/lookupFill.js.
+  const lookupFill = useRef({});
   useEffect(() => {
-    if (!isCancellation || !lookupResult?.found || form.tradeId) return;
-    patch({ tradeId: lookupResult.tradeId || '', jobTypeId: lookupResult.jobTypeId || '' });
+    const r = isCancellation && lookupResult?.found ? lookupResult : null;
+    const { patch: changes, filled } = nextLookupFill(form, lookupFill.current, r ? { tradeId: r.tradeId, jobTypeId: r.jobTypeId } : {});
+    lookupFill.current = filled;
+    if (Object.keys(changes).length) patch(changes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult, isCancellation]);
 

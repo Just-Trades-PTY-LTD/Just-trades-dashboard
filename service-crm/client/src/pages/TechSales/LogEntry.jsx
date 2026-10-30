@@ -9,6 +9,7 @@ import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
+import { nextLookupFill } from '../../lib/lookupFill.js';
 
 const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
@@ -185,9 +186,18 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const formRef = useRef(form);
   formRef.current = form;
   const arofloSeq = useRef(0);
+  // What each Job Number lookup last auto-filled (see lib/lookupFill.js), so
+  // correcting the Job Number takes back the old job's values.
+  const lookupFills = useRef({});
+  function applyLookupFill(source, wanted) {
+    const { patch: changes, filled } = nextLookupFill(formRef.current, lookupFills.current[source], wanted);
+    lookupFills.current[source] = filled;
+    if (Object.keys(changes).length) patch(changes);
+  }
 
   useEffect(() => {
     arofloSeq.current += 1;
+    lookupFills.current = {};
     setArofloLoading(false);
     setForm(editing ? fromEntry(editing) : emptyForm());
     setInvalidFields(new Set());
@@ -250,26 +260,19 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // automatically where possible, but always left editable in case the match
   // needs correcting.
   useEffect(() => {
-    if (!lookupResult || !lookupResult.found) return;
-    if (isExistingJob) {
-      const fill = {};
-      if (lookupResult.technicianId && !form.creditedTechnicianId) fill.creditedTechnicianId = lookupResult.technicianId;
-      if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
-      if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
-      if (lookupResult.suburb && !form.suburb) fill.suburb = lookupResult.suburb;
-      if (Object.keys(fill).length) patch(fill);
-    } else if (isUpsell) {
+    const r = lookupResult?.found ? lookupResult : null;
+    let wanted = {};
+    if (r && isExistingJob) {
+      wanted = { creditedTechnicianId: r.technicianId, tradeId: r.tradeId, jobTypeId: r.jobTypeId, suburb: r.suburb };
+    } else if (r && isUpsell) {
       // Deliberately never auto-fills Credited Technician — that's who made
       // the upsell, which is often (the whole point of this entry type) a
       // different technician than the one who originally attended the job.
-      const fill = {};
-      if (lookupResult.tradeId && !form.tradeId) fill.tradeId = lookupResult.tradeId;
-      if (lookupResult.jobTypeId && !form.jobTypeId) fill.jobTypeId = lookupResult.jobTypeId;
-      if (lookupResult.suburb && !form.suburb) fill.suburb = lookupResult.suburb;
-      if (Object.keys(fill).length) patch(fill);
-    } else if (isPendingCancellation) {
-      if (lookupResult.creditedTechnicianId && !form.creditedTechnicianId) patch({ creditedTechnicianId: lookupResult.creditedTechnicianId });
+      wanted = { tradeId: r.tradeId, jobTypeId: r.jobTypeId, suburb: r.suburb };
+    } else if (r && isPendingCancellation) {
+      wanted = { creditedTechnicianId: r.creditedTechnicianId };
     }
+    applyLookupFill('job', wanted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult]);
 
@@ -282,16 +285,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // auto-fill the same way every other entry type's does. Still only ever
   // fills a currently-blank field, and still fully editable afterwards.
   useEffect(() => {
-    if (!isCallBack || !callBackJobLookup?.found) return;
-    const fill = {};
-    if (!form.creditedTechnicianId) {
-      const completedOnDifferentDay = callBackJobLookup.workCompletion === 'Install scheduled — different day';
-      const workTechnicianId = (completedOnDifferentDay && callBackJobLookup.installTechnicianId) || callBackJobLookup.technicianId;
-      if (workTechnicianId) fill.creditedTechnicianId = workTechnicianId;
+    const r = isCallBack && callBackJobLookup?.found ? callBackJobLookup : null;
+    let wanted = {};
+    if (r) {
+      const completedOnDifferentDay = r.workCompletion === 'Install scheduled — different day';
+      const workTechnicianId = (completedOnDifferentDay && r.installTechnicianId) || r.technicianId;
+      wanted = { creditedTechnicianId: workTechnicianId, tradeId: r.tradeId, jobTypeId: r.jobTypeId };
     }
-    if (callBackJobLookup.tradeId && !form.tradeId) fill.tradeId = callBackJobLookup.tradeId;
-    if (callBackJobLookup.jobTypeId && !form.jobTypeId) fill.jobTypeId = callBackJobLookup.jobTypeId;
-    if (Object.keys(fill).length) patch(fill);
+    applyLookupFill('callBack', wanted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callBackJobLookup, isCallBack]);
 
@@ -302,12 +303,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // selection instead, exactly as if nothing had matched. Never overwrites a
   // value already set, whether that came from the user or another autofill.
   useEffect(() => {
-    if (!isNewJob || !callLookup?.found) return;
-    const fill = {};
-    if (callLookup.suburb && !form.suburb) fill.suburb = callLookup.suburb;
-    if (callLookup.tradeId && !form.tradeId) fill.tradeId = callLookup.tradeId;
-    if (callLookup.jobTypeId && !form.jobTypeId) fill.jobTypeId = callLookup.jobTypeId;
-    if (Object.keys(fill).length) patch(fill);
+    const r = isNewJob && callLookup?.found ? callLookup : null;
+    applyLookupFill('call', r ? { suburb: r.suburb, tradeId: r.tradeId, jobTypeId: r.jobTypeId } : {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callLookup, isNewJob]);
 
@@ -325,6 +322,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
   function changeEntryType(kind) {
     arofloSeq.current += 1;
+    lookupFills.current = {};
     setArofloLoading(false);
     setForm(emptyForm(kind));
     setInvalidFields(new Set());
