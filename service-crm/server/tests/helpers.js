@@ -72,3 +72,11 @@ export async function startTestServer() {
 
   return { request, login, close, rawGet, dbPath, getCookie, setCookie };
 }
+
+/** Archives (or unarchives) entries the way the app does: preview the plan,
+ * then apply it with the confirmed token. Returns the apply response. */
+export async function archiveEntries(server, items, archived = true) {
+  const preview = await server.request('POST', '/archive/preview', { items, archived });
+  if (preview.status !== 200) return preview;
+  return server.request('POST', '/archive/apply', { items, archived, token: preview.data.token });
+}

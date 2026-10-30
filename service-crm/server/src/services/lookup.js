@@ -34,8 +34,10 @@ export function findConvertibleKnockback(jobNumber) {
   );
 }
 
-/** Most recent active sale matching this JN. */
-export function findLatestSale(jobNumber) {
+/** Most recent active sale matching this JN. `excludeUpsells` skips Upsell
+ * entries (extra work on an existing invoice), e.g. so a pending
+ * cancellation links to the job's original sale. */
+export function findLatestSale(jobNumber, { excludeUpsells = false } = {}) {
   const key = normKey(jobNumber);
   if (!key) return null;
   return get(
@@ -44,7 +46,7 @@ export function findLatestSale(jobNumber) {
      LEFT JOIN technicians t ON t.id = s.credited_technician_id
      LEFT JOIN trades tr ON tr.id = s.trade_id
      LEFT JOIN job_types jt ON jt.id = s.job_type_id
-     WHERE s.archived = 0 AND lower(trim(s.job_number)) = ?
+     WHERE s.archived = 0 AND lower(trim(s.job_number)) = ?${excludeUpsells ? ' AND s.is_upsell = 0' : ''}
      ORDER BY s.invoice_date DESC, s.id DESC
      LIMIT 1`,
     [key]

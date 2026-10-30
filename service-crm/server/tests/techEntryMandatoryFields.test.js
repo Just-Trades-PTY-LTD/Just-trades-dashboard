@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer } from './helpers.js';
+import { startTestServer, archiveEntries } from './helpers.js';
+import { get as dbGet, run as dbRun } from '../src/db/index.js';
 
 async function setup(server) {
   await server.login();
@@ -113,7 +114,7 @@ test('an archived job with the same Job Number does not block a brand-new job on
       '/tech/new-job',
       validNewJobBody(tech, plumbing, { jobNumber: 'JN-ARCH-1', lead: 'Not Qualified' })
     );
-    await server.request('PATCH', `/tech/entries/new_job_no_sale/${first.data.entry.id}/archive`, { archived: true });
+    await archiveEntries(server, [{ kind: 'new_job_no_sale', id: first.data.entry.id }]);
 
     const second = await server.request(
       'POST',
@@ -348,7 +349,7 @@ test('Existing Job — Quote Approved Later auto-populates Technician, Trade and
   }
 });
 
-test('editing an existing Quote Approved Later sale can change Trade and Job Type, and is never blocked by the Job Number match requirement', async () => {
+test('editing a Quote Approved Later sale can change Trade and Job Type even if its Job Number matches no job; changing the Job Number to one that matches no job is refused', async () => {
   const server = await startTestServer();
   try {
     const { tech, bundle, plumbing } = await setup(server);
@@ -368,12 +369,22 @@ test('editing an existing Quote Approved Later sale can change Trade and Job Typ
       saleValueExGst: 120,
     });
 
-    const patched = await server.request('PATCH', `/tech/quote-approved-later/${created.data.entry.id}`, {
-      jobNumber: 'JN-DOES-NOT-EXIST-AT-ALL',
+    const id = created.data.entry.id;
+    // Changing the Job Number to one that matches no job: refused, nothing changed.
+    const before = dbGet('SELECT * FROM sales WHERE id = ?', [id]);
+    const refused = await server.request('PATCH', `/tech/quote-approved-later/${id}`, { jobNumber: 'JN-DOES-NOT-EXIST-AT-ALL', tradeId: electrical.id });
+    assert.equal(refused.status, 400);
+    assert.match(refused.data.error, /No active job found.*Nothing was changed/);
+    assert.deepEqual(dbGet('SELECT * FROM sales WHERE id = ?', [id]), before);
+
+    // An older entry whose Job Number already matches no job can still have other fields edited.
+    dbRun("UPDATE sales SET job_number = 'JN-LEGACY-NO-MATCH' WHERE id = ?", [id]);
+    const patched = await server.request('PATCH', `/tech/quote-approved-later/${id}`, {
+      jobNumber: 'JN-LEGACY-NO-MATCH',
       tradeId: electrical.id,
       jobTypeId: electrical.jobTypes[0].id,
     });
-    assert.equal(patched.status, 200, 'editing is never blocked by the "must match" rule that only applies to creation');
+    assert.equal(patched.status, 200, 'editing other fields is never blocked by the "must match" rule');
     assert.equal(patched.data.tradeId, electrical.id);
     assert.equal(patched.data.jobTypeId, electrical.jobTypes[0].id);
   } finally {

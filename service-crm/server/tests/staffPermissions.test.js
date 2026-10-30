@@ -8,7 +8,7 @@ async function createStaff(server, email = 'staff@justtrades.au') {
   await server.login(email, 'staff-pass-123');
 }
 
-test('staff can do the normal operational work: create/edit calls, view history, archive, run reports, export to Excel', async () => {
+test('staff can do the normal operational work: create/edit calls, view history, run reports, export to Excel — but not archive', async () => {
   const server = await startTestServer();
   try {
     await server.login();
@@ -28,8 +28,11 @@ test('staff can do the normal operational work: create/edit calls, view history,
     const history = await server.request('GET', `/calls/${call.data.id}/history`);
     assert.equal(history.status, 200, 'staff can view a call\'s history');
 
-    const archive = await server.request('PATCH', `/calls/${call.data.id}/archive`, { archived: true });
-    assert.equal(archive.status, 200, 'staff can archive a call');
+    // Archiving is admins-only (and always previewed + confirmed).
+    const archive = await server.request('POST', '/archive/preview', { items: [{ kind: 'call', id: call.data.id }], archived: true });
+    assert.equal(archive.status, 403, 'staff cannot archive a call');
+    const archiveApply = await server.request('POST', '/archive/apply', { items: [{ kind: 'call', id: call.data.id }], archived: true, token: 'x' });
+    assert.equal(archiveApply.status, 403, 'staff cannot archive a call');
 
     const job = await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
@@ -46,8 +49,8 @@ test('staff can do the normal operational work: create/edit calls, view history,
     const jobEdit = await server.request('PATCH', `/tech/new-job/${job.data.entry.id}`, { comments: 'staff edit' });
     assert.equal(jobEdit.status, 200, 'staff can edit a tech/job entry');
 
-    const jobArchive = await server.request('PATCH', `/tech/entries/new_job_no_sale/${job.data.entry.id}/archive`, { archived: true });
-    assert.equal(jobArchive.status, 200, 'staff can archive a tech/job entry');
+    const jobArchive = await server.request('POST', '/archive/preview', { items: [{ kind: 'new_job_no_sale', id: job.data.entry.id }], archived: true });
+    assert.equal(jobArchive.status, 403, 'staff cannot archive a tech/job entry');
 
     const callsReport = await server.request('GET', '/reports/calls');
     assert.equal(callsReport.status, 200, 'staff can run the calls report');

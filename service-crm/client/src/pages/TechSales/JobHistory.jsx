@@ -6,6 +6,8 @@ import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
+import ArchiveDialog from '../../components/ArchiveDialog.jsx';
 
 const ENTRY_TYPES = [
   { id: 'new_job_no_sale', name: 'New Job — No Sale' },
@@ -186,6 +188,10 @@ export default function JobHistory({
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  // Archive/unarchive is admins only (the server enforces it too) and always
+  // goes through ArchiveDialog's preview + confirmation.
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [archiveRequest, setArchiveRequest] = useState(null);
 
   useEffect(() => {
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
@@ -353,24 +359,23 @@ export default function JobHistory({
     });
   }
 
-  async function archiveSelected() {
-    const keys = [...selectedKeys];
-    if (!keys.length) return;
-    const n = keys.length;
-    if (!window.confirm(`Archive ${n} entr${n === 1 ? 'y' : 'ies'}? This can be undone later with Unarchive.`)) return;
-    await Promise.all(
-      keys.map((key) => {
-        const [kind, id] = key.split(':');
-        return api.tech.archive(kind, id, true);
-      })
-    );
-    setSelectedKeys(new Set());
-    setNotice(`${n} entr${n === 1 ? 'y' : 'ies'} archived.`);
-    onChanged();
+  function archiveSelected() {
+    const items = [...selectedKeys].map((key) => {
+      const [kind, id] = key.split(':');
+      return { kind, id: Number(id) };
+    });
+    if (items.length) setArchiveRequest({ items, archived: true });
   }
 
-  async function toggleArchive(entry, archived) {
-    await api.tech.archive(entry.kind, entry.id, archived);
+  function toggleArchive(entry, archived) {
+    setArchiveRequest({ items: [{ kind: entry.kind, id: entry.id }], archived });
+  }
+
+  function archiveDone(res) {
+    const n = res.entries;
+    setArchiveRequest(null);
+    setSelectedKeys(new Set());
+    setNotice(`${n} entr${n === 1 ? 'y' : 'ies'} ${archiveRequest.archived ? 'archived' : 'unarchived'}${res.linkedChanges.length ? `, plus ${res.linkedChanges.length} linked change${res.linkedChanges.length === 1 ? '' : 's'}` : ''}.`);
     onChanged();
   }
 
@@ -401,7 +406,7 @@ export default function JobHistory({
         // This log is already a fixed set of records (a report drill-down) —
         // no filter bar, and no Export link, since that would export
         // everything matching these blank filters instead of just this set.
-        selectedKeys.size > 0 && (
+        isAdmin && selectedKeys.size > 0 && (
           <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
             <button className="btn btn-primary" type="button" onClick={archiveSelected}>
               Archive selected ({selectedKeys.size})
@@ -443,7 +448,7 @@ export default function JobHistory({
               Clear filters
             </button>
             <AdvancedFiltersToggle open={advancedOpen} onToggle={toggleAdvanced} activeCount={advancedActiveCount} />
-            {selectedKeys.size > 0 && (
+            {isAdmin && selectedKeys.size > 0 && (
               <button className="btn btn-primary" type="button" onClick={archiveSelected}>
                 Archive selected ({selectedKeys.size})
               </button>
@@ -592,13 +597,15 @@ export default function JobHistory({
             <thead>
               <tr>
                 <th>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    disabled={selectableRows.length === 0}
-                    title="Select all"
-                  />
+                  {isAdmin && (
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      disabled={selectableRows.length === 0}
+                      title="Select all"
+                    />
+                  )}
                 </th>
                 <th>Date</th>
                 <th>Entry type</th>
@@ -619,7 +626,7 @@ export default function JobHistory({
                   <Fragment key={key}>
                     <tr style={e.archived ? { opacity: 0.55 } : undefined}>
                       <td>
-                        {!e.archived && (
+                        {isAdmin && !e.archived && (
                           <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleSelected(key)} />
                         )}
                       </td>
@@ -711,15 +718,16 @@ export default function JobHistory({
                           <button className="btn btn-sm" onClick={() => onEdit(e)} type="button">
                             Edit
                           </button>
-                          {e.archived ? (
-                            <button className="btn btn-sm" onClick={() => toggleArchive(e, false)} type="button">
-                              Unarchive
-                            </button>
-                          ) : (
-                            <button className="btn btn-sm" onClick={() => toggleArchive(e, true)} type="button">
-                              Archive
-                            </button>
-                          )}
+                          {isAdmin &&
+                            (e.archived ? (
+                              <button className="btn btn-sm" onClick={() => toggleArchive(e, false)} type="button">
+                                Unarchive
+                              </button>
+                            ) : (
+                              <button className="btn btn-sm" onClick={() => toggleArchive(e, true)} type="button">
+                                Archive
+                              </button>
+                            ))}
                           <button
                             className="btn btn-sm btn-danger"
                             onClick={() => remove(e)}
@@ -755,6 +763,7 @@ export default function JobHistory({
           </table>
         )}
       </div>
+      {archiveRequest && <ArchiveDialog request={archiveRequest} onCancel={() => setArchiveRequest(null)} onDone={archiveDone} />}
     </div>
   );
 }

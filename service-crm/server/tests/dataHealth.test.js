@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer } from './helpers.js';
+import { startTestServer, archiveEntries } from './helpers.js';
 import { all as dbAll, run as dbRun } from '../src/db/index.js';
 
 // Settings -> Data health (GET /api/data-health): read-only checks listing
@@ -68,7 +68,8 @@ test('every known issue is found, with the figures a fix would move', async () =
 
     // 5: archive a Sale Made job (its sale stays active).
     const s5 = ok(await saleMade(server, ctx, 'H-5', 'INV-H5', 1000)).entry;
-    ok(await server.request('PATCH', `/tech/entries/new_job_sale_made/${s5.id}/archive`, { archived: true }));
+    // Archive only the job, the way the old one-click archive did, to recreate the issue.
+    dbRun('UPDATE jobs SET archived = 1 WHERE id = ?', [s5.id]);
 
     // 6: knock-back converted by a Quote Approved Later, then that sale archived.
     ok(await noSale(server, ctx, 'H-6'));
@@ -80,6 +81,10 @@ test('every known issue is found, with the figures a fix would move', async () =
     ok(await noSale(server, ctx, 'H-7B'));
     const q7 = ok(await qal(server, ctx, 'H-7', 'INV-H7')).entry;
     ok(await server.request('PATCH', `/tech/quote-approved-later/${q7.id}`, { jobNumber: 'H-7B' }));
+    // The edit now relinks properly; recreate the older mismatch directly.
+    const h7 = dbAll("SELECT id FROM jobs WHERE job_number = 'H-7'")[0].id;
+    assert.equal(dbAll('SELECT job_id FROM sales WHERE id = ?', [q7.id])[0].job_id !== h7, true, 'edit moved the link to H-7B');
+    dbRun('UPDATE sales SET job_id = ? WHERE id = ?', [h7, q7.id]);
 
     // 8: an older, inconsistent knock-back flag.
     const j8 = ok(await noSale(server, ctx, 'H-8')).entry;
@@ -88,17 +93,27 @@ test('every known issue is found, with the figures a fix would move', async () =
     // 9: Sale Made job's technician edited; its sale keeps the old one.
     const s9 = ok(await saleMade(server, ctx, 'H-9', 'INV-H9', 700)).entry;
     ok(await server.request('PATCH', `/tech/new-job/${s9.id}`, { technicianId: ctx.tB.id }));
+    // The edit now moves the sale too; recreate the older mismatch directly.
+    assert.equal(dbAll("SELECT credited_technician_id t FROM sales WHERE job_id = ? AND source = 'sale_made_at_visit'", [s9.id])[0].t, ctx.tB.id, 'edit moved the sale to Tech B');
+    dbRun("UPDATE sales SET credited_technician_id = ? WHERE job_id = ? AND source = 'sale_made_at_visit'", [ctx.tA.id, s9.id]);
 
     // 14: pending cancellation re-pointed at an upsell by a later call edit.
     ok(await saleMade(server, ctx, 'H-14', 'INV-H14', 400));
     const pcCall = ok(await server.request('POST', '/calls', { callAt: '2026-05-03T10:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation', jobNumber: 'H-14', cancellationReasonId: ctx.L.pending_cancellation_reason?.[0]?.id }));
     ok(await server.request('POST', '/tech/existing-job-upsell', { jobNumber: 'H-14', invoiceNumber: 'INV-H14', dateLogged: '2026-05-04', creditedTechnicianId: ctx.tB.id, invoiceDate: '2026-05-02', saleValueExGst: 50 }));
     ok(await server.request('PATCH', `/calls/${pcCall.id}`, { notes: 'typo fix' }));
+    // The call edit no longer re-points the cancellation; recreate the older state directly.
+    const upsellId = dbAll('SELECT id FROM sales WHERE is_upsell = 1')[0].id;
+    const pcRow = dbAll('SELECT sale_id FROM pending_cancellations')[0];
+    assert.notEqual(pcRow.sale_id, upsellId, 'call edit kept the original sale');
+    dbRun('UPDATE pending_cancellations SET sale_id = ?', [upsellId]);
 
-    // 15: a job's Job Number edited onto another active job's.
+    // 15: a job's Job Number edited onto another active job's (now refused,
+    // so written directly, as such older rows already sit in a database).
     const j15 = ok(await noSale(server, ctx, 'H-15A')).entry;
     ok(await noSale(server, ctx, 'H-15'));
-    ok(await server.request('PATCH', `/tech/new-job/${j15.id}`, { jobNumber: 'H-15' }));
+    assert.equal((await server.request('PATCH', `/tech/new-job/${j15.id}`, { jobNumber: 'H-15' })).status, 400, 'the edit itself is now refused');
+    dbRun("UPDATE jobs SET job_number = 'H-15' WHERE id = ?", [j15.id]);
 
     // Lead rules: older Sale Made + Not Qualified, older Not Qualified with "No".
     const sNQ = ok(await saleMade(server, ctx, 'H-NQ', 'INV-HNQ', 300)).entry;

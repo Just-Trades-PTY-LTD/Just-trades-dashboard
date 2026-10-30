@@ -6,6 +6,8 @@ import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFilt
 import { formatAuditChanges } from '../../lib/audit.js';
 import { contactMethodLabel, CONTACT_METHOD_OPTIONS } from '../../lib/contactMethods.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
+import ArchiveDialog from '../../components/ArchiveDialog.jsx';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -47,6 +49,10 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
   const [expandedId, setExpandedId] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  // Archive/unarchive is admins only (the server enforces it too) and always
+  // goes through ArchiveDialog's preview + confirmation.
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [archiveRequest, setArchiveRequest] = useState(null);
 
   useEffect(() => {
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
@@ -140,19 +146,20 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
     });
   }
 
-  async function archiveSelected() {
-    const ids = [...selectedIds];
-    if (!ids.length) return;
-    const n = ids.length;
-    if (!window.confirm(`Archive ${n} call${n === 1 ? '' : 's'}? This can be undone later with Unarchive.`)) return;
-    await Promise.all(ids.map((id) => api.calls.archive(id, true)));
-    setSelectedIds(new Set());
-    setNotice(`${n} call${n === 1 ? '' : 's'} archived.`);
-    onChanged();
+  function archiveSelected() {
+    const items = [...selectedIds].map((id) => ({ kind: 'call', id }));
+    if (items.length) setArchiveRequest({ items, archived: true });
   }
 
-  async function toggleArchive(id, archived) {
-    await api.calls.archive(id, archived);
+  function toggleArchive(id, archived) {
+    setArchiveRequest({ items: [{ kind: 'call', id }], archived });
+  }
+
+  function archiveDone(res) {
+    const n = res.entries;
+    setArchiveRequest(null);
+    setSelectedIds(new Set());
+    setNotice(`${n} call${n === 1 ? '' : 's'} ${archiveRequest.archived ? 'archived' : 'unarchived'}${res.linkedChanges.length ? `, plus ${res.linkedChanges.length} linked change${res.linkedChanges.length === 1 ? '' : 's'}` : ''}.`);
     onChanged();
   }
 
@@ -178,7 +185,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
         // This log is already a fixed set of records (a report drill-down) —
         // no filter bar, and no Export link, since that would export
         // everything matching these blank filters instead of just this set.
-        selectedIds.size > 0 && (
+        isAdmin && selectedIds.size > 0 && (
           <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
             <button className="btn btn-primary" type="button" onClick={archiveSelected}>
               Archive selected ({selectedIds.size})
@@ -212,7 +219,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
               Clear filters
             </button>
             <AdvancedFiltersToggle open={advancedOpen} onToggle={toggleAdvanced} activeCount={advancedActiveCount} />
-            {selectedIds.size > 0 && (
+            {isAdmin && selectedIds.size > 0 && (
               <button className="btn btn-primary" type="button" onClick={archiveSelected}>
                 Archive selected ({selectedIds.size})
               </button>
@@ -294,13 +301,15 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
             <thead>
               <tr>
                 <th>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    disabled={selectableRows.length === 0}
-                    title="Select all"
-                  />
+                  {isAdmin && (
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      disabled={selectableRows.length === 0}
+                      title="Select all"
+                    />
+                  )}
                 </th>
                 <th>Date / time</th>
                 <th>Contact Method</th>
@@ -319,7 +328,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                 <Fragment key={c.id}>
                   <tr style={c.archived ? { opacity: 0.55 } : undefined}>
                     <td>
-                      {!c.archived && (
+                      {isAdmin && !c.archived && (
                         <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)} />
                       )}
                     </td>
@@ -367,15 +376,16 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                         <button className="btn btn-sm" onClick={() => onEdit(c)} type="button">
                           Edit
                         </button>
-                        {c.archived ? (
-                          <button className="btn btn-sm" onClick={() => toggleArchive(c.id, false)} type="button">
-                            Unarchive
-                          </button>
-                        ) : (
-                          <button className="btn btn-sm" onClick={() => toggleArchive(c.id, true)} type="button">
-                            Archive
-                          </button>
-                        )}
+                        {isAdmin &&
+                          (c.archived ? (
+                            <button className="btn btn-sm" onClick={() => toggleArchive(c.id, false)} type="button">
+                              Unarchive
+                            </button>
+                          ) : (
+                            <button className="btn btn-sm" onClick={() => toggleArchive(c.id, true)} type="button">
+                              Archive
+                            </button>
+                          ))}
                         <button className="btn btn-sm btn-danger" onClick={() => remove(c.id)} type="button">
                           Delete
                         </button>
@@ -404,6 +414,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
           </table>
         )}
       </div>
+      {archiveRequest && <ArchiveDialog request={archiveRequest} onCancel={() => setArchiveRequest(null)} onDone={archiveDone} />}
     </div>
   );
 }

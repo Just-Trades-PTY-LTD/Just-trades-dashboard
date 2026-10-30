@@ -5,6 +5,7 @@ import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '..
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
 import { checkNewJobLead, checkNewJobLeadEdit } from '../lib/leadRules.js';
+import { findEntry } from '../lib/archive.js';
 import {
   findActiveFollowUpForJob,
   findConvertibleKnockback,
@@ -23,6 +24,7 @@ import {
 import { buildJobHistoryWorkbook } from '../lib/xlsxHistory.js';
 
 const JOB_TRACKED_FIELDS = [
+  'visit_date',
   'technician_id',
   'job_number',
   'trade_id',
@@ -39,6 +41,7 @@ const JOB_TRACKED_FIELDS = [
   'suburb',
 ];
 const SALE_TRACKED_FIELDS = [
+  'date_logged',
   'job_number',
   'new_job_number',
   'credited_technician_id',
@@ -827,6 +830,23 @@ export function createTechSalesRouter() {
     });
     if (leadCheck.error) return res.status(leadCheck.status).json({ error: leadCheck.error });
     Object.assign(next, leadCheck.values);
+    next.visit_date = visitDate;
+
+    // A Job Number already used by another active job is refused, the same
+    // as on creation — checked before anything is written, so a refused
+    // edit leaves the whole record unchanged.
+    const jobNumberChanged = normKey(next.job_number) !== normKey(existing.job_number);
+    if (jobNumberChanged && !existing.archived) {
+      const clash = get('SELECT job_number, visit_date FROM jobs WHERE archived = 0 AND id <> ? AND lower(trim(job_number)) = ?', [
+        existing.id,
+        normKey(next.job_number),
+      ]);
+      if (clash) {
+        return res.status(400).json({
+          error: `Job Number ${next.job_number} is already used by another active job (visit ${clash.visit_date}). Nothing was changed.`,
+        });
+      }
+    }
 
     transaction(() => {
       run(
@@ -852,22 +872,47 @@ export function createTechSalesRouter() {
           req.params.id,
         ]
       );
-      if (isSaleMade && (b.invoiceNumber !== undefined || b.invoiceDate !== undefined || b.saleValueExGst !== undefined)) {
-        const sale = get('SELECT * FROM sales WHERE job_id = ? AND source = ?', [req.params.id, 'sale_made_at_visit']);
+      // A Sale Made job's own sale (found by job_id + source, never by a
+      // shared id) follows the job: any of technician, Job Number, trade,
+      // job type or visit date changed in THIS edit is copied to it. Fields
+      // the edit didn't change are left exactly as the sale has them, so an
+      // unrelated edit never back-fills an older difference.
+      if (isSaleMade) {
+        const sale = get("SELECT * FROM sales WHERE job_id = ? AND source = 'sale_made_at_visit'", [existing.id]);
         if (sale) {
-          run('UPDATE sales SET invoice_number=?, invoice_date=?, sale_value_ex_gst=?, job_number=?, trade_id=?, updated_at=datetime(\'now\') WHERE id=?', [
-            b.invoiceNumber ?? sale.invoice_number,
-            b.invoiceDate ?? sale.invoice_date,
-            b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : sale.sale_value_ex_gst,
-            next.job_number,
-            next.trade_id,
-            sale.id,
-          ]);
+          const changed = (a, c) => String(a ?? '') !== String(c ?? '');
+          const saleNext = {
+            ...sale,
+            credited_technician_id: changed(next.technician_id, existing.technician_id) ? next.technician_id : sale.credited_technician_id,
+            job_number: changed(next.job_number, existing.job_number) ? next.job_number : sale.job_number,
+            trade_id: changed(next.trade_id, existing.trade_id) ? next.trade_id : sale.trade_id,
+            job_type_id: changed(next.job_type_id, existing.job_type_id) ? next.job_type_id : sale.job_type_id,
+            date_logged: changed(visitDate, existing.visit_date) ? visitDate : sale.date_logged,
+            invoice_number: b.invoiceNumber ?? sale.invoice_number,
+            invoice_date: b.invoiceDate ?? sale.invoice_date,
+            sale_value_ex_gst: b.saleValueExGst !== undefined ? Number(b.saleValueExGst) || 0 : sale.sale_value_ex_gst,
+          };
+          run(
+            `UPDATE sales SET credited_technician_id=?, job_number=?, trade_id=?, job_type_id=?, date_logged=?, invoice_number=?,
+              invoice_date=?, sale_value_ex_gst=?, updated_at=datetime('now') WHERE id=?`,
+            [
+              saleNext.credited_technician_id,
+              saleNext.job_number,
+              saleNext.trade_id,
+              saleNext.job_type_id,
+              saleNext.date_logged,
+              saleNext.invoice_number,
+              saleNext.invoice_date,
+              saleNext.sale_value_ex_gst,
+              sale.id,
+            ]
+          );
+          recordAudit({ entityType: 'sale', entityId: sale.id, before: sale, after: saleNext, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
         }
       }
+      recordAudit({ entityType: 'job', entityId: Number(req.params.id), before: existing, after: next, fields: JOB_TRACKED_FIELDS, userId: req.user.id });
     });
 
-    recordAudit({ entityType: 'job', entityId: Number(req.params.id), before: existing, after: next, fields: JOB_TRACKED_FIELDS, userId: req.user.id });
     res.json(jobToEntry(jobRow(req.params.id)));
   });
 
@@ -1055,10 +1100,31 @@ export function createTechSalesRouter() {
       suburb: b.suburb ?? existing.suburb,
     };
     const dateLogged = b.dateLogged ?? existing.date_logged;
+    next.date_logged = dateLogged;
+
+    // Changing the Original Job Number moves this sale to that job: it must
+    // match an active job (the same rule as on creation), the conversion
+    // this sale gave the old job is removed, and the new job is marked
+    // "Converted later" only if it's an unconverted Qualified No Sale
+    // knock-back. Follow-ups are never closed or reopened here — staff are
+    // told about any that may need attention instead. All in one
+    // transaction; a refusal changes nothing.
+    const jnChanged = normKey(next.job_number) !== normKey(existing.job_number);
+    const newJob = jnChanged ? findOriginalJob(next.job_number) : null;
+    if (jnChanged && !newJob) {
+      return res.status(400).json({
+        error: `No active job found for Original Job Number ${next.job_number}. A Quote Approved Later entry must reference a Job Number already logged as a New Job entry. Nothing was changed.`,
+      });
+    }
+    next.job_id = jnChanged ? newJob.id : existing.job_id;
+    const notices = [];
+
+    transaction(() => {
     run(
-      `UPDATE sales SET job_number=?, new_job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
+      `UPDATE sales SET job_id=?, job_number=?, new_job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
         sale_value_ex_gst=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
       [
+        next.job_id,
         next.job_number,
         next.new_job_number,
         dateLogged,
@@ -1073,8 +1139,47 @@ export function createTechSalesRouter() {
         req.params.id,
       ]
     );
-    recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
-    res.json({ ...saleToEntry(saleRow(req.params.id)), originalKnockbackJobId: findJobConvertedBySale(req.params.id)?.id ?? null });
+    recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: [...SALE_TRACKED_FIELDS, 'job_id'], userId: req.user.id });
+
+    if (jnChanged) {
+      const oldConverted = get('SELECT * FROM jobs WHERE converted_by_sale_id = ?', [existing.id]);
+      if (oldConverted) {
+        run("UPDATE jobs SET converted_later = 0, converted_by_sale_id = NULL, updated_at = datetime('now') WHERE id = ?", [oldConverted.id]);
+        recordAudit({
+          entityType: 'job',
+          entityId: oldConverted.id,
+          before: { knockback: 'Converted (quote approved later)', converted_by_sale: existing.id },
+          after: { knockback: 'Yes', converted_by_sale: null },
+          fields: ['knockback', 'converted_by_sale'],
+          userId: req.user.id,
+        });
+        notices.push(`JN ${oldConverted.job_number} is no longer marked "Converted later" by this sale.`);
+      }
+      const flip = existing.archived ? null : findConvertibleKnockback(next.job_number);
+      if (flip) {
+        run("UPDATE jobs SET converted_later = 1, converted_by_sale_id = ?, updated_at = datetime('now') WHERE id = ?", [existing.id, flip.id]);
+        recordAudit({
+          entityType: 'job',
+          entityId: flip.id,
+          before: { knockback: 'Yes', converted_by_sale: null },
+          after: { knockback: 'Converted (quote approved later)', converted_by_sale: existing.id },
+          fields: ['knockback', 'converted_by_sale'],
+          userId: req.user.id,
+        });
+        notices.push(`JN ${flip.job_number} is now marked "Converted later" by this sale.`);
+      }
+      if (get('SELECT 1 FROM follow_ups WHERE closed_by_sale_id = ?', [existing.id])) {
+        notices.push('A follow-up this sale closed on the old job stays closed — reopen it from Follow-ups if needed.');
+      }
+      if (findActiveFollowUpForJob(newJob.id)) notices.push(`JN ${newJob.job_number} has an open follow-up, which hasn't been changed.`);
+    }
+    });
+
+    res.json({
+      ...saleToEntry(saleRow(req.params.id)),
+      originalKnockbackJobId: findJobConvertedBySale(req.params.id)?.id ?? null,
+      notice: notices.length ? notices.join(' ') : undefined,
+    });
   });
 
   // ---- Existing Job — Upsell ----
@@ -1491,16 +1596,15 @@ export function createTechSalesRouter() {
     pending_cancellation: 'pending_cancellations',
   };
 
-  router.patch('/entries/:kind/:id/archive', (req, res) => {
-    const table = TABLE_BY_KIND[req.params.kind];
-    if (!table) return res.status(404).json({ error: 'Unknown entry kind.' });
-    run(`UPDATE ${table} SET archived = ? WHERE id = ?`, [req.body?.archived ? 1 : 0, req.params.id]);
-    res.json({ ok: true });
-  });
+  // Archive / unarchive moved to /api/archive (admins only, confirmed plan,
+  // linked records, one transaction) — see routes/archive.js.
 
   router.delete('/entries/:kind/:id', (req, res) => {
     const table = TABLE_BY_KIND[req.params.kind];
     if (!table) return res.status(404).json({ error: 'Unknown entry kind.' });
+    // The id must really be this kind of entry — ids overlap between tables
+    // and between Sale Made / Quote Approved Later / Upsell sales.
+    if (!findEntry(req.params.kind, req.params.id)) return res.status(404).json({ error: 'Entry not found.' });
     try {
       run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
       res.json({ ok: true });

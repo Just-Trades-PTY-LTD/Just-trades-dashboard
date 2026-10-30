@@ -7,34 +7,94 @@ import { findLatestSale, findOriginalJob, isUserActive } from '../services/looku
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 
-const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
+const PENDING_CANCELLATION_TRACKED_FIELDS = ['sale_id', 'job_number', 'date_logged', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
 
 /**
- * A "Pending Cancellation" call links to the job's existing sale by JN — it
- * never creates a new job or sale. This keeps that link's pending_cancellations
- * row in sync with the call: created the first time a call becomes a Pending
- * Cancellation, updated in place on later edits, and removed if the call is
- * edited away from Pending Cancellation or deleted outright. Returns the
- * pending_cancellation_id the calls row should now store (or null).
+ * Keeps a Pending Cancellation call's linked pending cancellation in step
+ * with the call. Returns the pending_cancellation_id the calls row should
+ * store (or null).
+ *
+ * - A new Pending Cancellation call (on create, or a call newly edited into
+ *   one) creates its cancellation, linked to the job's original sale
+ *   (never an Upsell) or, failing that, the job.
+ * - Editing a call that already has its cancellation updates ONLY what this
+ *   edit changed on the call (date, Job Number, trade, reason, notes);
+ *   everything else on the cancellation — e.g. a credited technician
+ *   corrected on the Technician & Sales page — is left as it is, and it is
+ *   only re-linked to a sale when the Job Number itself changes.
+ * - A call that was already a Pending Cancellation call but has no
+ *   cancellation (it was deleted on the Technician & Sales page) never gets
+ *   a new one from an unrelated edit.
+ * - Changing the call to another type removes its cancellation, as before.
+ * `previous` is the call row before this edit (null on create).
  */
-function syncPendingCancellation({ existingPendingCancellationId, callType, cancellationType, jobNumber, tradeId, cancellationReasonId, notes, callAt, userId }) {
+function syncPendingCancellation({ previous, existingPendingCancellationId, callType, cancellationType, jobNumber, tradeId, cancellationReasonId, notes, callAt, userId }) {
   const shouldHaveLink = callType === 'Cancellation' && cancellationType === 'Pending Cancellation' && !!jobNumber;
 
   if (!shouldHaveLink) {
-    if (existingPendingCancellationId) run('DELETE FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+    if (existingPendingCancellationId) {
+      const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+      run('DELETE FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+      if (before) {
+        run('INSERT INTO audit_log (entity_type, entity_id, changes_json, changed_by_user_id) VALUES (?, ?, ?, ?)', [
+          'pending_cancellation',
+          existingPendingCancellationId,
+          JSON.stringify({ deleted: { from: `JN ${before.job_number}`, to: 'Removed — its call is no longer a Pending Cancellation' } }),
+          userId || null,
+        ]);
+      }
+    }
     return null;
   }
 
-  const sale = findLatestSale(jobNumber);
-  // A sale made at the original visit always carries its own credited
-  // technician, but a job that was never sold (e.g. it was already a
-  // knock-back, or a Pending Cancellation was logged against it before any
-  // sale was recorded) has no sale row to draw one from. Falling back to
-  // the original job's own Technician — mandatory on every job — means this
-  // can never end up silently blank and bucketed as "Unassigned" in
-  // reports; only a Job Number that matches neither a sale nor a job at all
-  // (a typo, or one never logged) can still leave it unset.
-  const originalJob = sale ? null : findOriginalJob(jobNumber);
+  const wasPendingCancellationCall =
+    previous && previous.call_type === 'Cancellation' && previous.cancellation_type === 'Pending Cancellation' && !!previous.job_number;
+  if (!existingPendingCancellationId && wasPendingCancellationCall) {
+    // Its cancellation was deleted on purpose; an edit to the call doesn't bring it back.
+    return null;
+  }
+
+  const resolveLinks = () => {
+    const sale = findLatestSale(jobNumber, { excludeUpsells: true });
+    // A job never sold has no sale to take a technician from; fall back to
+    // the job's own (mandatory) Technician so it never ends up "Unassigned".
+    const originalJob = sale ? null : findOriginalJob(jobNumber);
+    return { sale, originalJob };
+  };
+
+  if (existingPendingCancellationId) {
+    const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+    if (!before) return null;
+    const changed = (a, b) => String(a ?? '') !== String(b ?? '');
+    const fields = { ...before };
+    if (changed(previous?.job_number, jobNumber)) {
+      const { sale, originalJob } = resolveLinks();
+      fields.job_number = jobNumber;
+      fields.sale_id = sale?.id || null;
+      fields.credited_technician_id = sale?.credited_technician_id || originalJob?.technician_id || null;
+      if (!tradeId) fields.trade_id = sale?.trade_id || originalJob?.trade_id || null;
+    }
+    if (changed(previous?.call_at, callAt)) fields.date_logged = (callAt || '').slice(0, 10);
+    if (changed(previous?.trade_id, tradeId) && tradeId) fields.trade_id = tradeId;
+    if (changed(previous?.cancellation_reason_id, cancellationReasonId)) fields.reason_id = cancellationReasonId || null;
+    if (changed(previous?.notes, notes)) fields.comments = notes || '';
+    run(
+      `UPDATE pending_cancellations SET sale_id=?, job_number=?, date_logged=?, credited_technician_id=?, trade_id=?,
+        reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
+      [fields.sale_id, fields.job_number, fields.date_logged, fields.credited_technician_id, fields.trade_id, fields.reason_id, fields.comments, existingPendingCancellationId]
+    );
+    recordAudit({
+      entityType: 'pending_cancellation',
+      entityId: existingPendingCancellationId,
+      before,
+      after: fields,
+      fields: PENDING_CANCELLATION_TRACKED_FIELDS,
+      userId,
+    });
+    return existingPendingCancellationId;
+  }
+
+  const { sale, originalJob } = resolveLinks();
   const fields = {
     sale_id: sale?.id || null,
     job_number: jobNumber,
@@ -44,27 +104,6 @@ function syncPendingCancellation({ existingPendingCancellationId, callType, canc
     reason_id: cancellationReasonId || null,
     comments: notes || '',
   };
-
-  if (existingPendingCancellationId) {
-    const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
-    run(
-      `UPDATE pending_cancellations SET sale_id=?, job_number=?, date_logged=?, credited_technician_id=?, trade_id=?,
-        reason_id=?, comments=?, updated_at=datetime('now') WHERE id=?`,
-      [fields.sale_id, fields.job_number, fields.date_logged, fields.credited_technician_id, fields.trade_id, fields.reason_id, fields.comments, existingPendingCancellationId]
-    );
-    if (before) {
-      recordAudit({
-        entityType: 'pending_cancellation',
-        entityId: existingPendingCancellationId,
-        before,
-        after: fields,
-        fields: PENDING_CANCELLATION_TRACKED_FIELDS,
-        userId,
-      });
-    }
-    return existingPendingCancellationId;
-  }
-
   const { lastInsertRowid } = run(
     `INSERT INTO pending_cancellations (sale_id, job_number, date_logged, credited_technician_id, trade_id, reason_id, comments, created_by_user_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -393,6 +432,7 @@ export function createCallsRouter() {
     }
     transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
+        previous: existing,
         existingPendingCancellationId: existing.pending_cancellation_id,
         callType: next.call_type,
         cancellationType: next.cancellation_type,
@@ -441,17 +481,8 @@ export function createCallsRouter() {
     res.json(toRow(get(`${SELECT_SQL} WHERE c.id = ?`, [req.params.id])));
   });
 
-  router.patch('/:id/archive', (req, res) => {
-    const archived = req.body?.archived ? 1 : 0;
-    transaction(() => {
-      const call = get('SELECT pending_cancellation_id FROM calls WHERE id = ?', [req.params.id]);
-      run('UPDATE calls SET archived = ? WHERE id = ?', [archived, req.params.id]);
-      if (call?.pending_cancellation_id) {
-        run('UPDATE pending_cancellations SET archived = ? WHERE id = ?', [archived, call.pending_cancellation_id]);
-      }
-    });
-    res.json({ ok: true });
-  });
+  // Archive / unarchive moved to /api/archive (admins only, confirmed plan,
+  // linked pending cancellation, one transaction) — see routes/archive.js.
 
   router.delete('/:id', (req, res) => {
     transaction(() => {

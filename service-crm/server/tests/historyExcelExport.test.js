@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
-import { startTestServer } from './helpers.js';
+import { startTestServer, archiveEntries } from './helpers.js';
 
 test('Call History Excel export respects active filters and includes full notes text', async () => {
   const server = await startTestServer();
@@ -46,7 +46,7 @@ test('Call History Excel export respects active filters and includes full notes 
         booked: 'Yes',
       })
     ).data;
-    await server.request('PATCH', `/calls/${archivedCall.id}/archive`, { archived: true });
+    await archiveEntries(server, [{ kind: 'call', id: archivedCall.id }]);
 
     const res = await server.rawGet('/calls/export.xlsx?from=2026-05-01&to=2026-05-31&callType=Lead');
     assert.equal(res.status, 200);
@@ -91,7 +91,7 @@ test('Call History Excel export can include archived calls when requested', asyn
         booked: 'Yes',
       })
     ).data;
-    await server.request('PATCH', `/calls/${call.id}/archive`, { archived: true });
+    await archiveEntries(server, [{ kind: 'call', id: call.id }]);
 
     const res = await server.rawGet('/calls/export.xlsx?from=2026-06-01&to=2026-06-30&includeArchived=true');
     const wb = new ExcelJS.Workbook();

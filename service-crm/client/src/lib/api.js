@@ -63,7 +63,6 @@ export const api = {
     history: (id) => request('GET', `/calls/${id}/history`),
     create: (body) => request('POST', '/calls', body),
     update: (id, body) => request('PATCH', `/calls/${id}`, body),
-    archive: (id, archived) => request('PATCH', `/calls/${id}/archive`, { archived }),
     remove: (id) => request('DELETE', `/calls/${id}`),
     exportXlsxUrl: (params) => `/api/calls/export.xlsx${qs(params)}`,
   },
@@ -81,8 +80,14 @@ export const api = {
     updateCallBack: (id, body) => request('PATCH', `/tech/call-backs/${id}`, body),
     createPendingCancellation: (body) => request('POST', '/tech/pending-cancellations', body),
     updatePendingCancellation: (id, body) => request('PATCH', `/tech/pending-cancellations/${id}`, body),
-    archive: (kind, id, archived) => request('PATCH', `/tech/entries/${kind}/${id}/archive`, { archived }),
     remove: (kind, id) => request('DELETE', `/tech/entries/${kind}/${id}`),
+  },
+  // Admin-only. Always preview first (it changes nothing), show the admin what
+  // will change, then apply with the preview's token — the server refuses if
+  // the records changed in between.
+  archive: {
+    preview: (items, archived) => request('POST', '/archive/preview', { items, archived }),
+    apply: (items, archived, token) => request('POST', '/archive/apply', { items, archived, token }),
   },
   followUps: {
     list: (params) => request('GET', `/follow-ups${qs(params)}`),

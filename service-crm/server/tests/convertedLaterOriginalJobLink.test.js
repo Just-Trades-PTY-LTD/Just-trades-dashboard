@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestServer } from './helpers.js';
+import { startTestServer, archiveEntries } from './helpers.js';
 
 // "View original knockback job" — a Quote Approved Later ("Converted Later")
 // entry's exact, hard link back to the specific job it flipped from
@@ -72,7 +72,7 @@ test('a Quote Approved Later entry links to the exact job it converted, both on 
 
     // Archiving the original job never clears the link — it's still the
     // exact same job, just archived.
-    await server.request('PATCH', `/tech/entries/new_job_no_sale/${jobId}/archive`, { archived: true });
+    await archiveEntries(server, [{ kind: 'new_job_no_sale', id: jobId }]);
     const afterArchive = (await server.request('GET', '/tech/entries?includeArchived=true')).data;
     const stillLinked = afterArchive.find((e) => e.kind === 'quote_approved_later' && e.id === approvedLater.data.entry.id);
     assert.equal(stillLinked.originalKnockbackJobId, jobId, 'archiving the original job does not clear its link');
