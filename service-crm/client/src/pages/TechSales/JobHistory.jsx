@@ -671,8 +671,18 @@ export default function JobHistory({
                       </td>
                       <td>{e.suburb || '—'}</td>
                       <td>
-                        {e.kind === 'new_job_no_sale' && (!e.convertedLater || forceKnockbackLabel) && (
+                        {/* A Not Qualified No Sale job is never a knock-back (Knock back: N/A). */}
+                        {e.kind === 'new_job_no_sale' && e.lead === 'Not Qualified' && (
+                          <span className="badge badge-info">Not qualified</span>
+                        )}
+                        {e.kind === 'new_job_no_sale' && e.lead !== 'Not Qualified' && (!e.convertedLater || forceKnockbackLabel) && (
                           <span className="badge badge-warn">Knock back{e.knockbackReasonName ? `: ${e.knockbackReasonName}` : ''}</span>
+                        )}
+                        {/* Older data only: a Sale Made job is always Qualified. Flagged, never corrected automatically. */}
+                        {e.kind === 'new_job_sale_made' && e.lead === 'Not Qualified' && (
+                          <span className="badge badge-alert" title="A Sale Made job is always Qualified. Edit this entry and set Lead to Qualified.">
+                            Review: Sale Made marked Not Qualified
+                          </span>
                         )}
                         {e.kind === 'new_job_no_sale' && e.convertedLater && !forceKnockbackLabel && (
                           <span className="badge badge-success">Converted later</span>

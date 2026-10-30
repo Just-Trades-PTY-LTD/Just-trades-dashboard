@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { addTitleBlock, addDataTable, addFiltersSheet, filterSummaryLines } from './xlsxHelpers.js';
 import { CALL_COLUMNS, TECH_COLUMNS } from './historyColumns.js';
+import { knockbackLabel } from './leadRules.js';
 
 const ENTRY_TYPE_LABELS = {
   new_job_no_sale: 'New Job — No Sale',
@@ -130,7 +131,7 @@ export function buildJobHistoryWorkbook(rows, filters, lookups) {
     ...r,
     archived: yesNo(r.archived),
     convertedLater: yesNo(r.convertedLater),
-    knockback: yesNo(r.knockback),
+    knockback: knockbackLabel(r),
   }));
   addDataTable(sheet, TECH_COLUMNS, dataRows);
 

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer } from './helpers.js';
+import { run as dbRun } from '../src/db/index.js';
 
 // Average sale = Total Sales Value (ex GST) ÷ Qualified Jobs — not the
 // number of sales, and not every job attended (unqualified jobs must not
@@ -64,7 +65,6 @@ test('average sale divides Total Sales Value by Qualified Jobs only, and unquali
         tradeId: plumbing.id,
         jobTypeId: plumbing.jobTypes[0].id,
         lead: 'Not Qualified',
-        knockbackReasonId: bundle.lists.knockback_reason[0].id,
       });
     }
 
@@ -172,11 +172,14 @@ test('average sale is $0, not an error, when every job attended is unqualified (
       jobNumber: 'JN-AVG3-UNQ-1',
       tradeId: plumbing.id,
       jobTypeId: plumbing.jobTypes[0].id,
-      lead: 'Not Qualified',
+      lead: 'Qualified',
       invoiceNumber: 'INV-AVG3-1',
       invoiceDate: '2026-07-01',
       saleValueExGst: 500,
     });
+    // Older data only: Sale Made + Not Qualified can't be created any more,
+    // so it's set directly, as such a record already sits in the database.
+    dbRun("UPDATE jobs SET lead = 'Not Qualified' WHERE job_number = 'JN-AVG3-UNQ-1'");
 
     const report = (await server.request('GET', '/reports/tech?from=2026-07-01&to=2026-07-31')).data;
     assert.equal(report.company.jobsAttended, 1);

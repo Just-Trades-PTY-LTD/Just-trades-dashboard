@@ -10,6 +10,7 @@ import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
+import { changeLead, switchNewJobKind, hasEnteredDetails, confirmMessage, NA } from '../../lib/leadTransitions.js';
 
 const ENTRY_TYPES = [
   ['new_job_no_sale', 'New Job — No Sale'],
@@ -40,7 +41,8 @@ function emptyForm(kind) {
     newJobNumber: '',
     tradeId: '',
     jobTypeId: '',
-    lead: '',
+    // A Sale Made job is always Qualified (enforced by the server too).
+    lead: kind === 'new_job_sale_made' ? 'Qualified' : '',
     inspectionSheet: '',
     optionSheet: '',
     knockbackReasonId: '',
@@ -223,6 +225,19 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const isGenuineKnockback = form.kind === 'new_job_no_sale' && form.lead === 'Qualified';
   const knockbackReason = settings.lists.knockback_reason.find((r) => String(r.id) === String(form.knockbackReasonId));
   const knockbackReasonIsOther = knockbackReason?.name === 'Other';
+  const isNotQualifiedNoSale = form.kind === 'new_job_no_sale' && form.lead === 'Not Qualified';
+  const legacySaleMadeNotQualified = !!editing && isSaleMade && editing.lead === 'Not Qualified';
+  const knockbackDisplay = isNotQualifiedNoSale ? NA : isGenuineKnockback ? 'Yes' : 'No';
+  const isYesNo = (v) => v === 'Yes' || v === 'No';
+
+  // Not Qualified No Sale -> sheets N/A, no knock-back reason; back to
+  // Qualified -> normal selection. Confirms first if Yes/No answers, a
+  // reason or a follow-up reminder would be replaced (lib/leadTransitions.js).
+  function handleLeadChange(v) {
+    const { next, lost } = changeLead(form, v, { reasonName: knockbackReason?.name });
+    if (lost.length && !window.confirm(confirmMessage('Changing Lead to Not Qualified will make these changes:', lost))) return;
+    setForm(next);
+  }
 
   const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
   const showJobLookup = isExistingJob || isUpsell || isPendingCancellation;
@@ -320,7 +335,21 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.followUpRequired, form.visitDate]);
 
-  function changeEntryType(kind) {
+  // Switching between No Sale and Sale Made keeps the shared details; any
+  // other switch starts the form again. Either way, anything staff entered
+  // that would be cleared is listed and confirmed first. `force` is only
+  // for resetting the form after a successful save.
+  function changeEntryType(kind, { force = false } = {}) {
+    if (!force) {
+      const sw = switchNewJobKind(form, kind, { reasonName: knockbackReason?.name, emptyForm });
+      if (sw) {
+        if (sw.lost.length && !window.confirm(confirmMessage('Changing the entry type will make these changes:', sw.lost))) return;
+        setForm(sw.next);
+        setInvalidFields(new Set());
+        return;
+      }
+      if (kind !== form.kind && hasEnteredDetails(form, emptyForm) && !window.confirm('Changing the entry type will clear the details entered so far. Continue?')) return;
+    }
     arofloSeq.current += 1;
     lookupFills.current = {};
     setArofloLoading(false);
@@ -649,7 +678,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       }
       setNotice(notice, noticeIsError);
       onSaved();
-      if (!editing) changeEntryType(form.kind);
+      if (!editing) changeEntryType(form.kind, { force: true });
     } catch (err) {
       setNotice(err.message, true);
     } finally {
@@ -1057,13 +1086,28 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             </div>
           )}
           {isNewJob && (
-            <SelectField
-              label="Lead *"
-              value={form.lead}
-              onChange={(v) => patch({ lead: v })}
-              options={LEAD_OPTIONS}
-              invalid={invalidFields.has('lead')}
-            />
+            <div className="field">
+              <SelectField
+                label="Lead *"
+                value={form.lead}
+                onChange={handleLeadChange}
+                options={LEAD_OPTIONS}
+                // A Sale Made job is always Qualified. The one exception is an
+                // older Sale Made entry saved as Not Qualified, so staff can
+                // correct it (it can't be saved until they do).
+                disabled={isSaleMade && !legacySaleMadeNotQualified}
+                invalid={invalidFields.has('lead')}
+              />
+              {isSaleMade && !legacySaleMadeNotQualified && (
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>A Sale Made job is always Qualified.</div>
+              )}
+              {legacySaleMadeNotQualified && (
+                <div className="lookup-box lookup-missing">
+                  Flagged for review: this Sale Made entry was saved as Not Qualified, but a Sale Made job is always Qualified. Change Lead
+                  to Qualified to save any change to this entry.
+                </div>
+              )}
+            </div>
           )}
           {(isExistingJob || isUpsell) && (
             <div className="field">
@@ -1100,18 +1144,42 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
       {isNewJob && (
         <div className="grid-form" style={{ marginTop: 14 }}>
-          <YesNoField label="Inspection sheet" value={form.inspectionSheet} onChange={(v) => patch({ inspectionSheet: v })} />
-          <YesNoField label="Option sheet" value={form.optionSheet} onChange={(v) => patch({ optionSheet: v })} />
+          <YesNoField
+            label="Inspection sheet"
+            value={form.inspectionSheet}
+            onChange={(v) => patch({ inspectionSheet: v })}
+            disabled={isNotQualifiedNoSale && !isYesNo(form.inspectionSheet)}
+          />
+          <YesNoField
+            label="Option sheet"
+            value={form.optionSheet}
+            onChange={(v) => patch({ optionSheet: v })}
+            disabled={isNotQualifiedNoSale && !isYesNo(form.optionSheet)}
+          />
           <div className="field">
             <label>Knock back</label>
-            <select value={isGenuineKnockback ? 'Yes' : 'No'} disabled>
-              <option>{isGenuineKnockback ? 'Yes' : 'No'}</option>
+            <select value={knockbackDisplay} disabled>
+              <option>{knockbackDisplay}</option>
             </select>
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-              Set automatically — only a No Sale entry with a Qualified lead counts as a knock-back.
+              {isNotQualifiedNoSale
+                ? 'N/A — a Not Qualified job is never a knock-back, and its N/A sheets don’t count towards any percentage.'
+                : 'Set automatically — only a No Sale entry with a Qualified lead counts as a knock-back.'}
             </div>
           </div>
-          {!isSaleMade && (
+          {isNotQualifiedNoSale && (isYesNo(form.inspectionSheet) || isYesNo(form.optionSheet)) && (
+            <div className="lookup-box lookup-missing" style={{ gridColumn: '1 / -1' }}>
+              This Not Qualified job was saved before sheets were set to N/A, so it still shows{' '}
+              {[isYesNo(form.inspectionSheet) && `Inspection Sheet: ${form.inspectionSheet}`, isYesNo(form.optionSheet) && `Option Sheet: ${form.optionSheet}`]
+                .filter(Boolean)
+                .join(' and ')}
+              . It's left as saved unless you change it.{' '}
+              <button type="button" className="btn btn-sm" onClick={() => patch({ inspectionSheet: NA, optionSheet: NA })}>
+                Set both to N/A
+              </button>
+            </div>
+          )}
+          {!isSaleMade && (!isNotQualifiedNoSale || form.knockbackReasonId) && (
             <SelectField
               label={isGenuineKnockback ? 'Reason for knock back *' : 'Reason for knock back'}
               value={form.knockbackReasonId}

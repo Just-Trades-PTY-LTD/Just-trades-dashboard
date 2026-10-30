@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
+import { checkNewJobLead, checkNewJobLeadEdit } from '../lib/leadRules.js';
 import {
   findActiveFollowUpForJob,
   findConvertibleKnockback,
@@ -674,6 +675,17 @@ export function createTechSalesRouter() {
       });
     }
 
+    // Sale Made is always Qualified; Not Qualified No Sale has N/A sheets and
+    // no knock-back reason (see lib/leadRules.js).
+    const leadCheck = checkNewJobLead({
+      isSaleMade,
+      lead: b.lead,
+      inspectionSheet: b.inspectionSheet,
+      optionSheet: b.optionSheet,
+      knockbackReasonId: b.knockbackReasonId,
+    });
+    if (leadCheck.error) return res.status(400).json({ error: leadCheck.error });
+
     // A No Sale entry is only a genuine knock-back when the lead was
     // Qualified — an Unqualified lead was never a real sales opportunity, so
     // it must never be auto-flagged (or later auto-converted by a Quote
@@ -702,9 +714,9 @@ export function createTechSalesRouter() {
         job_number: b.jobNumber || '',
         trade_id: b.tradeId || null,
         job_type_id: b.jobTypeId || null,
-        lead: b.lead || '',
-        inspection_sheet: b.inspectionSheet || '',
-        option_sheet: b.optionSheet || '',
+        lead: leadCheck.values.lead,
+        inspection_sheet: leadCheck.values.inspection_sheet,
+        option_sheet: leadCheck.values.option_sheet,
         knockback: isGenuineKnockback ? 1 : 0,
         knockback_reason_id: isSaleMade ? null : b.knockbackReasonId || null,
         work_completion: isSaleMade ? b.workCompletion || '' : '',
@@ -804,10 +816,22 @@ export function createTechSalesRouter() {
     };
     const visitDate = b.visitDate ?? existing.visit_date;
 
+    // Lead Qualification rules (lib/leadRules.js). Checked before anything
+    // is written: a refused edit leaves the whole record exactly as it was.
+    // A Lead change is refused outright while the job has an open follow-up
+    // or a Converted Later link — those are never closed, unlinked or
+    // reinterpreted here.
+    const leadCheck = checkNewJobLeadEdit(existing, next, {
+      openFollowUp: !!get("SELECT 1 FROM follow_ups WHERE job_id = ? AND status = 'active'", [existing.id]),
+      convertedLater: !!(existing.converted_later || existing.converted_by_sale_id),
+    });
+    if (leadCheck.error) return res.status(leadCheck.status).json({ error: leadCheck.error });
+    Object.assign(next, leadCheck.values);
+
     transaction(() => {
       run(
         `UPDATE jobs SET technician_id=?, job_number=?, visit_date=?, trade_id=?, job_type_id=?, lead=?,
-          inspection_sheet=?, option_sheet=?, knockback_reason_id=?, work_completion=?, install_technician_id=?,
+          inspection_sheet=?, option_sheet=?, knockback=?, knockback_reason_id=?, work_completion=?, install_technician_id=?,
           install_date=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
         [
           next.technician_id,
@@ -818,6 +842,7 @@ export function createTechSalesRouter() {
           next.lead,
           next.inspection_sheet,
           next.option_sheet,
+          next.knockback,
           next.knockback_reason_id,
           next.work_completion,
           next.install_technician_id,

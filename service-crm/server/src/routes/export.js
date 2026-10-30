@@ -5,6 +5,7 @@ import { restoreFromBackup, RestoreError } from '../db/restore.js';
 import path from 'node:path';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { toCSV } from '../lib/csv.js';
+import { knockbackLabel } from '../lib/leadRules.js';
 import { config } from '../config.js';
 import { CALL_COLUMNS, TECH_COLUMNS } from '../lib/historyColumns.js';
 
@@ -26,7 +27,7 @@ export function createExportRouter({ getCallRows, getTechEntryRows, dbPath = con
       ...r,
       archived: r.archived ? 'Yes' : 'No',
       convertedLater: r.convertedLater ? 'Yes' : 'No',
-      knockback: r.knockback ? 'Yes' : 'No',
+      knockback: knockbackLabel(r),
     }));
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="technician-sales-export-${new Date().toISOString().slice(0, 10)}.csv"`);

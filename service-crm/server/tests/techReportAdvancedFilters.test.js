@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer } from './helpers.js';
-import { all as dbAll } from '../src/db/index.js';
+import { all as dbAll, run as dbRun } from '../src/db/index.js';
+
+// Older data only: a Sale Made job saved as Not Qualified before that was
+// blocked. It can't be created through the API any more, so it's created as
+// Qualified and then set directly, exactly as such a record already sits in
+// the database. Reports must keep treating it as before.
+function markLegacyNotQualified(jobNumber) {
+  dbRun("UPDATE jobs SET lead = 'Not Qualified' WHERE job_number = ?", [jobNumber]);
+}
 
 // New Technician & Sales Report filters: Lead Qualification, Lead Source (via
 // the original Lead call's Job Number, same attribution rule as Leads to
@@ -70,13 +78,14 @@ async function newJobSaleMade(server, { technicianId, plumbing, jobTypeId, jobNu
     jobNumber,
     tradeId: plumbing.id,
     jobTypeId,
-    lead,
+    lead: 'Qualified',
     invoiceNumber,
     invoiceDate: visitDate,
     saleValueExGst,
     suburb,
   });
   assert.equal(res.status, 201, JSON.stringify(res.data));
+  if (lead === 'Not Qualified') markLegacyNotQualified(jobNumber);
   return res.data.entry;
 }
 

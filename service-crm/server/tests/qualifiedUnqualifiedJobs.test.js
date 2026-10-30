@@ -29,7 +29,6 @@ test('Total Jobs includes qualified and unqualified jobs; Qualified/Unqualified 
       tradeId: plumbing.id,
       jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
-      knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
@@ -39,7 +38,6 @@ test('Total Jobs includes qualified and unqualified jobs; Qualified/Unqualified 
       tradeId: plumbing.id,
       jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
-      knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 
     const report = (await server.request('GET', '/reports/tech?from=2026-08-01&to=2026-08-31')).data;
@@ -92,7 +90,6 @@ test('an unqualified no-sale job is never counted as a knock-back, and is exclud
       tradeId: plumbing.id,
       jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
-      knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
     await server.request('POST', '/tech/new-job', {
       kind: 'new_job_no_sale',
@@ -102,7 +99,6 @@ test('an unqualified no-sale job is never counted as a knock-back, and is exclud
       tradeId: plumbing.id,
       jobTypeId: plumbing.jobTypes[0].id,
       lead: 'Not Qualified',
-      knockbackReasonId: bundle.lists.knockback_reason[0].id,
     });
 
     const report = (await server.request('GET', '/reports/tech?from=2026-08-10&to=2026-08-31')).data;
