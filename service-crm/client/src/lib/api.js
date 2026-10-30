@@ -122,6 +122,9 @@ export const api = {
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),
   },
+  dataHealth: {
+    run: () => request('GET', '/data-health'),
+  },
   arofloTest: {
     lookup: (jn) => request('GET', `/aroflo-test/lookup${qs({ jn })}`),
     taskTypes: () => request('GET', '/aroflo-test/task-types'),

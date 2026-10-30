@@ -18,6 +18,7 @@ import { createLookupRouter } from './routes/lookup.js';
 import { createExportRouter } from './routes/export.js';
 import { createReportsRouter } from './routes/reports.js';
 import { createAuditRouter } from './routes/audit.js';
+import { createDataHealthRouter } from './routes/dataHealth.js';
 import { createFollowUpsRouter } from './routes/followUps.js';
 import { createReviewsRouter } from './routes/reviews.js';
 import { createArofloTestRouter } from './routes/arofloTest.js';
@@ -121,6 +122,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use('/api/export', createExportRouter({ getCallRows: listCalls, getTechEntryRows: listTechEntries, dbPath: resolvedDbPath }));
   app.use('/api/reports', createReportsRouter());
   app.use('/api/audit', createAuditRouter());
+  app.use('/api/data-health', createDataHealthRouter());
   app.use('/api/follow-ups', createFollowUpsRouter());
   app.use('/api/reviews', createReviewsRouter());
   app.use('/api/aroflo-test', createArofloTestRouter());

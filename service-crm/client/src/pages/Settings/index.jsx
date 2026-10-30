@@ -7,6 +7,7 @@ import Users from './Users.jsx';
 import DataPanel from './DataPanel.jsx';
 import Activity from './Activity.jsx';
 import ArofloTest from './ArofloTest.jsx';
+import DataHealth from './DataHealth.jsx';
 
 const THEME_CHOICES = [
   ['system', 'System default'],
@@ -55,6 +56,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
           ['users', 'Staff accounts'],
           ['data', 'Data'],
           ['activity', 'Activity history'],
+          ['data-health', 'Data health'],
           ['aroflo-test', 'AroFlo test'],
         ]}
       />
@@ -63,6 +65,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
       {sub === 'users' && <Users />}
       {sub === 'data' && <DataPanel />}
       {sub === 'activity' && <Activity />}
+      {sub === 'data-health' && <DataHealth />}
       {sub === 'aroflo-test' && <ArofloTest />}
     </div>
   );
