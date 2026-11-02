@@ -9,6 +9,7 @@ import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../compo
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
+import { callLookupSummary } from '../../lib/arofloCallSuggest.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -44,17 +45,19 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const [invalidFields, setInvalidFields] = useState(new Set());
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
-  // Lead calls only: AroFlo's own "Lead Source" custom field, read from the
-  // matching job's customer record — surfaced as a plain reference value
-  // only. Its option list doesn't line up 1:1 with this CRM's own Lead
-  // Source list, so it's never auto-applied to leadSourceId; staff read it
-  // and pick the closest match above themselves.
-  const [arofloLeadSource, setArofloLeadSource] = useState(null);
+  // Lead calls only: "Look up in AroFlo" (read-only) for this Job Number —
+  // e.g. once the job has been booked in AroFlo. Shows why nothing was found,
+  // or AroFlo's task type and the customer's Lead Source with a "Use this"
+  // suggestion where exactly one of this CRM's options matches by name (see
+  // lib/arofloCallSuggest.js). Nothing is applied until staff click "Use
+  // this", and nothing is saved until they save the call. `jn` is kept so a
+  // result is only shown while the Job Number still matches it.
+  const [arofloResult, setArofloResult] = useState(null);
   const [arofloLoading, setArofloLoading] = useState(false);
 
   useEffect(() => {
     setInvalidFields(new Set());
-    setArofloLeadSource(null);
+    setArofloResult(null);
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -87,19 +90,19 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   function resetForm() {
     setForm(emptyForm(user?.id));
-    setArofloLeadSource(null);
+    setArofloResult(null);
   }
 
   async function runArofloLeadSourceLookup(jobNumber) {
     const jn = (jobNumber || '').trim();
     if (!jn) return;
     setArofloLoading(true);
-    setArofloLeadSource(null);
+    setArofloResult(null);
     try {
       const result = await api.aroflo.lookup(jn);
-      setArofloLeadSource(result.found ? result.leadSource || null : null);
-    } catch {
-      setArofloLeadSource(null);
+      setArofloResult({ jn, result });
+    } catch (err) {
+      setArofloResult({ jn, result: { found: false, message: err.message || 'AroFlo could not be reached — enter the details manually.' } });
     } finally {
       setArofloLoading(false);
     }
@@ -187,6 +190,11 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       ? settings.lists.pending_cancellation_reason
       : [];
 
+  const arofloSummary =
+    arofloResult && arofloResult.jn === form.jobNumber.trim()
+      ? callLookupSummary(arofloResult.result, form, { trades: settings.trades, leadSources: settings.lists.lead_source })
+      : null;
+
   return (
     <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -267,12 +275,6 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
           {showLeadSource && (
             <SelectField label="Where did the lead come from?" value={form.leadSourceId} onChange={(v) => patch({ leadSourceId: v })} options={settings.lists.lead_source} />
           )}
-          {showLeadSource && arofloLeadSource && (
-            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4, gridColumn: '1 / -1' }}>
-              AroFlo shows this customer's Lead Source as <strong>{arofloLeadSource}</strong> — pick the closest match above (not applied
-              automatically, since AroFlo's own list of options doesn't line up exactly with this one).
-            </div>
-          )}
         </div>
       )}
 
@@ -292,6 +294,9 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
               >
                 {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
               </button>
+            )}
+            {form.callType === 'Lead' && arofloSummary && (
+              <ArofloCallSuggestions summary={arofloSummary} showLeadSource={showLeadSource} patch={patch} />
             )}
           </div>
         )}
@@ -317,5 +322,53 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         )}
       </div>
     </form>
+  );
+}
+
+// The result of "Look up in AroFlo" on a Lead call: why nothing was found,
+// or AroFlo's task type / Lead Source with "Use this" where one of this
+// CRM's options matches exactly. Clicking only changes the form.
+function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
+  if (!summary.found) {
+    return <div className="lookup-box lookup-missing">{summary.message}</div>;
+  }
+  const row = (label, item, onUse, noMatchHint) => (
+    <div style={{ marginTop: 4 }}>
+      {label}: {item.arofloValue ? <strong>{item.arofloValue}</strong> : <em>not set in AroFlo</em>}
+      {item.suggestion && item.alreadySet && <> — already selected</>}
+      {item.suggestion && !item.alreadySet && (
+        <>
+          {' '}→ {item.suggestion.label}{' '}
+          <button className="btn btn-sm" type="button" onClick={onUse}>
+            Use this
+          </button>
+        </>
+      )}
+      {!item.suggestion && item.arofloValue && <> — {noMatchHint}</>}
+    </div>
+  );
+  return (
+    <div className="lookup-box" style={{ border: '1px solid var(--border)', color: 'var(--ink)' }} data-testid="aroflo-call-lookup">
+      <div>Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}. Nothing is changed until you click “Use this” and save.</div>
+      {row(
+        'Task type',
+        summary.jobType,
+        () => patch({ tradeId: summary.jobType.suggestion.tradeId, jobTypeId: summary.jobType.suggestion.jobTypeId }),
+        'no single matching Trade / Job type here, so please choose it above.'
+      )}
+      {showLeadSource &&
+        row(
+          'Customer’s Lead Source',
+          summary.leadSource,
+          () => patch({ leadSourceId: summary.leadSource.suggestion.leadSourceId }),
+          'no single matching Lead Source here, so please pick the closest match above.'
+        )}
+      {showLeadSource && summary.leadSource.arofloValue && (
+        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+          AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this
+          enquiry — check before using it.
+        </div>
+      )}
+    </div>
   );
 }
