@@ -98,6 +98,7 @@ export default function ArofloTest() {
   const [taskTypes, setTaskTypes] = useState(null);
   const [locations, setLocations] = useState(null);
   const [users, setUsers] = useState(null);
+  const [history, setHistory] = useState(null);
 
   async function runLookup() {
     const value = jn.trim();
@@ -162,6 +163,24 @@ export default function ArofloTest() {
       <ListingPanel title="Task Types" state={taskTypes} />
       <ListingPanel title="Locations" state={locations} />
       <ListingPanel title="Users" state={users} />
+
+      <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Customer history investigation</div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginBottom: 10 }}>
+          For the job number above: asks AroFlo for the same customer's other jobs (read-only, about 3 extra AroFlo requests) and
+          shows whether that answer can be trusted. Investigation only — nothing is stored, and no call, job or Lead Source in the
+          CRM is read or changed.
+        </div>
+        <button
+          className="btn"
+          type="button"
+          disabled={!jn.trim() || history?.loading}
+          onClick={() => runListing(() => api.arofloTest.customerHistory(jn.trim()), setHistory)}
+        >
+          {history?.loading ? 'Checking…' : "Check this customer's other AroFlo jobs"}
+        </button>
+        <CustomerHistory state={history} />
+      </div>
 
       {error && (
         <div className="panel" style={{ padding: 16, marginBottom: 16, color: 'var(--danger, #a3323a)' }}>
@@ -285,6 +304,86 @@ export default function ArofloTest() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Customer history investigation result — every reason it might be
+// unreliable is listed; nothing here is used anywhere else.
+function CustomerHistory({ state }) {
+  if (!state || state.loading) return null;
+  if (state.error) return <div style={{ marginTop: 10, color: 'var(--danger, #a3323a)' }}>{state.error}</div>;
+  const d = state.data;
+  if (!d.found) return <div style={{ marginTop: 10 }}>{d.message}</div>;
+  const a = d.analysis;
+  const yesNo = (v) => (v === null || v === undefined ? 'not known' : v ? 'Yes' : 'No');
+  const jobRows = (jobs) =>
+    jobs.map((t) => (
+      <tr key={t.id}>
+        <td className="mono">{t.jobNumber}</td>
+        <td>{t.status}</td>
+        <td>{t.taskType || '—'}</td>
+        <td>{(t.created || t.requested || '—').slice(0, 10)}</td>
+        <td>{t.completed ? t.completed.slice(0, 10) : '—'}</td>
+        <td>{t.suburb || '—'}</td>
+      </tr>
+    ));
+  const facts = [
+    ['Assessment (investigation only)', a.assessment],
+    ['AroFlo client ID', a.clientId],
+    ['Customer name', a.clientName],
+    ['Individual (not an organisation)', yesNo(a.individual)],
+    ['Parent customer', a.parent ? a.parent.name || a.parent.id : 'None'],
+    ['Customer filter actually applied by AroFlo', yesNo(a.filterHonoured)],
+    ['Archived jobs included without asking', yesNo(a.archivedIncludedByDefault)],
+    ['Jobs listed (no status filter) / archived only / sites', `${a.totals?.defaultList ?? '—'} / ${a.totals?.archivedOnly ?? '—'} / ${a.totals?.locations ?? '—'}`],
+    ['Statuses seen', (a.statusesSeen || []).join(', ') || '—'],
+    ['Earlier jobs / earlier completed', `${a.earlierJobs?.length ?? 0} / ${a.earlierCompletedCount ?? 0}`],
+    ['AroFlo requests: whole check / customer-history part', `${d.totalCalls} / ${d.historyCalls}`],
+  ];
+  return (
+    <div style={{ marginTop: 12 }} data-testid="customer-history">
+      <table className="data-table">
+        <tbody>
+          {facts.map(([k, v]) => (
+            <tr key={k}>
+              <th style={{ textAlign: 'left', width: 340 }}>{k}</th>
+              <td>{v ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {a.reasons?.length > 0 && (
+        <ul style={{ fontSize: 12.5 }}>
+          {a.reasons.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {['earlierJobs', 'laterJobs'].map((key) =>
+        a[key]?.length ? (
+          <div key={key} style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{key === 'earlierJobs' ? 'Earlier jobs' : 'Later jobs'}</div>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>JN</th>
+                  <th>Status</th>
+                  <th>Task type</th>
+                  <th>Created</th>
+                  <th>Completed</th>
+                  <th>Suburb</th>
+                </tr>
+              </thead>
+              <tbody>{jobRows(a[key])}</tbody>
+            </table>
+          </div>
+        ) : null
+      )}
+      <details style={{ marginTop: 10, fontSize: 12 }}>
+        <summary>Raw probe results</summary>
+        <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(d.probes, null, 2)}</pre>
+      </details>
     </div>
   );
 }

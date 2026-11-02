@@ -14,7 +14,10 @@ import {
   listTaskTypes,
   listLocations,
   listAroFloUsers,
+  countArofloCalls,
+  probeClientJobHistory,
 } from '../aroflo/client.js';
+import { analyzeClientHistory } from '../aroflo/customerHistory.js';
 import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
@@ -183,6 +186,47 @@ export function createArofloTestRouter() {
       throw err;
     }
   }
+
+  // Customer history investigation: can AroFlo list this job's customer's
+  // other jobs, and how reliably? Separate from /lookup so its extra AroFlo
+  // requests are only spent when an admin asks. Read-only like everything
+  // here: GET requests to AroFlo only, nothing stored, nothing in the CRM
+  // read or changed. Reports exactly how many AroFlo requests it took.
+  router.get('/customer-history', async (req, res) => {
+    const jn = (req.query.jn || '').trim();
+    if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
+    try {
+      const { result, calls } = await countArofloCalls(async () => {
+        const businessUnit = (await listBusinessUnits())[0];
+        if (!businessUnit) return { error: 'AroFlo returned no business units for this account.' };
+        const task = await findTaskByJobNumber(businessUnit.id, jn);
+        if (!task) return { found: false, message: `No task with job number "${jn}" was found in AroFlo.` };
+        const detail = await getTaskDetail(task.id);
+        const clientId = detail.client?.id || null;
+        const clientDetail = await probeClientDetail(clientId);
+        const lookup = await countArofloCalls(async () => probeClientJobHistory(businessUnit.id, clientId));
+        return {
+          found: true,
+          historyCalls: lookup.calls,
+          analysis: analyzeClientHistory({ currentTask: detail, clientDetail, probes: lookup.result }),
+          probes: lookup.result
+            ? Object.fromEntries(
+                Object.entries(lookup.result).map(([k, v]) => [
+                  k,
+                  { tried: v.tried, available: v.available, status: v.status ?? null, count: v.data?.count ?? null, returned: v.data?.items?.length ?? null, detail: v.detail ?? null },
+                ])
+              )
+            : null,
+        };
+      });
+      if (result.error) return res.status(502).json({ error: result.error });
+      res.json({ ...result, totalCalls: calls });
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) return res.status(400).json({ error: err.message });
+      if (err instanceof ArofloRequestError) return res.status(502).json({ error: err.message });
+      throw err;
+    }
+  });
 
   router.get('/task-types', (req, res) => listingRoute(req, res, listTaskTypes));
   router.get('/locations', (req, res) => listingRoute(req, res, listLocations));

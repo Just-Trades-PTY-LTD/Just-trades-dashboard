@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from '../config.js';
 
 // Stage 1 test-only client: GET requests exclusively. There is deliberately
@@ -39,7 +40,19 @@ function redactToken(value) {
   }
 }
 
+// Counts the AroFlo requests made inside one investigation (so the test page
+// can report exactly what a lookup would cost against the daily limit).
+// Nothing outside countArofloCalls() is affected.
+const callCounter = new AsyncLocalStorage();
+export async function countArofloCalls(fn) {
+  // Nested counts add up: an inner count also counts towards the outer one.
+  const store = { calls: 0, parent: callCounter.getStore() || null };
+  const result = await callCounter.run(store, fn);
+  return { result, calls: store.calls };
+}
+
 async function arofloGet(path, params = {}) {
+  for (let c = callCounter.getStore(); c; c = c.parent) c.calls += 1;
   if (!config.aroflo.apiToken) {
     throw new ArofloNotConfiguredError('AroFlo is not configured on this server (AROFLO_PAT is not set).');
   }
@@ -336,4 +349,22 @@ export async function listLocations(businessUnitId) {
 
 export async function listAroFloUsers(businessUnitId) {
   return arofloProbe('/users', { businessUnitId, limit: 100 });
+}
+
+// ---- Customer history investigation (admin AroFlo Test page only) ----
+// Read-only probes for whether AroFlo can tell us a customer's other jobs:
+// GET /tasks filtered by the documented `clientId` parameter, once with no
+// status filter (to see what AroFlo returns by default) and once for
+// status=4 (ARCHIVED) on its own (to see whether archived jobs are left out
+// by default), plus GET /locations?clientId= for how many sites the customer
+// has. Oldest job numbers first, 100 per page, one page each — the result
+// says when there were more. Nothing is stored or changed anywhere.
+const HISTORY_FIELDS = 'id,jobNumber,status,client,location,taskType,requestedDateTime,timestampCreated,completionDate';
+export async function probeClientJobHistory(businessUnitId, clientId) {
+  if (!clientId) return null;
+  const base = { businessUnitId, clientId, sortBy: 'jobnumber', ascending: 'true', page: 1, limit: 100, _fields: HISTORY_FIELDS };
+  const defaultList = await arofloProbe('/tasks', base, "/tasks?clientId={clientId} (no status filter)");
+  const archivedList = await arofloProbe('/tasks', { ...base, status: 4 }, "/tasks?clientId={clientId}&status=4 (archived only)");
+  const locations = await arofloProbe('/locations', { clientId, page: 1, limit: 100 }, '/locations?clientId={clientId}');
+  return { defaultList, archivedList, locations };
 }
