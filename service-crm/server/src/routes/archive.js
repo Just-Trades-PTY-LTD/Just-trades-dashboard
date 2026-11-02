@@ -1,6 +1,15 @@
 import { Router } from 'express';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
-import { ArchiveError, applyArchive, applyLinkQal, describePlans, planMany, previewLinkQal } from '../lib/archive.js';
+import {
+  ArchiveError,
+  applyArchive,
+  applyKnockbackFlag,
+  applyLinkQal,
+  describePlans,
+  planMany,
+  previewKnockbackFlag,
+  previewLinkQal,
+} from '../lib/archive.js';
 
 // Archive / unarchive (admins only) — one or several Technician & Sales
 // entries or calls. Two steps, so nothing is archived without the admin
@@ -30,6 +39,11 @@ export function createArchiveRouter() {
   //   body: { saleId, token }
   router.post('/link-qal/preview', handle((b) => previewLinkQal(b.saleId)));
   router.post('/link-qal/apply', handle((b, req) => ({ ok: true, ...applyLinkQal(b.saleId, b.token, req.user.id) })));
+
+  // Correct one job's stored knock-back flag (Data Health check 8) — same
+  // preview -> confirm -> apply flow. body: { jobId, token }
+  router.post('/knockback-flag/preview', handle((b) => previewKnockbackFlag(b.jobId)));
+  router.post('/knockback-flag/apply', handle((b, req) => ({ ok: true, ...applyKnockbackFlag(b.jobId, b.token, req.user.id) })));
 
   return router;
 }

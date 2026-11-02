@@ -90,6 +90,8 @@ export const api = {
     apply: (items, archived, token) => request('POST', '/archive/apply', { items, archived, token }),
     linkQalPreview: (saleId) => request('POST', '/archive/link-qal/preview', { saleId }),
     linkQalApply: (saleId, token) => request('POST', '/archive/link-qal/apply', { saleId, token }),
+    knockbackFlagPreview: (jobId) => request('POST', '/archive/knockback-flag/preview', { jobId }),
+    knockbackFlagApply: (jobId, token) => request('POST', '/archive/knockback-flag/apply', { jobId, token }),
   },
   followUps: {
     list: (params) => request('GET', `/follow-ups${qs(params)}`),

@@ -8,23 +8,42 @@ import { api } from '../lib/api.js';
 // meantime the server refuses and nothing is applied.
 // `request` is { items: [{kind, id}], archived: boolean }, or
 // { linkQalSaleId } for linking an unlinked Quote Approved Later sale to its
-// original knock-back job (same preview -> confirm flow).
+// original knock-back job, or { knockbackFlagJobId } for correcting one
+// job's stored knock-back flag from Data Health (same preview -> confirm flow).
+function actionFor(request) {
+  if (request.knockbackFlagJobId) {
+    const id = request.knockbackFlagJobId;
+    return { verb: 'Correct knock-back flag', preview: () => api.archive.knockbackFlagPreview(id), apply: (t) => api.archive.knockbackFlagApply(id, t) };
+  }
+  if (request.linkQalSaleId) {
+    const id = request.linkQalSaleId;
+    return { verb: 'Link', preview: () => api.archive.linkQalPreview(id), apply: (t) => api.archive.linkQalApply(id, t) };
+  }
+  return {
+    verb: request.archived ? 'Archive' : 'Unarchive',
+    preview: () => api.archive.preview(request.items, request.archived),
+    apply: (t) => api.archive.apply(request.items, request.archived, t),
+  };
+}
+
 export default function ArchiveDialog({ request, onCancel, onDone }) {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const isLink = !!request.linkQalSaleId;
-  const verb = isLink ? 'Link' : request.archived ? 'Archive' : 'Unarchive';
+  const action = actionFor(request);
+  const verb = action.verb;
+  const isFlag = !!request.knockbackFlagJobId;
 
   useEffect(() => {
     let live = true;
-    (isLink ? api.archive.linkQalPreview(request.linkQalSaleId) : api.archive.preview(request.items, request.archived))
+    actionFor(request)
+      .preview()
       .then((p) => live && setPreview(p))
       .catch((err) => live && setError(err.message));
     return () => {
       live = false;
     };
-  }, [request, isLink]);
+  }, [request]);
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -38,9 +57,7 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const res = isLink
-        ? await api.archive.linkQalApply(request.linkQalSaleId, preview.token)
-        : await api.archive.apply(request.items, request.archived, preview.token);
+      const res = await action.apply(preview.token);
       onDone(res);
     } catch (err) {
       setError(err.message);
@@ -59,18 +76,29 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
           {error && <p style={{ color: 'var(--danger, #b42318)' }}>{error}</p>}
           {preview && (
             <>
-              <p style={{ marginTop: 0 }}>
-                <strong>
-                  {verb} {preview.entries} record{preview.entries === 1 ? '' : 's'}:
-                </strong>
-              </p>
-              <ul data-testid="archive-counts">
-                {Object.entries(preview.countsByType).map(([type, n]) => (
-                  <li key={type}>
-                    {n} × {type}
-                  </li>
-                ))}
-              </ul>
+              {preview.details?.length > 0 && (
+                <ul data-testid="archive-details" style={{ marginTop: 0 }}>
+                  {preview.details.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              )}
+              {!isFlag && (
+                <p style={{ marginTop: 0 }}>
+                  <strong>
+                    {verb} {preview.entries} record{preview.entries === 1 ? '' : 's'}:
+                  </strong>
+                </p>
+              )}
+              {!isFlag && (
+                <ul data-testid="archive-counts">
+                  {Object.entries(preview.countsByType).map(([type, n]) => (
+                    <li key={type}>
+                      {n} × {type}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p style={{ marginBottom: 4 }}>
                 <strong>Exactly what will change:</strong>
               </p>
@@ -108,7 +136,7 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
               Cancel
             </button>
             <button className="btn btn-primary" type="button" onClick={confirm} disabled={!preview || busy}>
-              {busy ? 'Working…' : `Confirm ${verb.toLowerCase()}`}
+              {busy ? 'Working…' : isFlag ? 'Confirm correction' : `Confirm ${verb.toLowerCase()}`}
             </button>
           </div>
         </div>

@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
+import ArchiveDialog from '../../components/ArchiveDialog.jsx';
 
 // Settings -> Data health. Read-only: lists existing records affected by
 // each known data issue (see server/src/services/dataHealth.js), so any fix
-// can be judged against real data before it's built. Nothing on this page
-// changes, links or recalculates anything.
+// can be judged against real data before it's built. Running the checks
+// never changes anything. The one exception on this page is a deliberate,
+// per-record admin action ("Correct knock-back flag" on check 8), which only
+// changes anything after its own preview is confirmed (see ArchiveDialog).
+// Settings is admins-only, so these actions are too (the server enforces it).
 
 const LABELS = {
   jobNumber: 'Job Number',
@@ -39,6 +43,7 @@ const LABELS = {
   handledBy: 'Handled by',
   bookedLeadCalls: 'Booked Lead calls',
   calls: 'Calls',
+  conflict: 'Needs separate review',
 };
 
 function cell(key, value) {
@@ -47,7 +52,7 @@ function cell(key, value) {
   return String(value);
 }
 
-function Check({ c }) {
+function Check({ c, onAction }) {
   const [open, setOpen] = useState(false);
   const clean = c.count === 0;
   return (
@@ -70,11 +75,31 @@ function Check({ c }) {
             <div style={{ overflowX: 'auto', marginTop: 8 }}>
               <table className="data-table">
                 <thead>
-                  <tr>{c.columns.map((k) => <th key={k}>{LABELS[k] || k}</th>)}</tr>
+                  <tr>
+                    {c.columns.map((k) => (
+                      <th key={k}>{LABELS[k] || k}</th>
+                    ))}
+                    {c.action && <th></th>}
+                  </tr>
                 </thead>
                 <tbody>
                   {c.rows.map((r, i) => (
-                    <tr key={i}>{c.columns.map((k) => <td key={k}>{cell(k, r[k])}</td>)}</tr>
+                    <tr key={i}>
+                      {c.columns.map((k) => (
+                        <td key={k}>{cell(k, r[k])}</td>
+                      ))}
+                      {c.action === 'correctKnockbackFlag' && (
+                        <td>
+                          {r.conflict ? (
+                            <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>Not available — review the conflict first</span>
+                          ) : (
+                            <button className="btn btn-sm" type="button" onClick={() => onAction({ knockbackFlagJobId: r.jobId })}>
+                              Correct knock-back flag…
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -88,6 +113,8 @@ function Check({ c }) {
 
 export default function DataHealth() {
   const [state, setState] = useState({ loading: true });
+  const [actionRequest, setActionRequest] = useState(null);
+  const [notice, setNotice] = useState('');
 
   function run() {
     setState({ loading: true });
@@ -102,8 +129,9 @@ export default function DataHealth() {
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
-        Read-only. Lists existing records affected by each known data issue, so any fix can be checked against real data before it's
-        built. Running these checks never changes, links or recalculates anything.
+        Lists existing records affected by each known data issue, so any fix can be checked against real data before it's built.
+        Running these checks never changes, links or recalculates anything; the only change this page can make is an action you choose
+        on a specific record and confirm.
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
         <button className="btn" type="button" onClick={run} disabled={state.loading}>
@@ -117,7 +145,21 @@ export default function DataHealth() {
         )}
       </div>
       {state.error && <div className="notice error panel">{state.error}</div>}
-      {state.data?.checks.map((c) => <Check key={c.id} c={c} />)}
+      {notice && <div className="notice panel" style={{ marginBottom: 12 }}>{notice}</div>}
+      {state.data?.checks.map((c) => (
+        <Check key={c.id} c={c} onAction={setActionRequest} />
+      ))}
+      {actionRequest && (
+        <ArchiveDialog
+          request={actionRequest}
+          onCancel={() => setActionRequest(null)}
+          onDone={(res) => {
+            setActionRequest(null);
+            setNotice(`Done: ${res.changes.join('; ')}. Recorded in Activity history.`);
+            run();
+          }}
+        />
+      )}
     </div>
   );
 }

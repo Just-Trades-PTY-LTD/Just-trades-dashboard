@@ -188,7 +188,7 @@ test('a Lead change is refused on a job linked to a Converted Later sale; the li
     const salesBefore = dbAll('SELECT * FROM sales');
     const res = await server.request('PATCH', `/tech/new-job/${id}`, { lead: 'Not Qualified', inspectionSheet: 'N/A', optionSheet: 'N/A', knockbackReasonId: null });
     assert.equal(res.status, 409);
-    assert.match(res.data.error, /Converted Later.*conversion link.*resolved separately/);
+    assert.match(res.data.error, /Converted Later.*sale link.*resolved separately/);
     assert.deepEqual(row(id), before);
     assert.deepEqual(dbAll('SELECT * FROM sales'), salesBefore);
   } finally {

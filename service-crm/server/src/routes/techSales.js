@@ -534,6 +534,12 @@ export function listTechEntries({
   );
   // Quote Follow-up trial — one batched query, never one-per-row; see
   // e.activeFollowUp below.
+  // Jobs a Quote Approved Later sale was saved against (converted or not) —
+  // with followUpByJobId and converted_later, what blocks a Lead change on
+  // the edit form (e.leadChangeBlockedBy below; leadRules.js enforces it).
+  const jobIdsWithQal = new Set(
+    all("SELECT DISTINCT job_id AS id FROM sales WHERE job_id IS NOT NULL AND source = 'quote_approved_later' AND is_upsell = 0 AND archived = 0").map((r) => r.id)
+  );
   const followUpByJobId = new Map(
     all("SELECT id, job_id, due_date FROM follow_ups WHERE status = 'active' AND job_id IS NOT NULL").map((r) => [
       r.job_id,
@@ -575,6 +581,12 @@ export function listTechEntries({
     // except the dedicated routes/followUps.js router.
     e.activeFollowUp = isJobEntry ? followUpByJobId.get(e.id) || null : null;
     e.originalKnockbackJobId = e.kind === 'quote_approved_later' ? originalKnockbackJobIdBySaleId.get(e.id) || null : null;
+    e.leadChangeBlockedBy = isJobEntry
+      ? [
+          e.activeFollowUp && 'an open follow-up',
+          e.convertedLater ? 'a Converted Later link' : jobIdsWithQal.has(e.id) && 'a Quote Approved Later sale saved against it',
+        ].filter(Boolean)
+      : [];
     if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
     else if (isJobEntry) e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
@@ -827,6 +839,7 @@ export function createTechSalesRouter() {
     const leadCheck = checkNewJobLeadEdit(existing, next, {
       openFollowUp: !!get("SELECT 1 FROM follow_ups WHERE job_id = ? AND status = 'active'", [existing.id]),
       convertedLater: !!(existing.converted_later || existing.converted_by_sale_id),
+      qalSale: !!get("SELECT 1 FROM sales WHERE job_id = ? AND source = 'quote_approved_later' AND is_upsell = 0 AND archived = 0", [existing.id]),
     });
     if (leadCheck.error) return res.status(leadCheck.status).json({ error: leadCheck.error });
     Object.assign(next, leadCheck.values);

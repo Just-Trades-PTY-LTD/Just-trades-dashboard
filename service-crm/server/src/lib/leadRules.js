@@ -42,7 +42,9 @@ export function checkNewJobLead({ isSaleMade, lead, inspectionSheet, optionSheet
 /**
  * For an edit. `existing` is the stored jobs row, `next` the merged values
  * about to be saved (lead, inspection_sheet, option_sheet,
- * knockback_reason_id), `links` = { openFollowUp, convertedLater }.
+ * knockback_reason_id), `links` = { openFollowUp, convertedLater, qalSale }
+ * (qalSale: an active Quote Approved Later sale saved against this job, even
+ * one that never converted it).
  * Returns { error, status } (nothing may be saved) or { values } to store,
  * including the recalculated knock-back flag.
  */
@@ -59,14 +61,18 @@ export function checkNewJobLeadEdit(existing, next, links) {
     };
   }
 
-  if (leadChanged && (links.openFollowUp || links.convertedLater)) {
-    const what = [links.openFollowUp && 'an open follow-up', links.convertedLater && 'a Quote Approved Later (Converted Later) sale']
+  const saleLink = links.convertedLater || links.qalSale;
+  if (leadChanged && (links.openFollowUp || saleLink)) {
+    const what = [
+      links.openFollowUp && 'an open follow-up',
+      links.convertedLater ? 'a Quote Approved Later (Converted Later) sale' : links.qalSale && 'a Quote Approved Later sale saved against it',
+    ]
       .filter(Boolean)
       .join(' and ');
     return {
       status: 409,
       error: `Lead Qualification can’t be changed on this job because it has ${what}. Changing it would affect that ${
-        links.openFollowUp && links.convertedLater ? 'follow-up and conversion link' : links.openFollowUp ? 'follow-up' : 'conversion link'
+        links.openFollowUp && saleLink ? 'follow-up and sale link' : links.openFollowUp ? 'follow-up' : 'sale link'
       }, so it needs to be resolved separately first. Nothing was changed.`,
     };
   }

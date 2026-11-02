@@ -227,6 +227,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   const knockbackReasonIsOther = knockbackReason?.name === 'Other';
   const isNotQualifiedNoSale = form.kind === 'new_job_no_sale' && form.lead === 'Not Qualified';
   const legacySaleMadeNotQualified = !!editing && isSaleMade && editing.lead === 'Not Qualified';
+  // Same rule as the server (lib/leadRules.js): Lead can't be changed on a
+  // job with an open follow-up or a Quote Approved Later / Converted Later
+  // link — those need resolving separately first.
+  const leadBlockedBy = (!!editing && !isSaleMade && editing.leadChangeBlockedBy) || [];
   const knockbackDisplay = isNotQualifiedNoSale ? NA : isGenuineKnockback ? 'Yes' : 'No';
   const isYesNo = (v) => v === 'Yes' || v === 'No';
 
@@ -1095,9 +1099,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                 // A Sale Made job is always Qualified. The one exception is an
                 // older Sale Made entry saved as Not Qualified, so staff can
                 // correct it (it can't be saved until they do).
-                disabled={isSaleMade && !legacySaleMadeNotQualified}
+                disabled={(isSaleMade && !legacySaleMadeNotQualified) || leadBlockedBy.length > 0}
                 invalid={invalidFields.has('lead')}
               />
+              {leadBlockedBy.length > 0 && (
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                  Lead can’t be changed on this job because it has {leadBlockedBy.join(' and ')}. That needs resolving separately first.
+                </div>
+              )}
               {isSaleMade && !legacySaleMadeNotQualified && (
                 <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>A Sale Made job is always Qualified.</div>
               )}

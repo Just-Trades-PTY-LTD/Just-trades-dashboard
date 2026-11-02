@@ -1,4 +1,5 @@
-import { all } from '../db/index.js';
+import { all, get } from '../db/index.js';
+import { knockbackFlagConflicts } from '../lib/archive.js';
 
 // Read-only "Data health check" (Settings -> Data health, admins only).
 // Lists the existing records each known data issue from the full bug test
@@ -101,7 +102,7 @@ export function runDataHealthChecks() {
   // 8. Stored knock-back flag disagrees with Lead / Sale Made.
   {
     const rows = all(
-      `SELECT j.job_number AS jobNumber, j.visit_date AS visitDate, t.name AS technician, j.lead AS lead,
+      `SELECT j.id AS jobId, j.job_number AS jobNumber, j.visit_date AS visitDate, t.name AS technician, j.lead AS lead,
               CASE WHEN j.had_sale_at_visit = 1 THEN 'Yes' ELSE 'No' END AS saleMade,
               CASE WHEN j.knockback = 1 THEN 'Yes' ELSE 'No' END AS storedKnockback,
               CASE WHEN j.had_sale_at_visit = 0 AND j.lead = 'Qualified' THEN 'Yes' ELSE 'No' END AS expectedKnockback
@@ -111,6 +112,12 @@ export function runDataHealthChecks() {
          AND j.knockback <> CASE WHEN j.had_sale_at_visit = 0 AND j.lead = 'Qualified' THEN 1 ELSE 0 END
        ORDER BY j.visit_date`
     );
+    // What the admin "Correct knock-back flag" action (lib/archive.js) would
+    // refuse on — shown so it can be reviewed separately. Read-only.
+    for (const r of rows) {
+      const conflicts = knockbackFlagConflicts(get('SELECT * FROM jobs WHERE id = ?', [r.jobId]));
+      r.conflict = conflicts.length ? `Review separately: ${conflicts.join(' and ')}` : '';
+    }
     checks.push(
       check(
         {
@@ -120,7 +127,8 @@ export function runDataHealthChecks() {
           explanation:
             'Usually a Lead changed by an edit before this was fixed. Report knock-back and conversion figures are worked out from Lead and are NOT affected; the stored flag only drives the Job History "Knockback" filter, follow-up eligibility and the converted-later link.',
           effect: rows.length ? 'Correcting the flag would not change any report figure.' : '',
-          columns: ['jobNumber', 'visitDate', 'technician', 'lead', 'saleMade', 'storedKnockback', 'expectedKnockback'],
+          columns: ['jobNumber', 'visitDate', 'technician', 'lead', 'saleMade', 'storedKnockback', 'expectedKnockback', 'conflict'],
+          action: 'correctKnockbackFlag',
         },
         rows
       )

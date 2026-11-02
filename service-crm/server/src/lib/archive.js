@@ -295,6 +295,7 @@ export function describePlans(plans) {
     changes: plans.flatMap((p) => p.steps.map((s) => s.description)),
     linkedChanges: linked,
     notes: plans.flatMap((p) => p.notes),
+    details: plans.flatMap((p) => p.details || []),
     token: planToken(plans),
   };
 }
@@ -414,4 +415,82 @@ export function previewLinkQal(saleId) {
 
 export function applyLinkQal(saleId, token, userId) {
   return applyConfirmed(() => [planLinkQal(saleId)], token, userId);
+}
+
+// ---- Correct a job's stored knock-back flag (Data Health check 8) ----
+// The stored flag should be Yes exactly when the job is a Qualified No Sale
+// (the same rule leadRules.js applies whenever Lead is changed on an edit).
+// Older edits could leave it out of step. This admin action corrects ONLY
+// that flag on one job, after a preview. It never touches Lead, sheets,
+// technician, dates, follow-ups or sales, and it refuses (changing nothing)
+// when the job has an open follow-up or any Quote Approved Later / Converted
+// Later link, so those are reviewed separately rather than changed here.
+
+const yesNo = (v) => (v ? 'Yes' : 'No');
+
+/** Why a stored-flag correction on this job needs separate review, if it
+ * does — [] when nothing conflicts. */
+export function knockbackFlagConflicts(job) {
+  const conflicts = [];
+  if (get("SELECT 1 FROM follow_ups WHERE job_id = ? AND status = 'active'", [job.id])) conflicts.push('an open follow-up');
+  if (job.converted_later || job.converted_by_sale_id) conflicts.push('a Converted Later link');
+  else if (get("SELECT 1 FROM sales WHERE job_id = ? AND source = 'quote_approved_later' AND is_upsell = 0 AND archived = 0", [job.id])) {
+    conflicts.push('a Quote Approved Later sale saved against it');
+  }
+  return conflicts;
+}
+
+export function planKnockbackFlag(jobId) {
+  const job = get('SELECT * FROM jobs WHERE id = ?', [Number(jobId)]);
+  if (!job) throw new ArchiveError('Job not found.', 404);
+  const jn = `JN ${job.job_number} (visit ${job.visit_date})`;
+  if (job.archived) throw new ArchiveError(`${jn} is archived, so it isn't checked or corrected. Nothing was changed.`);
+  if (job.lead !== 'Qualified' && job.lead !== 'Not Qualified') {
+    throw new ArchiveError(`${jn} has no Lead Qualification recorded. Set Lead on the job first. Nothing was changed.`);
+  }
+  const expected = !job.had_sale_at_visit && job.lead === 'Qualified' ? 1 : 0;
+  if ((job.knockback ? 1 : 0) === expected) {
+    throw new ArchiveError(`${jn}'s stored knock-back flag is already correct (${yesNo(expected)}). Nothing to correct.`);
+  }
+  const conflicts = knockbackFlagConflicts(job);
+  if (conflicts.length) {
+    throw new ArchiveError(
+      `Can't correct ${jn}'s knock-back flag because it has ${conflicts.join(' and ')}. Please review that separately — nothing was changed.`,
+      409
+    );
+  }
+  const visit = job.had_sale_at_visit ? 'Sale Made' : 'No Sale';
+  return {
+    kind: job.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale',
+    id: job.id,
+    label: `JN ${job.job_number}`,
+    details: [
+      `Job: ${jn}, New Job — ${visit}`,
+      `Current qualification: ${job.lead}`,
+      `Current stored knock-back flag: ${yesNo(job.knockback)}`,
+      `Correct stored knock-back flag: ${yesNo(expected)}`,
+      `Report figures affected: none — knock-back, conversion and converted-later figures are worked out from Lead, not this flag. (Only a report or Job History filtered by "Knockback" will now list this job under "${yesNo(expected)}" instead of "${yesNo(job.knockback)}".)`,
+      'Follow-ups affected: none (this job has no open follow-up)',
+      'Converted Later links affected: none (this job has none)',
+      'Lead, sheets, technician, dates, reasons and every other field: unchanged',
+    ],
+    steps: [
+      {
+        entity: 'job',
+        id: job.id,
+        set: { knockback: expected },
+        audit: { stored_knockback_flag: { from: yesNo(job.knockback), to: yesNo(expected) } },
+        description: `Change ${jn}'s stored knock-back flag from ${yesNo(job.knockback)} to ${yesNo(expected)}`,
+      },
+    ],
+    notes: [],
+  };
+}
+
+export function previewKnockbackFlag(jobId) {
+  return describePlans([planKnockbackFlag(jobId)]);
+}
+
+export function applyKnockbackFlag(jobId, token, userId) {
+  return applyConfirmed(() => [planKnockbackFlag(jobId)], token, userId);
 }
