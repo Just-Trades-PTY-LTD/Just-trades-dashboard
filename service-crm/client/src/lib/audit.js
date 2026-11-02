@@ -18,6 +18,7 @@ const LINK_LABELS = {
   archived_with_call: (ch) => `archived together with call #${ch.to}`,
   restored_with_call: (ch) => `restored together with call #${ch.to}`,
   conversion_reversed_for_job: (ch) => `"Converted later" removed from job #${ch.to}`,
+  conversion_linked_to_job: (ch) => `linked to its original knock-back job #${ch.to}`,
   conversion_reapplied_for_job: (ch) => `"Converted later" re-applied to job #${ch.to}`,
   converted_by_sale: (ch) =>
     ch.to ? `converted by Quote Approved Later sale #${ch.to}` : `no longer converted by Quote Approved Later sale #${ch.from}`,

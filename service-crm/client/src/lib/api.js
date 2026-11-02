@@ -88,6 +88,8 @@ export const api = {
   archive: {
     preview: (items, archived) => request('POST', '/archive/preview', { items, archived }),
     apply: (items, archived, token) => request('POST', '/archive/apply', { items, archived, token }),
+    linkQalPreview: (saleId) => request('POST', '/archive/link-qal/preview', { saleId }),
+    linkQalApply: (saleId, token) => request('POST', '/archive/link-qal/apply', { saleId, token }),
   },
   followUps: {
     list: (params) => request('GET', `/follow-ups${qs(params)}`),

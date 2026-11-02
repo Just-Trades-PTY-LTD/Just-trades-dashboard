@@ -51,6 +51,10 @@ test('staff can do the normal operational work: create/edit calls, view history,
 
     const jobArchive = await server.request('POST', '/archive/preview', { items: [{ kind: 'new_job_no_sale', id: job.data.entry.id }], archived: true });
     assert.equal(jobArchive.status, 403, 'staff cannot archive a tech/job entry');
+    const linkPreview = await server.request('POST', '/archive/link-qal/preview', { saleId: 1 });
+    assert.equal(linkPreview.status, 403, 'staff cannot link a Quote Approved Later sale');
+    const linkApply = await server.request('POST', '/archive/link-qal/apply', { saleId: 1, token: 'x' });
+    assert.equal(linkApply.status, 403, 'staff cannot link a Quote Approved Later sale');
 
     const callsReport = await server.request('GET', '/reports/calls');
     assert.equal(callsReport.status, 200, 'staff can run the calls report');

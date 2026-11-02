@@ -419,3 +419,156 @@ test('a Job Number already used by another active job is refused on edit and on 
     server.close();
   }
 });
+
+// ------------------------------------- link an unlinked Quote Approved Later
+
+// The JN 2325 situation: a Qualified No Sale job whose stored knock-back flag
+// was left at No by an older edit, so the QAL sale saved against it never
+// linked ("Original knockback job: not linked").
+async function unlinkedQal(server, ctx, jobNumber, invoiceNumber) {
+  const ns = await noSale(server, ctx, jobNumber);
+  dbRun('UPDATE jobs SET knockback = 0 WHERE id = ?', [ns.id]);
+  const q = await qal(server, ctx, jobNumber, invoiceNumber);
+  assert.equal(q.originalKnockbackJobId, null, 'saved unlinked, as in the live data');
+  assert.equal(job(ns.id).converted_later, 0);
+  return { ns, q };
+}
+const withoutRows = (d, drop) =>
+  Object.fromEntries(Object.entries(d).map(([t, rows]) => [t, rows.filter((r) => !drop.some(([tt, id]) => tt === t && r.id === id))]));
+
+test('link an unlinked Quote Approved Later sale: preview changes nothing, apply links only that sale and job, recorded and reflected in reports', async () => {
+  const server = await startTestServer();
+  try {
+    const ctx = await setup(server);
+    const { ns, q } = await unlinkedQal(server, ctx, 'L-1', 'INV-L1');
+    // Unrelated records, including ids that overlap between tables.
+    const other = await noSale(server, ctx, 'L-2');
+    const otherSm = await saleMade(server, ctx, 'L-3', 'INV-L3');
+    const r0 = await report(server);
+    const before = dump();
+
+    const preview = ok(await server.request('POST', '/archive/link-qal/preview', { saleId: q.id }));
+    assert.deepEqual(before, dump(), 'preview changes nothing');
+    assert.equal(preview.entries, 1);
+    assert.equal(preview.linkedChanges.length, 1);
+    assert.match(preview.changes.join('\n'), /Mark JN L-1 .*"Converted later" by this sale/);
+    assert.match(preview.changes.join('\n'), /correct its stored knock-back flag from No to Yes/);
+    assert.match(preview.notes.join(), /counts as "Converted later" in reports/);
+
+    const noToken = await server.request('POST', '/archive/link-qal/apply', { saleId: q.id });
+    assert.equal(noToken.status, 409);
+    assert.deepEqual(before, dump(), 'apply without the confirmed token changes nothing');
+
+    ok(await server.request('POST', '/archive/link-qal/apply', { saleId: q.id, token: preview.token }));
+    const j = job(ns.id);
+    assert.equal(j.converted_later, 1);
+    assert.equal(j.converted_by_sale_id, q.id);
+    assert.equal(j.knockback, 1);
+    assert.deepEqual(lastAudit('sale', q.id), { conversion_linked_to_job: { from: null, to: ns.id } });
+    assert.deepEqual(lastAudit('job', ns.id).converted_by_sale, { from: null, to: q.id });
+
+    // Nothing else changed: every other row in every table is identical.
+    const after = dump();
+    const drop = [['jobs', ns.id], ['sales', q.id]];
+    after.audit_log = after.audit_log.slice(0, before.audit_log.length);
+    assert.deepEqual(withoutRows(after, drop), withoutRows(before, drop));
+    assert.deepEqual({ ...sale(q.id), updated_at: null }, { ...before.sales.find((s) => s.id === q.id), updated_at: null }, 'the sale row itself is not changed');
+    assert.equal(job(other.id).converted_later, 0);
+    assert.equal(visitSale(otherSm.id).archived, 0);
+
+    const r1 = await report(server);
+    assert.equal(r1.knockbacks, r0.knockbacks - 1);
+    assert.equal(r1.convertedLaterCount, r0.convertedLaterCount + 1);
+    assert.equal(r1.totalSaleExGst, r0.totalSaleExGst, 'sales total unchanged');
+
+    const listed = ok(await server.request('GET', '/tech/entries')).find((e) => e.kind === 'quote_approved_later' && e.id === q.id);
+    assert.equal(listed.originalKnockbackJobId, ns.id, 'Job History now shows the link');
+
+    const again = await server.request('POST', '/archive/link-qal/preview', { saleId: q.id });
+    assert.equal(again.status, 400);
+    assert.match(again.data.error, /already linked/);
+
+    // Archive / unarchive of the linked sale then behaves like any other QAL.
+    await archiveEntries(server, [{ kind: 'quote_approved_later', id: q.id }], true);
+    assert.equal(job(ns.id).converted_later, 0);
+    await archiveEntries(server, [{ kind: 'quote_approved_later', id: q.id }], false);
+    assert.equal(job(ns.id).converted_by_sale_id, q.id);
+  } finally {
+    await server.close();
+  }
+});
+
+test('link is refused, changing nothing, unless the original job is genuinely eligible', async () => {
+  const server = await startTestServer();
+  try {
+    const ctx = await setup(server);
+    const refused = async (saleId, re) => {
+      const before = dump();
+      const res = await server.request('POST', '/archive/link-qal/preview', { saleId });
+      assert.ok(res.status >= 400, JSON.stringify(res.data));
+      assert.match(res.data.error, re);
+      const apply = await server.request('POST', '/archive/link-qal/apply', { saleId, token: 'anything' });
+      assert.ok(apply.status >= 400);
+      assert.deepEqual(before, dump());
+    };
+
+    // Not Qualified job.
+    const a = await unlinkedQal(server, ctx, 'R-1', 'INV-R1');
+    dbRun("UPDATE jobs SET lead = 'Not Qualified' WHERE id = ?", [a.ns.id]);
+    await refused(a.q.id, /not currently an active, Qualified/);
+
+    // Job archived.
+    const b = await unlinkedQal(server, ctx, 'R-2', 'INV-R2');
+    dbRun('UPDATE jobs SET archived = 1 WHERE id = ?', [b.ns.id]);
+    await refused(b.q.id, /not currently an active, Qualified/);
+
+    // Job dated after the sale.
+    const c = await unlinkedQal(server, ctx, 'R-3', 'INV-R3');
+    dbRun("UPDATE jobs SET visit_date = '2026-05-20' WHERE id = ?", [c.ns.id]);
+    await refused(c.q.id, /dated after this sale/);
+
+    // Job already converted by another sale.
+    const d = await unlinkedQal(server, ctx, 'R-4', 'INV-R4');
+    const otherQ = await qal(server, ctx, 'R-4', 'INV-R4B');
+    dbRun('UPDATE jobs SET converted_later = 1, converted_by_sale_id = ? WHERE id = ?', [otherQ.id, d.ns.id]);
+    await refused(d.q.id, /already marked "Converted later" by another sale/);
+
+    // Sale archived.
+    const e = await unlinkedQal(server, ctx, 'R-5', 'INV-R5');
+    dbRun('UPDATE sales SET archived = 1 WHERE id = ?', [e.q.id]);
+    await refused(e.q.id, /archived/);
+
+    // Wrong kind: a Sale Made sale id, or a missing id.
+    const sm = await saleMade(server, ctx, 'R-6', 'INV-R6');
+    await refused(visitSale(sm.id).id, /not found/);
+    await refused(99999, /not found/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('linking never closes or changes an open follow-up on the job, and says so', async () => {
+  const server = await startTestServer();
+  try {
+    const ctx = await setup(server);
+    const ns = await noSale(server, ctx, 'F-1');
+    dbRun('UPDATE jobs SET knockback = 0 WHERE id = ?', [ns.id]);
+    const q = await qal(server, ctx, 'F-1', 'INV-F1');
+    assert.equal(job(ns.id).converted_later, 0);
+    // A follow-up added on the job after the sale was saved.
+    dbRun('UPDATE jobs SET knockback = 1 WHERE id = ?', [ns.id]);
+    ok(await server.request('POST', '/follow-ups', { jobId: ns.id, dueDate: '2026-06-01' }));
+    dbRun('UPDATE jobs SET knockback = 0 WHERE id = ?', [ns.id]);
+    const preview = ok(await server.request('POST', '/archive/link-qal/preview', { saleId: q.id }));
+    assert.match(preview.notes.join(), /open follow-up is not changed/);
+    const fuBefore = dbAll('SELECT * FROM follow_ups');
+    const eventsBefore = dbAll('SELECT * FROM follow_up_events');
+    ok(await server.request('POST', '/archive/link-qal/apply', { saleId: q.id, token: preview.token }));
+    assert.equal(job(ns.id).converted_by_sale_id, q.id);
+    assert.deepEqual(dbAll('SELECT * FROM follow_ups'), fuBefore, 'follow-ups untouched by the link');
+    assert.deepEqual(dbAll('SELECT * FROM follow_up_events'), eventsBefore);
+    assert.equal(fuBefore.filter((f) => f.status === 'active').length, 1);
+  } finally {
+    await server.close();
+  }
+});

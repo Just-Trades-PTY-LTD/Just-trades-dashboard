@@ -6,23 +6,25 @@ import { api } from '../lib/api.js';
 // Cancel / Escape / clicking outside makes no further request at all. The
 // confirm sends back the preview's token, so if the records changed in the
 // meantime the server refuses and nothing is applied.
-// `request` is { items: [{kind, id}], archived: boolean }.
+// `request` is { items: [{kind, id}], archived: boolean }, or
+// { linkQalSaleId } for linking an unlinked Quote Approved Later sale to its
+// original knock-back job (same preview -> confirm flow).
 export default function ArchiveDialog({ request, onCancel, onDone }) {
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const verb = request.archived ? 'Archive' : 'Unarchive';
+  const isLink = !!request.linkQalSaleId;
+  const verb = isLink ? 'Link' : request.archived ? 'Archive' : 'Unarchive';
 
   useEffect(() => {
     let live = true;
-    api.archive
-      .preview(request.items, request.archived)
+    (isLink ? api.archive.linkQalPreview(request.linkQalSaleId) : api.archive.preview(request.items, request.archived))
       .then((p) => live && setPreview(p))
       .catch((err) => live && setError(err.message));
     return () => {
       live = false;
     };
-  }, [request]);
+  }, [request, isLink]);
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -36,7 +38,9 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const res = await api.archive.apply(request.items, request.archived, preview.token);
+      const res = isLink
+        ? await api.archive.linkQalApply(request.linkQalSaleId, preview.token)
+        : await api.archive.apply(request.items, request.archived, preview.token);
       onDone(res);
     } catch (err) {
       setError(err.message);
@@ -77,8 +81,7 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
               </ul>
               {preview.linkedChanges.length > 0 ? (
                 <p style={{ fontSize: 13 }}>
-                  Includes {preview.linkedChanges.length} linked record change{preview.linkedChanges.length === 1 ? '' : 's'} (the “Also…” /
-                  “Undo…” lines above).
+                  Includes {preview.linkedChanges.length} linked record change{preview.linkedChanges.length === 1 ? '' : 's'} (listed above).
                 </p>
               ) : (
                 <p style={{ fontSize: 13 }}>No linked records are changed.</p>
@@ -86,7 +89,7 @@ export default function ArchiveDialog({ request, onCancel, onDone }) {
               {preview.notes.length > 0 && (
                 <>
                   <p style={{ marginBottom: 4 }}>
-                    <strong>Left unchanged:</strong>
+                    <strong>Please note:</strong>
                   </p>
                   <ul data-testid="archive-notes">
                     {preview.notes.map((n, i) => (

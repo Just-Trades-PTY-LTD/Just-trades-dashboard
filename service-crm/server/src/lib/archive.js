@@ -299,12 +299,12 @@ export function describePlans(plans) {
   };
 }
 
-/** Applies confirmed plans in one transaction. `token` must match the plan
- * as it stands now — if anything changed since the admin confirmed, nothing
- * is applied. */
-export function applyArchive(items, archived, token, userId) {
+/** Re-plans inside one transaction, refuses unless the plan still matches
+ * the `token` the admin confirmed, then applies every step and its Activity
+ * history entry. Any failure rolls the whole action back. */
+function applyConfirmed(buildPlans, token, userId) {
   return transaction(() => {
-    const plans = planMany(items, archived);
+    const plans = buildPlans();
     const summary = describePlans(plans);
     if (!token || token !== summary.token) {
       throw new ArchiveError('The records affected have changed since you confirmed. Nothing was changed — please review and confirm again.', 409);
@@ -313,10 +313,12 @@ export function applyArchive(items, archived, token, userId) {
       for (const step of plan.steps) {
         if (step.merged) continue;
         const cols = Object.keys(step.set);
-        run(
-          `UPDATE ${TABLE_BY_ENTITY[step.entity]} SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
-          [...cols.map((c) => step.set[c]), step.id]
-        );
+        if (cols.length) {
+          run(
+            `UPDATE ${TABLE_BY_ENTITY[step.entity]} SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+            [...cols.map((c) => step.set[c]), step.id]
+          );
+        }
         run('INSERT INTO audit_log (entity_type, entity_id, changes_json, changed_by_user_id) VALUES (?, ?, ?, ?)', [
           step.entity,
           step.id,
@@ -327,4 +329,89 @@ export function applyArchive(items, archived, token, userId) {
     }
     return summary;
   });
+}
+
+/** Applies confirmed archive / unarchive plans. `token` must match the plan
+ * as it stands now — if anything changed since the admin confirmed, nothing
+ * is applied. */
+export function applyArchive(items, archived, token, userId) {
+  return applyConfirmed(() => planMany(items, archived), token, userId);
+}
+
+// ---- Link an unlinked Quote Approved Later sale to its original job ----
+// A QAL sale only links ("converts") its original knock-back job at the
+// moment it is saved. If that job wasn't recorded as a Qualified No Sale
+// knock-back at that moment (e.g. its knock-back was corrected afterwards),
+// the sale stays "not linked" — the CRM never relinks on its own. This is
+// the deliberate admin action to link it later: it only ever links the sale
+// to the job it was saved against (sales.job_id), only if that job is
+// eligible right now, and changes nothing else (no follow-up is closed).
+
+/** Plan for linking QAL sale `saleId` to its original job, or throws an
+ * ArchiveError saying exactly why it can't be linked. */
+export function planLinkQal(saleId) {
+  const sale = findEntry('quote_approved_later', saleId);
+  if (!sale) throw new ArchiveError('Quote Approved Later entry not found.', 404);
+  const label = entryLabel('quote_approved_later', sale);
+  if (sale.archived) throw new ArchiveError(`${label} is archived. Unarchive it first.`);
+  const already = get('SELECT * FROM jobs WHERE converted_by_sale_id = ?', [sale.id]);
+  if (already) throw new ArchiveError(`${label} is already linked to JN ${already.job_number}. Nothing to do.`);
+  const job = sale.job_id ? get('SELECT * FROM jobs WHERE id = ?', [sale.job_id]) : null;
+  if (!job) throw new ArchiveError(`${label} has no original job on record to link to. Nothing was changed.`);
+  const jn = `JN ${job.job_number} (visit ${job.visit_date})`;
+  if (String(job.job_number).trim().toLowerCase() !== String(sale.job_number).trim().toLowerCase()) {
+    throw new ArchiveError(`Can't link: the sale's Job Number (${sale.job_number}) no longer matches its original job, ${jn}. Nothing was changed.`);
+  }
+  if (job.converted_later) throw new ArchiveError(`Can't link: ${jn} is already marked "Converted later" by another sale. Nothing was changed.`);
+  // Same definition of a knock-back the reports use (Qualified, no sale at
+  // the visit) — deliberately NOT the stored knockback flag, which older
+  // edits could leave out of step (Data Health check 8) and which is exactly
+  // why such a sale didn't link when it was saved.
+  if (job.archived || job.lead !== 'Qualified' || job.had_sale_at_visit) {
+    throw new ArchiveError(
+      `Can't link: ${jn} is not currently an active, Qualified, New Job — No Sale knock-back. Correct the job first if it should be. Nothing was changed.`
+    );
+  }
+  if (sale.date_logged && job.visit_date && String(job.visit_date) > String(sale.date_logged)) {
+    throw new ArchiveError(`Can't link: ${jn} is dated after this sale (${sale.date_logged}), so it can't be the job the sale converted. Nothing was changed.`);
+  }
+  const notes = [`After linking, JN ${job.job_number} counts as "Converted later" in reports instead of as an unconverted knock-back.`];
+  if (get("SELECT 1 FROM follow_ups WHERE job_id = ? AND status = 'active'", [job.id])) {
+    notes.push(`JN ${job.job_number}: its open follow-up is not changed — close it yourself if the quote was approved.`);
+  }
+  return {
+    kind: 'quote_approved_later',
+    id: sale.id,
+    label,
+    steps: [
+      {
+        entity: 'sale',
+        id: sale.id,
+        set: {},
+        audit: { conversion_linked_to_job: { from: null, to: job.id } },
+        description: `Link ${label} to its original knock-back job`,
+      },
+      {
+        entity: 'job',
+        id: job.id,
+        set: { converted_later: 1, converted_by_sale_id: sale.id, ...(job.knockback ? {} : { knockback: 1 }) },
+        audit: {
+          knockback: { from: job.knockback ? 'Yes' : 'No (stored flag)', to: 'Converted (quote approved later)' },
+          converted_by_sale: { from: null, to: sale.id },
+        },
+        description: `Mark ${jn} "Converted later" by this sale${
+          job.knockback ? '' : ' (and correct its stored knock-back flag from No to Yes, which it should already be as a Qualified No Sale job)'
+        }`,
+      },
+    ],
+    notes,
+  };
+}
+
+export function previewLinkQal(saleId) {
+  return describePlans([planLinkQal(saleId)]);
+}
+
+export function applyLinkQal(saleId, token, userId) {
+  return applyConfirmed(() => [planLinkQal(saleId)], token, userId);
 }

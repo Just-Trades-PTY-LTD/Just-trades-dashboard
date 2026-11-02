@@ -373,6 +373,12 @@ export default function JobHistory({
 
   function archiveDone(res) {
     const n = res.entries;
+    if (archiveRequest.linkQalSaleId) {
+      setArchiveRequest(null);
+      setNotice('Quote Approved Later sale linked to its original knock-back job.');
+      onChanged();
+      return;
+    }
     setArchiveRequest(null);
     setSelectedKeys(new Set());
     setNotice(`${n} entr${n === 1 ? 'y' : 'ies'} ${archiveRequest.archived ? 'archived' : 'unarchived'}${res.linkedChanges.length ? `, plus ${res.linkedChanges.length} linked change${res.linkedChanges.length === 1 ? '' : 's'}` : ''}.`);
@@ -666,7 +672,16 @@ export default function JobHistory({
                                 View original knockback job →
                               </button>
                             ) : (
-                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Original knockback job: not linked</span>
+                              <>
+                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Original knockback job: not linked</span>
+                                {isAdmin && !embedded && !e.archived && (
+                                  <div>
+                                    <button className="link-btn" style={{ fontSize: 11 }} type="button" onClick={() => setArchiveRequest({ linkQalSaleId: e.id })}>
+                                      Link to original job…
+                                    </button>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         )}
