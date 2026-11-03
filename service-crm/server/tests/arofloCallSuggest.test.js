@@ -54,3 +54,15 @@ test('summary: not found shows the reason; found shows values, suggestions and w
   assert.equal(set.jobType.alreadySet, true);
   assert.equal(set.leadSource.alreadySet, true);
 });
+
+test('suburb: offered only when the server found one confident match; already-selected and missing cases', () => {
+  const found = { found: true, taskType: '', leadSource: '', suburb: 'Woodcroft (5162)' };
+  assert.deepEqual(callLookupSummary(found, { suburb: '' }, { trades, leadSources }).suburb, {
+    arofloValue: 'Woodcroft (5162)',
+    suggestion: { suburb: 'Woodcroft (5162)', label: 'Woodcroft (5162)' },
+    alreadySet: false,
+  });
+  assert.equal(callLookupSummary(found, { suburb: 'Woodcroft (5162)' }, { trades, leadSources }).suburb.alreadySet, true);
+  assert.equal(callLookupSummary(found, { suburb: 'Reynella (5161)' }, { trades, leadSources }).suburb.alreadySet, false, 'a different suburb is never treated as matching');
+  assert.deepEqual(callLookupSummary({ ...found, suburb: null }, { suburb: '' }, { trades, leadSources }).suburb, { arofloValue: '', suggestion: null, alreadySet: false });
+});
