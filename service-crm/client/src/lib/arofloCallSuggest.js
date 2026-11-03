@@ -1,5 +1,5 @@
 // What a "Look up in AroFlo" result can suggest on a Lead call: a Trade +
-// Job type and a Lead Source. Suggestions only — nothing is applied until
+// Job type, a Lead Source and a Suburb. Suggestions only — nothing is applied until
 // staff click "Use this", and nothing is saved until they save the call.
 //
 // Matching is deliberately strict, the same "never guess" rule as the other
@@ -9,6 +9,9 @@
 // options don't line up 1:1 with this CRM's lists (e.g. AroFlo's single
 // "Google" vs. "Google search"/"Google ads" here), so anything else is shown
 // as a plain reference value for staff to pick the closest match themselves.
+// The Suburb is already matched by the server (aroflo/suburbMatch.js) from
+// the job's AroFlo address, and is null unless exactly one suburb in this
+// CRM's list matches — the same rule the New Job form uses.
 
 export function normName(v) {
   return String(v || '')
@@ -47,8 +50,8 @@ const same = (a, b) => String(a ?? '') === String(b ?? '');
 /**
  * Everything the call form shows after a lookup. `result` is the
  * /aroflo/lookup response (or { found: false, message } on failure).
- * Returns { found, message, status, jobType, leadSource } where jobType /
- * leadSource are { arofloValue, suggestion, alreadySet } — suggestion is
+ * Returns { found, message, status, jobType, leadSource, suburb } where
+ * each is { arofloValue, suggestion, alreadySet } — suggestion is
  * null when there's no single confident match, and alreadySet is true when
  * the form already holds exactly the suggested value.
  */
@@ -70,6 +73,11 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
       arofloValue: result.leadSource || '',
       suggestion: ls,
       alreadySet: !!ls && same(form.leadSourceId, ls.leadSourceId),
+    },
+    suburb: {
+      arofloValue: result.suburb || '',
+      suggestion: result.suburb ? { suburb: result.suburb, label: result.suburb } : null,
+      alreadySet: !!result.suburb && same(form.suburb, result.suburb),
     },
   };
 }

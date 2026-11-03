@@ -332,13 +332,13 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
   if (!summary.found) {
     return <div className="lookup-box lookup-missing">{summary.message}</div>;
   }
-  const row = (label, item, onUse, noMatchHint) => (
+  const row = (label, item, onUse, noMatchHint, { showArrow = true, emptyText = 'not set in AroFlo' } = {}) => (
     <div style={{ marginTop: 4 }}>
-      {label}: {item.arofloValue ? <strong>{item.arofloValue}</strong> : <em>not set in AroFlo</em>}
+      {label}: {item.arofloValue ? <strong>{item.arofloValue}</strong> : <em>{emptyText}</em>}
       {item.suggestion && item.alreadySet && <> — already selected</>}
       {item.suggestion && !item.alreadySet && (
         <>
-          {' '}→ {item.suggestion.label}{' '}
+          {showArrow && <> → {item.suggestion.label}</>}{' '}
           <button className="btn btn-sm" type="button" onClick={onUse}>
             Use this
           </button>
@@ -363,6 +363,10 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
           () => patch({ leadSourceId: summary.leadSource.suggestion.leadSourceId }),
           'no single matching Lead Source here, so please pick the closest match above.'
         )}
+      {row('Suburb', summary.suburb, () => patch({ suburb: summary.suburb.suggestion.suburb }), '', {
+        showArrow: false,
+        emptyText: 'no single confident match from the AroFlo job address, so please choose it in the Suburb field',
+      })}
       {showLeadSource && summary.leadSource.arofloValue && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
           AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this
