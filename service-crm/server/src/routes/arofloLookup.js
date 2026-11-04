@@ -12,7 +12,7 @@ import {
   listTaskLabours,
   listTaskSchedules,
 } from '../aroflo/client.js';
-import { summarizeLabour, summarizeVisits } from '../aroflo/activity.js';
+import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
@@ -112,7 +112,10 @@ export function createArofloLookupRouter() {
         leadSource,
         invoices: invoices.map((inv) => ({
           invoiceNumber: inv.invoiceNumber || '',
-          invoiceDate: inv.invoicedDateTime ? inv.invoicedDateTime.slice(0, 10) : '',
+          // Adelaide calendar date: a UTC timestamp is converted, a plain
+          // local one is read as-is (see toLocalDateTime).
+          invoiceDate: toLocalDateTime(inv.invoicedDateTime).date,
+          // This invoice's own total ex GST — never the task's sell total.
           saleValueExGst: inv.totalAmountEx ?? 0,
           status: inv.status || '',
         })),
