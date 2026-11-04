@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { openDb, DatabaseMissingError } from './db/index.js';
 import { seedDatabase } from './db/seed.js';
 import { writeAutomaticBackup } from './db/backup.js';
-import { attachUser } from './middleware/auth.js';
+import { attachUser, technicianGate } from './middleware/auth.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createUsersRouter } from './routes/users.js';
 import { createSettingsRouter } from './routes/settings.js';
@@ -23,6 +23,7 @@ import { createArchiveRouter } from './routes/archive.js';
 import { createFollowUpsRouter } from './routes/followUps.js';
 import { createReviewsRouter } from './routes/reviews.js';
 import { createArofloTestRouter } from './routes/arofloTest.js';
+import { createMeRouter } from './routes/me.js';
 import { createArofloLookupRouter } from './routes/arofloLookup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -112,6 +113,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use((req, res, next) => (req.path === '/api/export/restore' ? restoreJson : defaultJson)(req, res, next));
   app.use(cookieParser());
   app.use(attachUser);
+  app.use(technicianGate);
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
   app.use('/api/auth', createAuthRouter());
@@ -129,6 +131,7 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use('/api/reviews', createReviewsRouter());
   app.use('/api/aroflo-test', createArofloTestRouter());
   app.use('/api/aroflo', createArofloLookupRouter());
+  app.use('/api/me', createMeRouter());
 
   // In production this one server serves the built React app too, so the
   // trial site is a single deployable service. In local dev, client/dist

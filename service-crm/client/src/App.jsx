@@ -9,6 +9,7 @@ import ReportsPage from './pages/Reports/index.jsx';
 import SettingsPage from './pages/Settings/index.jsx';
 import FollowUpsPage from './pages/FollowUps/index.jsx';
 import ReviewsPage from './pages/Reviews/index.jsx';
+import TechnicianApp from './pages/Me/TechnicianApp.jsx';
 import logo from './assets/logo.png';
 
 const BASE_TABS = [
@@ -26,6 +27,10 @@ export default function App() {
 
   if (loading) return null;
   if (!user) return <Login />;
+  // A Technician account gets only My Performance, My Reviews and My account
+  // (pages/Me/TechnicianApp.jsx) — none of the Staff modules below, and the
+  // server refuses every other route for it regardless of this screen.
+  if (user.role === 'technician') return <TechnicianApp user={user} logout={logout} />;
 
   const isAdmin = user.role === 'admin';
   // Settings holds only admin-only tools (staff accounts, lists/config,

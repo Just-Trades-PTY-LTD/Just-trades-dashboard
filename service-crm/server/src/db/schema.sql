@@ -20,6 +20,32 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Technician accounts: an existing login account (users) that an admin has
+-- deliberately changed to Technician access, linked to exactly one technician
+-- record. Additive only — the users table itself is never changed by this:
+-- the account keeps its id, email, password, role column and every Created
+-- By / Edited By reference. An account with an ACTIVE row here (unlinked_at
+-- IS NULL) is treated as a Technician account on every request (see
+-- middleware/auth.js); removing the link (setting unlinked_at) restores Staff
+-- access. Rows are never deleted, so they double as the who/when record.
+-- At most one active link per account and per technician (the two partial
+-- unique indexes below). technician_id deliberately has no foreign key: a
+-- data restore reloads the technicians table, and a link must never make a
+-- restore fail — a link to a missing or inactive technician simply blocks the
+-- account instead. Not part of the data backup, like the accounts it belongs
+-- to, so a restore never changes anyone's access.
+CREATE TABLE IF NOT EXISTS technician_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  technician_id INTEGER NOT NULL,
+  linked_by_user_id INTEGER REFERENCES users(id),
+  linked_at TEXT NOT NULL DEFAULT (datetime('now')),
+  unlinked_by_user_id INTEGER REFERENCES users(id),
+  unlinked_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_technician_accounts_active_user ON technician_accounts (user_id) WHERE unlinked_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_technician_accounts_active_technician ON technician_accounts (technician_id) WHERE unlinked_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS technicians (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,

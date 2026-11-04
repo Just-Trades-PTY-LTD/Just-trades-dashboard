@@ -35,6 +35,18 @@ export const api = {
     list: () => request('GET', '/users'),
     create: (body) => request('POST', '/users', body),
     update: (id, body) => request('PATCH', `/users/${id}`, body),
+    // Technician access (admin only): preview, change to Technician, back to Staff.
+    technicianPreview: (id, technicianId) => request('GET', `/users/${id}/technician-preview${qs({ technicianId })}`),
+    linkTechnician: (id, technicianId) => request('POST', `/users/${id}/technician-link`, { technicianId, confirm: true }),
+    unlinkTechnician: (id) => request('POST', `/users/${id}/technician-unlink`, { confirm: true }),
+  },
+  // Technician accounts only — always scoped by the server to the linked technician.
+  me: {
+    filters: () => request('GET', '/me/filters'),
+    performance: (params) => request('GET', `/me/performance${qs(params)}`),
+    performanceDrilldown: (params) => request('GET', `/me/performance/drilldown${qs(params)}`),
+    knockbackReasons: (params) => request('GET', `/me/knockback-reasons${qs(params)}`),
+    reviews: (params) => request('GET', `/me/reviews${qs(params)}`),
   },
   settings: {
     bundle: () => request('GET', '/settings/bundle'),

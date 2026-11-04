@@ -70,7 +70,7 @@ export async function startTestServer() {
     cookie = value;
   }
 
-  return { request, login, close, rawGet, dbPath, getCookie, setCookie };
+  return { request, login, close, rawGet, dbPath, getCookie, setCookie, app };
 }
 
 /** Archives (or unarchives) entries the way the app does: preview the plan,
