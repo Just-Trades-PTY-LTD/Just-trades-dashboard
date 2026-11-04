@@ -31,7 +31,9 @@ export function defaultKnockbackReasonsFilters() {
 // computeKnockbackReasonsReport/genuineKnockbackJobs) — a knock-back keeps
 // its original reason here even once its quote is later approved, since
 // that's a separate Converted Later credit, never another knock-back.
-export default function KnockbackReasonsTracker({ layout, setDrilldown, filters, setFilters, from, to, technicianId, technicianName }) {
+// readOnly (Technician accounts): counts per reason from the restricted
+// team API, and no click-through to the job records.
+export default function KnockbackReasonsTracker({ readOnly, layout, setDrilldown, filters, setFilters, from, to, technicianId, technicianName }) {
   const settings = useSettings();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +47,7 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown, filters,
 
   useEffect(() => {
     setLoading(true);
-    api.reports.knockbackReasons(effectiveFilters).then((d) => {
+    (readOnly ? api.me.teamKnockbackReasons : api.reports.knockbackReasons)(effectiveFilters).then((d) => {
       setData(d);
       setLoading(false);
     });
@@ -60,6 +62,7 @@ export default function KnockbackReasonsTracker({ layout, setDrilldown, filters,
   // showing — matching the main report's own applied filters — plus this
   // box's own Trade filter.
   function openReasonDrilldown(reasonName) {
+    if (readOnly) return;
     setDrilldown({
       from,
       to,

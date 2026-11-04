@@ -662,6 +662,28 @@ td.clickable-stat {
   border-radius: 0;
 }
 
+/* Technician accounts see the team report read-only: team and other-
+   technician figures are statistics, not links — only their own By
+   technician figures (.clickable-own) open records. */
+.report-readonly .clickable-stat {
+  cursor: default;
+}
+
+.report-readonly .clickable-stat:hover {
+  background: none;
+  box-shadow: none;
+}
+
+.report-readonly .clickable-stat.clickable-own {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.report-readonly .clickable-stat.clickable-own:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
 .drilldown-overlay {
   position: fixed;
   inset: 0;

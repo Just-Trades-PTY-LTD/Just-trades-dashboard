@@ -1,23 +1,54 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset, money } from '../../lib/dates.js';
-import { DateField, FilterSelect, DateRangePresetSelect } from '../../components/Fields.jsx';
+import { DateField, DateRangePresetSelect } from '../../components/Fields.jsx';
+import { SettingsProvider } from '../../lib/SettingsContext.jsx';
+import { ReportAccessContext } from '../../lib/reportAccess.js';
+import TechReport from '../Reports/TechReport.jsx';
 import logo from '../../assets/logo.png';
 
-// The whole app for a Technician account: My Performance, My Reviews and My
-// account only. Every figure and record comes from the /api/me routes, which
-// the server always scopes to the technician linked to this account — this
-// screen never sends a technician of its own, and the server ignores one if
-// sent. View-only: there is nothing here that adds, edits or exports.
+// The whole app for a Technician account: the team Technician & Sales
+// Report (read-only, same layout and statistics Staff see), My Reviews and
+// My account. The report reads only the statistics-only /api/me routes; the
+// only records a technician can open are their OWN, from their own By
+// technician figures, and the server always scopes those to the technician
+// linked to this account. Nothing here adds, edits or exports.
 
 const TABS = [
-  ['performance', 'My Performance'],
-  ['reviews', 'My Reviews'],
-  ['account', 'My account'],
+  ['report', 'Technician & Sales Report'],
+  ['reviews', 'Reviews'],
+  ['account', 'My Account'],
 ];
 
+// Stable reference (SettingsProvider reloads when it changes).
+const loadTechnicianBundle = () => api.me.reportSettings();
+
+const FIELD_LABELS = {
+  jobsAttended: 'Total Jobs',
+  qualifiedJobs: 'Qualified Jobs',
+  sales: 'Sales (invoices)',
+  convertedLaterCredits: 'Converted Later',
+  actualKnockbacks: 'Actual Knockbacks',
+  totalSaleExGst: 'Value (ex GST)',
+  avgSaleExGst: 'Average Sale',
+  callBacks: 'Call Backs',
+  pendingCancellations: 'Pending Cancellations',
+  inspectionRate: 'Inspection Sheet %',
+  optionRate: 'Option Sheet %',
+};
+
 export default function TechnicianApp({ user, logout }) {
-  const [tab, setTab] = useState('performance');
+  const [tab, setTab] = useState('report');
+  const [records, setRecords] = useState(null);
+
+  function openOwnRecords(field, filters) {
+    const label = `${user.technicianName} — ${FIELD_LABELS[field] || field}`;
+    setRecords({ label, loading: true });
+    api.me
+      .performanceDrilldown({ ...filters, field })
+      .then((d) => setRecords({ ...d, label }))
+      .catch((err) => setRecords({ label, error: err.message }));
+  }
   return (
     <div className="app-shell">
       <div className="app-header">
@@ -40,8 +71,16 @@ export default function TechnicianApp({ user, logout }) {
       </div>
       {!user.technicianActive && tab !== 'account' ? (
         <div className="panel empty-state">Your technician record is inactive or missing, so there's nothing to show. Please contact an admin.</div>
-      ) : tab === 'performance' ? (
-        <MyPerformance />
+      ) : tab === 'report' ? (
+        <SettingsProvider loadBundle={loadTechnicianBundle}>
+          <ReportAccessContext.Provider value={{ technician: true, ownTechnicianName: user.technicianName, openOwnRecords }}>
+            <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>
+              Read-only team report. Only your own figures in the By technician table open records (your own).
+            </div>
+            <TechReport drilldown={null} setDrilldown={() => {}} />
+          </ReportAccessContext.Provider>
+          {records && <RecordsModal records={records} onClose={() => setRecords(null)} />}
+        </SettingsProvider>
       ) : tab === 'reviews' ? (
         <MyReviews />
       ) : (
@@ -52,7 +91,7 @@ export default function TechnicianApp({ user, logout }) {
 }
 
 function useMyFilters() {
-  const [filters, setFilters] = useState(() => ({ ...currentAdelaideWeek(), tradeId: '', jobTypeId: '' }));
+  const [filters, setFilters] = useState(() => ({ ...currentAdelaideWeek() }));
   return [filters, (p) => setFilters((f) => ({ ...f, ...p }))];
 }
 
@@ -70,124 +109,6 @@ function DateFilters({ filters, patch }) {
         options={DATE_RANGE_PRESETS}
       />
     </>
-  );
-}
-
-const rate = (v) => (v == null ? '—' : `${v}%`);
-
-// Same figures, same order and the same definitions as this technician's own
-// row in the admin "By technician" table. `open` = clickable (has records).
-const FIGURES = [
-  ['jobsAttended', 'Total Jobs', (v) => v, true],
-  ['qualifiedJobs', 'Qualified Jobs', (v) => v, true],
-  ['sales', 'Sales (invoices)', (v) => v, true],
-  ['convertedLaterCredits', 'Converted Later', (v) => v, true],
-  ['actualKnockbacks', 'Actual Knockbacks', (v) => v, true],
-  ['adjustedKnockbacks', 'Adjusted Knockbacks', (v) => v, false, 'Actual Knockbacks minus Converted Later.'],
-  ['bonusConversionRate', 'Conversion %', (v) => `${(v ?? 0).toFixed(2)}%`, false, '(Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.'],
-  ['totalSaleExGst', 'Total Sale Value (ex GST)', money, true, 'Your sales plus any upsells credited to you.'],
-  ['avgSaleExGst', 'Average Sale Value (ex GST)', money, true, 'Your original sales (not upsells) ÷ your Qualified Jobs.'],
-  ['callBacks', 'Call Backs', (v) => v, true],
-  ['pendingCancellations', 'Pending Cancellations', (v) => v, true],
-  ['inspectionRate', 'Inspection Sheet %', rate, true],
-  ['optionRate', 'Option Sheet %', rate, true],
-];
-
-function MyPerformance() {
-  const [filters, patch] = useMyFilters();
-  const [trades, setTrades] = useState([]);
-  const [data, setData] = useState(null);
-  const [reasons, setReasons] = useState(null);
-  const [error, setError] = useState('');
-  const [records, setRecords] = useState(null);
-
-  useEffect(() => {
-    api.me.filters().then((r) => setTrades(r.trades)).catch(() => {});
-  }, []);
-  useEffect(() => {
-    setError('');
-    Promise.all([api.me.performance(filters), api.me.knockbackReasons(filters)])
-      .then(([p, k]) => {
-        setData(p);
-        setReasons(k);
-      })
-      .catch((err) => setError(err.message));
-  }, [filters]);
-
-  const jobTypes = trades.find((t) => String(t.id) === String(filters.tradeId))?.jobTypes || [];
-  function open(field, label, extra = {}) {
-    setRecords({ label, loading: true });
-    api.me
-      .performanceDrilldown({ ...filters, field, ...extra })
-      .then((d) => setRecords({ ...d, label }))
-      .catch((err) => setRecords({ label, error: err.message }));
-  }
-
-  return (
-    <div>
-      <div className="panel" style={{ padding: 16, marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-        <DateFilters filters={filters} patch={patch} />
-        <FilterSelect label="Trade" value={filters.tradeId} onChange={(v) => patch({ tradeId: v, jobTypeId: '' })} options={trades} />
-        <FilterSelect label="Job type" value={filters.jobTypeId} onChange={(v) => patch({ jobTypeId: v })} options={jobTypes} />
-      </div>
-      {error && <div className="notice error panel">{error}</div>}
-      {data && (
-        <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{data.technicianName}</div>
-          <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>
-            Your own figures only, worked out exactly as in the company report. Click a figure to see its records.
-          </div>
-          <table className="data-table" data-testid="my-performance">
-            <tbody>
-              {FIGURES.map(([key, label, render, clickable, help]) => (
-                <tr key={key}>
-                  <th style={{ textAlign: 'left', width: 260 }} title={help}>
-                    {label}
-                  </th>
-                  <td
-                    className={clickable ? 'clickable-stat' : undefined}
-                    onClick={clickable ? () => open(key, label) : undefined}
-                    title={clickable ? `View your records behind ${label}` : help}
-                  >
-                    {render(data.figures[key])}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {reasons && (
-        <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>My Knockback Reasons</div>
-          {reasons.total === 0 ? (
-            <div className="empty-state">No knockbacks in this range.</div>
-          ) : (
-            <table className="data-table" data-testid="my-knockback-reasons">
-              <thead>
-                <tr>
-                  <th>Reason</th>
-                  <th>Knockbacks</th>
-                  <th>%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reasons.byReason.map((r) => (
-                  <tr key={r.name}>
-                    <td>{r.name}</td>
-                    <td className="clickable-stat" onClick={() => open('knockbackByReason', `Knockbacks — ${r.name}`, { category: r.name })}>
-                      {r.count}
-                    </td>
-                    <td>{r.percent}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-      {records && <RecordsModal records={records} onClose={() => setRecords(null)} />}
-    </div>
   );
 }
 
@@ -230,7 +151,6 @@ function RecordsModal({ records, onClose }) {
                     <th>Entry type</th>
                     <th>JN</th>
                     <th>Trade / job type</th>
-                    <th>Suburb</th>
                     <th>Outcome</th>
                     <th>Invoice</th>
                     <th>Value ex GST</th>
@@ -246,7 +166,6 @@ function RecordsModal({ records, onClose }) {
                         {r.tradeName || '—'}
                         {r.jobTypeName ? ` — ${r.jobTypeName}` : ''}
                       </td>
-                      <td>{r.suburb || '—'}</td>
                       <td>{outcome(r)}</td>
                       <td className="mono">{r.invoiceNumber || '—'}</td>
                       <td>{r.saleValueExGst ? money(r.saleValueExGst) : '—'}</td>
