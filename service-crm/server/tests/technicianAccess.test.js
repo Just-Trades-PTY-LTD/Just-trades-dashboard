@@ -248,11 +248,12 @@ test('an inactive or missing linked technician blocks the account and never fall
     }
     for (const p of ['/calls', '/tech/entries', '/reports/tech', '/reviews']) assert.equal((await server.request('GET', p)).status, 403, `${p} — no Staff fallback`);
 
-    // Missing technician record (e.g. removed): same block.
+    // Missing technician record (e.g. a data restore that no longer has it —
+    // deletion through the app is refused while linked): same block.
     await server.login();
     const temp = ok(await server.request('POST', '/settings/technicians', { name: 'Temp Tech' }));
     ok(await link(server, kim, temp));
-    ok(await server.request('DELETE', `/settings/technicians/${temp.id}`));
+    dbRun('DELETE FROM technicians WHERE id = ?', [temp.id]);
     await signInAs(server, 'kim@test.local');
     assert.equal((await server.request('GET', '/me/performance')).status, 403);
     assert.equal((await server.request('GET', '/calls')).status, 403);
@@ -311,6 +312,61 @@ test('changing back to Staff needs confirmation, signs out, restores Staff acces
     // The technician can be linked again afterwards.
     await server.login();
     ok(await link(server, sam, ryan));
+  } finally {
+    server.close();
+  }
+});
+
+test('a technician linked to an active Technician account cannot be deleted; deactivation and unlinking work as designed', async () => {
+  const server = await startTestServer();
+  try {
+    const { sam, kim } = await seed(server);
+    const spare = ok(await server.request('POST', '/settings/technicians', { name: 'Spare Tech' })); // no jobs, so deletable by the other rules
+    ok(await link(server, sam, spare));
+    const before = dbAll('SELECT * FROM technicians ORDER BY id');
+
+    const refused = await server.request('DELETE', `/settings/technicians/${spare.id}`);
+    assert.equal(refused.status, 409);
+    assert.equal(
+      refused.data.error,
+      'This technician is linked to a Technician account. Change that account back to Staff, link it to another technician, or deactivate the account before deleting this technician.'
+    );
+    assert.deepEqual(dbAll('SELECT * FROM technicians ORDER BY id'), before, 'no part of the technician record was deleted');
+    await signInAs(server, 'sam@test.local');
+    assert.equal((await server.request('GET', '/me/performance')).status, 200, 'the linked account is still a working Technician account');
+    assert.equal((await server.request('GET', '/calls')).status, 403, '...and still restricted');
+
+    // Deactivating the technician still works and blocks the account at once.
+    await server.login();
+    ok(await server.request('PATCH', `/settings/technicians/${spare.id}`, { active: false }));
+    await signInAs(server, 'sam@test.local');
+    assert.equal((await server.request('GET', '/me/performance')).status, 403);
+    assert.equal((await server.request('GET', '/calls')).status, 403, 'blocked, never Staff');
+
+    // Back to Staff closes the link; deletion is then decided by the normal rules.
+    await server.login();
+    ok(await server.request('POST', `/users/${sam.id}/technician-unlink`, { confirm: true }));
+    assert.equal(dbGet('SELECT COUNT(*) AS n FROM technician_accounts WHERE technician_id = ? AND unlinked_at IS NULL', [spare.id]).n, 0);
+    ok(await server.request('DELETE', `/settings/technicians/${spare.id}`));
+    assert.equal(dbGet('SELECT id FROM technicians WHERE id = ?', [spare.id]), undefined);
+    const history = dbAll('SELECT * FROM technician_accounts WHERE technician_id = ?', [spare.id]);
+    assert.equal(history.length, 1, 'the historical link row is kept');
+    assert.ok(history[0].linked_at && history[0].linked_by_user_id && history[0].unlinked_at && history[0].unlinked_by_user_id);
+
+    // A technician with records is still refused by the existing rule after unlinking.
+    const ryan = dbGet("SELECT id FROM technicians WHERE name = 'Ryan Tech'");
+    ok(await link(server, kim, ryan));
+    assert.equal((await server.request('DELETE', `/settings/technicians/${ryan.id}`)).status, 409, 'refused while linked');
+    ok(await server.request('POST', `/users/${kim.id}/technician-unlink`, { confirm: true }));
+    const afterUnlink = await server.request('DELETE', `/settings/technicians/${ryan.id}`);
+    assert.equal(afterUnlink.status, 409);
+    assert.match(afterUnlink.data.error, /linked records/, 'the existing linked-records rule still applies');
+
+    // Deactivating the ACCOUNT also allows deletion (the message names it as an option).
+    const other = ok(await server.request('POST', '/settings/technicians', { name: 'Other Tech' }));
+    ok(await link(server, kim, other));
+    ok(await server.request('PATCH', `/users/${kim.id}`, { active: false }));
+    ok(await server.request('DELETE', `/settings/technicians/${other.id}`));
   } finally {
     server.close();
   }

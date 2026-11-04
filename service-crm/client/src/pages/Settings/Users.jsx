@@ -68,6 +68,11 @@ export default function Users() {
       <div className="panel" style={{ padding: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>Staff accounts</div>
         {error && <div className="notice error" style={{ marginBottom: 10 }}>{error}</div>}
+        {users.some((u) => u.accessType === 'technician') && (
+          <div style={{ marginBottom: 12 }}>
+            <RollbackWarning />
+          </div>
+        )}
         {users.map((u) => {
           const isLastActiveAdmin = u.role === 'admin' && u.active && activeAdminCount <= 1;
           return (
@@ -178,6 +183,19 @@ export default function Users() {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+// Shown wherever Technician accounts exist or are being created: a CRM
+// version from before Technician access doesn't know about the link, so it
+// would treat every Technician account as an ordinary Staff account.
+function RollbackWarning() {
+  return (
+    <div className="notice error" data-testid="technician-rollback-warning" style={{ fontSize: 12.5 }}>
+      <strong>Before any CRM rollback:</strong> rolling the CRM back to a version from before Technician access existed would treat
+      every Technician account as an ordinary Staff account, with full Staff access. Before any such rollback, change every Technician
+      account back to Staff or deactivate it. A rollback is never a safe way to remove Technician access.
+    </div>
+  );
+}
+
 // Change an existing Staff account to Technician (linked to one active
 // technician record), or back to Staff. Nothing changes until Confirm; the
 // server re-checks everything and signs the account out on either change.
@@ -250,6 +268,7 @@ function TechnicianAccessDialog({ access, technicians, onCancel, onDone }) {
                   <li>They will be signed out now and need to sign in again.</li>
                 </ul>
               )}
+              {preview && preview.blockers.length === 0 && <RollbackWarning />}
             </>
           ) : (
             <ul data-testid="technician-unlink-summary">

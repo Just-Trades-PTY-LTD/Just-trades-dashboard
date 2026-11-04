@@ -137,6 +137,22 @@ export function createSettingsRouter() {
   });
 
   router.delete('/technicians/:id', adminOnly, (req, res) => {
+    // A technician linked to an active Technician account (an open
+    // technician_accounts row for an active account) can't be permanently
+    // deleted — deactivating the technician still works and blocks that
+    // account. Checked here, on the server, since technician_accounts
+    // deliberately has no foreign key to technicians.
+    const linkedAccount = get(
+      `SELECT 1 FROM technician_accounts ta JOIN users u ON u.id = ta.user_id
+       WHERE ta.technician_id = ? AND ta.unlinked_at IS NULL AND u.active = 1`,
+      [req.params.id]
+    );
+    if (linkedAccount) {
+      return res.status(409).json({
+        error:
+          'This technician is linked to a Technician account. Change that account back to Staff, link it to another technician, or deactivate the account before deleting this technician.',
+      });
+    }
     try {
       run('DELETE FROM technicians WHERE id = ?', [req.params.id]);
       res.json({ ok: true });
