@@ -1148,6 +1148,10 @@ function computeRevenueBySuburb(salesAll, upsellsAll) {
 //   this report's Lead Source filter) -> its Lead Source. No such call:
 //   "Unassigned (no booked Lead call)"; a booked call with no Lead Source:
 //   "Unassigned".
+// - Callback sales: new work sold at a technician callback is attributed to
+//   Repeat customer (the customer's original source didn't generate it), but
+//   only when the link is proven — see callbackSaleCheck(). The original
+//   job and sale keep their own category.
 // - Average Invoice Value: original invoice value (no Upsells) ÷ Sales
 //   (invoices) — null (shown as a dash) when there are no invoices.
 // - Invoice-date only: attended-job outcomes, knockbacks and conversion
@@ -1167,11 +1171,61 @@ function marketingCategoryByJobNumber() {
   return map;
 }
 
+// The name of the "Repeat customer" Lead Source as it's set up in Settings
+// (falls back to the plain label if it was ever renamed/removed).
+function repeatCustomerLabel() {
+  const [item] = all("SELECT name FROM list_items WHERE category = 'lead_source' AND lower(trim(name)) = 'repeat customer'");
+  return item?.name || 'Repeat customer';
+}
+
+// Whether a sale was new work sold at a technician callback — proven only
+// from what's on record, never guessed:
+// 1. its Job Number is a Technician & Sales Call Back entry's NEW callback
+//    Job Number (the separate AroFlo job booked for the callback visit,
+//    different from that Call Back's original Job Number); or
+// 2. its Job Number is on a Calls & Contacts "Call back" call, AND that Job
+//    Number has no booked Lead call, AND it isn't any Call Back entry's
+//    ORIGINAL Job Number, AND the sale's job was visited (or, without a job,
+//    the sale invoiced) on or after that call.
+// Anything else — an Upsell or Quote Approved Later on the original Job
+// Number, a "Call back" call that recorded the original Job Number, a sale
+// with no Job Number — is left to the normal attribution.
+function callbackSaleCheck() {
+  const callBacks = all('SELECT job_number, new_job_number FROM call_backs WHERE archived = 0');
+  const newCallbackJns = new Set(
+    callBacks.filter((cb) => normKey(cb.new_job_number) && normKey(cb.new_job_number) !== normKey(cb.job_number)).map((cb) => normKey(cb.new_job_number))
+  );
+  const originalCallbackJns = new Set(callBacks.map((cb) => normKey(cb.job_number)).filter(Boolean));
+  const firstCallbackCall = new Map();
+  all("SELECT job_number, call_at FROM calls WHERE archived = 0 AND call_type = 'Call back'").forEach((c) => {
+    const key = normKey(c.job_number);
+    const day = String(c.call_at || '').slice(0, 10);
+    if (key && day && (!firstCallbackCall.has(key) || day < firstCallbackCall.get(key))) firstCallbackCall.set(key, day);
+  });
+  const visitDateByJobId = new Map(all('SELECT id, visit_date FROM jobs').map((j) => [j.id, j.visit_date]));
+  return {
+    byNewCallbackJn: (key) => newCallbackJns.has(key),
+    byCallbackCall: (key, row) => {
+      if (!firstCallbackCall.has(key) || originalCallbackJns.has(key)) return false;
+      const saleDay = (row.job_id && visitDateByJobId.get(row.job_id)) || row.invoice_date || '';
+      return !!saleDay && saleDay >= firstCallbackCall.get(key);
+    },
+  };
+}
+
 // Each sale/upsell of the report, tagged with its Marketing Category — the
 // single source for the section, its drill-downs and its Excel sheet.
 function salesWithMarketingCategory(salesAll, upsellsAll) {
   const categoryByNumber = marketingCategoryByJobNumber();
-  const categoryOf = (row) => categoryByNumber.get(normKey(row.job_number)) || NO_BOOKED_LEAD_CALL;
+  const callback = callbackSaleCheck();
+  const repeatCustomer = repeatCustomerLabel();
+  const categoryOf = (row) => {
+    const key = normKey(row.job_number);
+    if (key && callback.byNewCallbackJn(key)) return repeatCustomer;
+    if (categoryByNumber.has(key)) return categoryByNumber.get(key);
+    if (key && callback.byCallbackCall(key, row)) return repeatCustomer;
+    return NO_BOOKED_LEAD_CALL;
+  };
   return {
     sales: salesAll.map((s) => ({ row: s, category: categoryOf(s) })),
     upsells: upsellsAll.map((u) => ({ row: u, category: categoryOf(u) })),
