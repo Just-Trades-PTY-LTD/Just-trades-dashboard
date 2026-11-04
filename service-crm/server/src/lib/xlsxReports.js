@@ -382,32 +382,28 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   );
 
   // Sales by Marketing Category — the exact rows/totals the on-screen section
-  // shows (services/reports.js's computeSalesByMarketingCategory): Qualified
-  // jobs attended in this period by visit date, their eventual outcome, and
-  // the value of their own original sales (no Upsells).
+  // shows (services/reports.js's computeSalesByMarketingCategory): the sales
+  // invoiced in this period, by the Marketing Category of each sale's
+  // original Job Number. The Total row equals the Summary sheet's Sales
+  // (invoices) and Total sale value (ex GST).
   const salesByCategory = wb.addWorksheet('Sales by Category');
   addTitleBlock(salesByCategory, 'Technician & Sales Report — Sales by Marketing Category', [
     ...filterSummaryLines({ from: filters.from, to: filters.to, extra }),
-    'Grouped by original visit date. Sold Jobs = Sale Made + Converted Later jobs; Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs.',
-    'The Summary sheet\'s Sales and Value figures use invoice dates and Value includes Upsells, so totals may differ.',
+    'Grouped by invoice date: the same invoices and Upsells as the Summary sheet\'s Sales (invoices) and Total sale value (ex GST).',
+    'Average Invoice Value = original invoice value (no Upsells) ÷ Sales (invoices).',
   ]);
   addDataTable(
     salesByCategory,
     [
       { key: 'category', label: 'Marketing Category', width: 30 },
-      { key: 'attendedQualified', label: 'Attended Qualified Jobs' },
-      { key: 'saleMade', label: 'Sale Made' },
-      { key: 'convertedLater', label: 'Converted Later' },
-      { key: 'sales', label: 'Sold Jobs' },
-      { key: 'knockbacks', label: 'Qualified No Sale / Knockbacks' },
-      { key: 'conversionPct', label: 'Sales Conversion %', value: (r) => `${r.conversionPct}%` },
+      { key: 'sales', label: 'Sales (invoices)' },
       { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
       {
-        key: 'averageSaleValue',
-        label: 'Average Value per Sold Job',
-        value: (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue)),
+        key: 'averageInvoiceValue',
+        label: 'Average Invoice Value (ex GST)',
+        value: (r) => (r.averageInvoiceValue === null ? '—' : money(r.averageInvoiceValue)),
         numFmt: CURRENCY_FORMAT,
-        width: 18,
+        width: 20,
       },
     ],
     [...data.salesByMarketingCategory.rows, data.salesByMarketingCategory.totals]

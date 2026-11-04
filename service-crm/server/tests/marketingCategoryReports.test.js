@@ -135,80 +135,51 @@ test('Leads by Marketing Category: booking only, future bookings are booked, tot
   }
 });
 
-test('Sales by Marketing Category: attended Qualified jobs only, outcomes once each, totals reconcile with the report', async () => {
+// Sales by Marketing Category: the sales INVOICED in the period, exactly the
+// invoices and Upsells behind the Sales (invoices) and Total sale value cards.
+const cardsOf = (data) => ({ sales: data.company.sales, value: data.company.totalSaleExGst });
+
+test('Sales by Marketing Category: invoice-dated, the same records as the Sales and Total sale value cards, each invoice once', async () => {
   const server = await startTestServer();
   try {
-    const { A, B, j } = await seed(server);
+    const { A, j } = await seed(server);
     const before = dump();
-    const data = ok(await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31'));
-    const s = data.salesByMarketingCategory;
-    assert.deepEqual(row(s, A.name), {
-      category: A.name, attendedQualified: 3, saleMade: 2, convertedLater: 1, sales: 3, knockbacks: 0, conversionPct: 100,
-      totalSalesValueExGst: 2300, averageSaleValue: 2300 / 3,
-    }, 'M-1 + M-9 sold at the visit, M-2 converted later (its June invoice counts towards May); duplicate invoice once; Upsell excluded');
-    assert.deepEqual(row(s, B.name), {
-      category: B.name, attendedQualified: 1, saleMade: 0, convertedLater: 0, sales: 0, knockbacks: 1, conversionPct: 0,
-      totalSalesValueExGst: 0, averageSaleValue: null,
-    }, 'only the genuine knockback (M-5): Not Qualified M-4, the cancelled booking and the unbooked call never count');
-    assert.equal(row(s, 'Unassigned').sales, 1);
-    assert.deepEqual(row(s, NO_CALL), {
-      category: NO_CALL, attendedQualified: 1, saleMade: 1, convertedLater: 0, sales: 1, knockbacks: 0, conversionPct: 100,
-      totalSalesValueExGst: 300, averageSaleValue: 300,
-    }, 'a job with no booked Lead call stays visible');
-    assert.equal(s.rows.length, 4, 'no row for the future booking (M-3) or anything not attended');
+    const may = ok(await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31'));
+    const s = may.salesByMarketingCategory;
+    assert.deepEqual(row(s, A.name), { category: A.name, sales: 2, totalSalesValueExGst: 1600, averageInvoiceValue: 700 },
+      'INV-1 and INV-DUP (entered twice, counted once) plus the $200 Upsell on M-1; average excludes the Upsell');
+    assert.deepEqual(row(s, 'Unassigned'), { category: 'Unassigned', sales: 1, totalSalesValueExGst: 500, averageInvoiceValue: 500 }, 'booked call with no Lead Source');
+    assert.deepEqual(row(s, NO_CALL), { category: NO_CALL, sales: 1, totalSalesValueExGst: 300, averageInvoiceValue: 300 }, 'no booked Lead call at all — still counted');
+    assert.equal(s.rows.length, 3, 'only categories with invoices or upsells; the June Quote Approved Later is not in May');
+    assert.deepEqual({ sales: s.totals.sales, value: s.totals.totalSalesValueExGst }, cardsOf(may), 'Total row = the cards');
+    for (const r of s.rows) assert.deepEqual(Object.keys(r).sort(), ['averageInvoiceValue', 'category', 'sales', 'totalSalesValueExGst'], 'no visit-based columns');
 
-    const k = data.company;
-    const t = s.totals;
-    assert.equal(t.attendedQualified, k.qualifiedJobs, '= Qualified Jobs');
-    assert.equal(t.knockbacks, k.knockbacks, '= Knock backs');
-    assert.equal(t.convertedLater, k.convertedLaterCount, '= Converted later');
-    assert.equal(t.conversionPct, k.conversionRate, '= Conversion Rate');
-    assert.equal(t.sales, t.saleMade + t.convertedLater);
-    assert.equal(t.attendedQualified, t.saleMade + t.convertedLater + t.knockbacks, 'every job exactly once');
-    assert.equal(t.totalSalesValueExGst, 1000 + 900 + 400 + 500 + 300);
+    // The Quote Approved Later invoiced in June appears in June, under the original lead.
+    const june = ok(await server.request('GET', '/reports/tech?from=2026-06-01&to=2026-06-30'));
+    assert.deepEqual(june.salesByMarketingCategory.rows, [{ category: A.name, sales: 1, totalSalesValueExGst: 900, averageInvoiceValue: 900 }]);
+    assert.deepEqual({ sales: june.salesByMarketingCategory.totals.sales, value: june.salesByMarketingCategory.totals.totalSalesValueExGst }, cardsOf(june));
 
-    // Drill-downs: exactly the records behind each figure.
+    // Drill-downs: exactly the records summed.
     const drill = async (q) => ok(await server.request('GET', `/reports/tech/drilldown?from=2026-05-01&to=2026-05-31&metric=salesByMarketingCategory&${q}`));
-    const A_ = `category=${encodeURIComponent(A.name)}`;
-    assert.deepEqual(keys((await drill(`${A_}&field=attendedQualified`)).rows), [jobKey(j.M1), jobKey(j.M2), jobKey(j.M9)].sort());
-    assert.deepEqual(keys((await drill(`${A_}&field=convertedLater`)).rows), [jobKey(j.M2)]);
-    assert.deepEqual(keys((await drill(`${A_}&field=saleMade`)).rows), [jobKey(j.M1), jobKey(j.M9)].sort());
-    assert.deepEqual(keys((await drill(`category=${encodeURIComponent(B.name)}&field=knockbacks`)).rows), [jobKey(j.M5)]);
-    const qal = dbAll("SELECT id FROM sales WHERE invoice_number = 'INV-2'")[0];
-    const dupKept = dbAll("SELECT id, source FROM sales WHERE invoice_number = 'INV-DUP' AND is_upsell = 0 ORDER BY id DESC")[0];
-    const valueRows = keys((await drill(`${A_}&field=totalSalesValue`)).rows);
-    const expected = [jobKey(j.M1), jobKey(j.M2), jobKey(j.M9), `quote_approved_later:${qal.id}`];
-    if (dupKept.source === 'quote_approved_later') expected.push(`quote_approved_later:${dupKept.id}`);
-    assert.deepEqual(valueRows, expected.sort(), 'sold jobs plus the sales summed — no Upsell');
-    const conv = await drill('field=conversionPct');
-    assert.equal(conv.count, t.attendedQualified);
-    assert.deepEqual(conv.outcomes, [{ label: 'Sale made', count: 4 }, { label: 'Converted later', count: 1 }, { label: 'Knock back', count: 1 }]);
-    assert.equal((await drill('field=sales')).count, t.sales);
+    const cardDrill = async (metric) => keys(ok(await server.request('GET', `/reports/tech/drilldown?from=2026-05-01&to=2026-05-31&metric=${metric}`)).rows);
+    assert.deepEqual(keys((await drill('field=sales')).rows), await cardDrill('sales'), 'Total Sales (invoices) = the Sales card records');
+    assert.deepEqual(keys((await drill('field=totalSalesValue')).rows), await cardDrill('totalSaleExGst'), 'Total value = the Total sale value card records');
+    const upsell = dbAll("SELECT id FROM sales WHERE is_upsell = 1")[0];
+    const aValue = keys((await drill(`category=${encodeURIComponent(A.name)}&field=totalSalesValue`)).rows);
+    assert.ok(aValue.includes(`existing_job_upsell:${upsell.id}`) && aValue.includes(jobKey(j.M1)), 'the Upsell follows its original JN');
+    assert.equal((await drill(`category=${encodeURIComponent(A.name)}&field=averageInvoiceValue`)).count, 2, 'average: invoices only');
+    assert.equal((await drill(`category=${encodeURIComponent(NO_CALL)}&field=sales`)).count, 1);
 
-    // A Quote Approved Later sale never creates an attended job in its own month.
-    const june = ok(await server.request('GET', '/reports/tech?from=2026-06-01&to=2026-06-30')).salesByMarketingCategory;
-    assert.equal(june.totals.attendedQualified, 0);
-    assert.equal(june.rows.length, 0);
-
-    // Excel: the sheet shows exactly the on-screen rows and totals.
+    // Excel: identical rows and totals.
     const res = await server.rawGet('/reports/tech.xlsx?from=2026-05-01&to=2026-05-31');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.buffer);
     const values = wb.getWorksheet('Sales by Category').getSheetValues().filter(Boolean).map((r) => r.slice(1));
     const header = values.findIndex((r) => r[0] === 'Marketing Category');
-    assert.deepEqual(values[header], [
-      'Marketing Category', 'Attended Qualified Jobs', 'Sale Made', 'Converted Later', 'Sold Jobs', 'Qualified No Sale / Knockbacks',
-      'Sales Conversion %', 'Total Sales Value (ex GST)', 'Average Value per Sold Job',
-    ]);
-    assert.match(values.slice(0, header).flat().join(' '), /Grouped by original visit date.*Sold Jobs ÷ Attended Qualified Jobs/);
+    assert.deepEqual(values[header], ['Marketing Category', 'Sales (invoices)', 'Total Sales Value (ex GST)', 'Average Invoice Value (ex GST)']);
     const money = (v) => Math.round(v * 100) / 100;
-    assert.deepEqual(
-      values.slice(header + 1),
-      [...s.rows, s.totals].map((r) => [
-        r.category, r.attendedQualified, r.saleMade, r.convertedLater, r.sales, r.knockbacks, `${r.conversionPct}%`,
-        money(r.totalSalesValueExGst), r.averageSaleValue === null ? '—' : money(r.averageSaleValue),
-      ])
-    );
+    assert.deepEqual(values.slice(header + 1), [...s.rows, s.totals].map((r) => [r.category, r.sales, money(r.totalSalesValueExGst), r.averageInvoiceValue === null ? '—' : money(r.averageInvoiceValue)]));
+    assert.match(values.slice(0, header).flat().join(' '), /Grouped by invoice date/);
 
     assert.deepEqual(dump(), before, 'reading the report and exporting it changed nothing');
   } finally {
@@ -216,29 +187,27 @@ test('Sales by Marketing Category: attended Qualified jobs only, outcomes once e
   }
 });
 
-test('Sales by Marketing Category uses the report filters together: technician, trade, lead source, advanced filters', async () => {
+test('Sales by Marketing Category: the Total row equals the cards under every filter, and an Upsell-only category shows a dash', async () => {
   const server = await startTestServer();
   try {
-    const { A, t1, t2, plumbing, electrical } = await seed(server);
-    const get = async (q) => ok(await server.request('GET', `/reports/tech?from=2026-05-01&to=2026-05-31&${q}`)).salesByMarketingCategory;
-
-    const tech1Plumbing = await get(`technicianId=${t1.id}&tradeId=${plumbing.id}&leadSourceId=${A.id}`);
-    assert.deepEqual(tech1Plumbing.rows.map((r) => [r.category, r.attendedQualified, r.sales]), [[A.name, 2, 2]], 'M-1 and M-2 only');
-    assert.equal(tech1Plumbing.totals.totalSalesValueExGst, 1900);
-
-    const tech2Elec = await get(`technicianId=${t2.id}&tradeId=${electrical.id}`);
-    assert.deepEqual(tech2Elec.rows.map((r) => [r.category, r.attendedQualified, r.totalSalesValueExGst]), [[A.name, 1, 400]], 'duplicate invoice still once');
-
-    const knockbacksOnly = await get('knockback=Yes&saleMade=No&convertedLater=No');
-    assert.equal(knockbacksOnly.totals.sales, 0);
-    assert.equal(knockbacksOnly.totals.knockbacks, 1);
-
-    assert.equal((await get('leadQualification=Not%20Qualified')).totals.attendedQualified, 0, 'Not Qualified jobs never appear');
-    assert.equal((await get('leadSourceId=unassigned')).totals.attendedQualified, 2, 'Unassigned covers no Lead Source and no Lead call, like the filter');
-
-    // Drill-down with the same filters returns the same records as the figure.
-    const d = ok(await server.request('GET', `/reports/tech/drilldown?from=2026-05-01&to=2026-05-31&technicianId=${t1.id}&tradeId=${plumbing.id}&leadSourceId=${A.id}&metric=salesByMarketingCategory&field=attendedQualified`));
-    assert.equal(d.count, 2);
+    const { A, B, t1, t2, plumbing, electrical } = await seed(server);
+    const filters = [
+      '', `&technicianId=${t1.id}`, `&technicianId=${t2.id}`, `&tradeId=${plumbing.id}`, `&tradeId=${electrical.id}`,
+      `&leadSourceId=${A.id}`, `&leadSourceId=${B.id}`, '&leadSourceId=unassigned', '&leadQualification=Qualified', '&saleMade=Yes',
+      '&knockback=Yes', '&convertedLater=Yes', '&entryType=new_job_sale_made', '&entryType=quote_approved_later', '&entryType=existing_job_upsell',
+      '&entryType=new_job_no_sale', '&jobNumber=M-1', `&technicianId=${t2.id}&tradeId=${electrical.id}&leadSourceId=${A.id}`,
+    ];
+    for (const range of ['from=2026-05-01&to=2026-05-31', 'from=2026-06-01&to=2026-06-30', '']) {
+      for (const f of filters) {
+        const data = ok(await server.request('GET', `/reports/tech?${range}${f}`));
+        const t = data.salesByMarketingCategory.totals;
+        assert.deepEqual({ sales: t.sales, value: Math.round(t.totalSalesValueExGst * 100) }, { sales: data.company.sales, value: Math.round(data.company.totalSaleExGst * 100) }, `"${range}${f}"`);
+        assert.equal(data.salesByMarketingCategory.rows.reduce((n, r) => n + r.sales, 0), t.sales, 'rows add up to the total');
+      }
+    }
+    // Upsells only: value with no invoices -> average shown as a dash.
+    const upsellsOnly = ok(await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31&entryType=existing_job_upsell')).salesByMarketingCategory;
+    assert.deepEqual(upsellsOnly.rows, [{ category: A.name, sales: 0, totalSalesValueExGst: 200, averageInvoiceValue: null }]);
   } finally {
     server.close();
   }

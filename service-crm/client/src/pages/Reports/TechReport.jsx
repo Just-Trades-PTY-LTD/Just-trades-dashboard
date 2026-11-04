@@ -146,19 +146,14 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
   const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb, salesByMarketingCategory } = data;
 
-  // Sales by Marketing Category — Qualified jobs attended in this period (by
-  // visit date) and their eventual outcome, by the Marketing Category of the
-  // lead that booked them. See services/reports.js's
-  // computeSalesByMarketingCategory for the exact rules.
+  // Sales by Marketing Category — the sales invoiced in this period, by the
+  // Marketing Category of each sale's original Job Number. Same invoices and
+  // Upsells as the Sales (invoices) / Total sale value cards. See
+  // services/reports.js's computeSalesByMarketingCategory.
   const SALES_BY_CATEGORY_COLUMNS = [
-    ['attendedQualified', 'Attended Qualified Jobs', (r) => r.attendedQualified],
-    ['saleMade', 'Sale Made', (r) => r.saleMade],
-    ['convertedLater', 'Converted Later', (r) => r.convertedLater],
-    ['sales', 'Sold Jobs', (r) => r.sales],
-    ['knockbacks', 'Qualified No Sale / Knockbacks', (r) => r.knockbacks],
-    ['conversionPct', 'Sales Conversion %', (r) => `${r.conversionPct}%`],
+    ['sales', 'Sales (invoices)', (r) => r.sales],
     ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => money(r.totalSalesValueExGst)],
-    ['averageSaleValue', 'Average Value per Sold Job', (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue))],
+    ['averageInvoiceValue', 'Average Invoice Value (ex GST)', (r) => (r.averageInvoiceValue === null ? '—' : money(r.averageInvoiceValue))],
   ];
 
   const REVENUE_BY_SUBURB_COLUMNS = [
@@ -665,17 +660,15 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           <AdjustableSection id="salesByMarketingCategory" title="Sales by Marketing Category" defaultSize="lg" layout={layout}>
             {(cfg) =>
               salesByMarketingCategory.rows.length === 0 ? (
-                <div className="empty-state">No attended Qualified jobs in this range.</div>
+                <div className="empty-state">No sales invoiced in this range.</div>
               ) : (
                 <div>
                   <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
-                    Groups results by the original visit date: Qualified jobs attended in this period and their eventual outcome, by
-                    the Marketing Category of the booked Lead call for the same Job Number. Sold Jobs = Sale Made jobs + Converted
-                    Later jobs (each attended job counted once); Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs. Value is
-                    each sold job's own original sales, including a later Quote Approved Later invoice, with no Upsells. The Sales and
-                    Value (ex GST) cards above use invoice dates instead, and the Value card includes Upsells — which is why these
-                    totals may differ.
-                  </div>
+                    Where the sales invoiced in this period came from: the same invoices and Upsells as the Sales (invoices) and
+                  Total sale value (ex GST) cards above, so the Total row always matches them. Each sale is grouped by the
+                  Marketing Category of the booked Lead call for its original Job Number (a Quote Approved Later or Upsell follows
+                  the original job). Average Invoice Value = original invoice value (no Upsells) ÷ Sales (invoices).
+                </div>
                   <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
                     <table className="data-table">
                       <thead>

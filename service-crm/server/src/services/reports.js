@@ -1132,30 +1132,26 @@ function computeRevenueBySuburb(salesAll, upsellsAll) {
 }
 
 // ---------------------------------------------------------------------------
-// Sales by Marketing Category (Technician & Sales report) — the eventual
-// outcome of the Qualified jobs ATTENDED in the report's period (visit
-// date), by the Marketing Category of the lead that booked each job.
+// Sales by Marketing Category (Technician & Sales report) — where the sales
+// INVOICED in the report's period came from.
 //
-// - Population: this report's own already-filtered jobs (every filter,
-//   including Entry Type), Qualified only. Future/unattended bookings,
-//   booked calls with no job entry, cancellations, unbooked calls and Not
-//   Qualified jobs are never in it, so they can never lower the conversion.
-// - Marketing Category: the Lead Source of the earliest booked Lead call
-//   with the job's Job Number (groupBookedLeadsByJobNumber — the same rule
-//   as this report's Lead Source filter). No such call: "Unassigned (no
-//   booked Lead call)"; a booked call with no Lead Source: "Unassigned".
-// - Each job is exactly one of Sale Made / Converted Later / Knockback, the
-//   same split as splitJobs(), so the totals equal the report's Qualified
-//   Jobs, Converted later, Knock backs and Conversion Rate.
-// - Value: the original (non-Upsell) sales linked to each SOLD job, whatever
-//   their invoice date (a later Quote Approved Later invoice still counts
-//   towards the period the job was attended in), de-duplicated by invoice
-//   number like fetchSalesAll(). Upsells are never included. A sale is
-//   linked to a job by its own job_id; a legacy sale without one by Job
-//   Number, only when exactly one active job has that number — so no sale is
-//   ever counted against two jobs.
-// - Adjusted Knockbacks are deliberately not split by category: that weekly
-//   per-technician credit can offset a knockback from a different category.
+// - Population: exactly the report's own salesAll (original Sale Made /
+//   Quote Approved Later invoices dated in the period, each invoice once —
+//   fetchSalesAll()'s de-duplication) and upsellsAll (Upsells dated in the
+//   period), with every report filter already applied. So the Total row's
+//   Sales (invoices) always equals the Sales (invoices) card and its Total
+//   Sales Value always equals the Total sale value (ex GST) card (which
+//   includes Upsell value), under every filter.
+// - Marketing Category: each sale's Job Number (a Quote Approved Later or
+//   Upsell carries the ORIGINAL job's number) -> the earliest booked Lead
+//   call with that number (groupBookedLeadsByJobNumber — the same rule as
+//   this report's Lead Source filter) -> its Lead Source. No such call:
+//   "Unassigned (no booked Lead call)"; a booked call with no Lead Source:
+//   "Unassigned".
+// - Average Invoice Value: original invoice value (no Upsells) ÷ Sales
+//   (invoices) — null (shown as a dash) when there are no invoices.
+// - Invoice-date only: attended-job outcomes, knockbacks and conversion
+//   stay in the visit-date sections of this report and are not mixed in.
 // Read-only: nothing here is stored or changes any record.
 // ---------------------------------------------------------------------------
 export const NO_BOOKED_LEAD_CALL = 'Unassigned (no booked Lead call)';
@@ -1171,140 +1167,52 @@ function marketingCategoryByJobNumber() {
   return map;
 }
 
-// Original (non-Upsell) active sales with an invoice number, de-duplicated by
-// invoice number exactly as fetchSalesAll() does (most recently logged kept),
-// but with no date or other filter — they follow their job.
-function linkedOriginalSalesByJobId(jobs) {
-  const rows = all(
-    `SELECT s.* FROM sales s WHERE s.archived = 0 AND s.invoice_number != '' AND s.is_upsell = 0 ORDER BY s.id DESC`
-  );
-  const seen = new Set();
-  const deduped = rows.filter((s) => {
-    const key = (s.invoice_number || '').trim().toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const activeJobCountByNumber = new Map();
-  all('SELECT job_number FROM jobs WHERE archived = 0').forEach((j) => {
-    const key = normKey(j.job_number);
-    if (key) activeJobCountByNumber.set(key, (activeJobCountByNumber.get(key) || 0) + 1);
-  });
-  const jobIds = new Set(jobs.map((j) => j.id));
-  const jobIdByNumber = new Map(jobs.map((j) => [normKey(j.job_number), j.id]));
-  const byJob = new Map();
-  deduped.forEach((s) => {
-    let jobId = s.job_id;
-    if (!jobId) {
-      const key = normKey(s.job_number);
-      if (activeJobCountByNumber.get(key) === 1) jobId = jobIdByNumber.get(key);
-    }
-    if (!jobId || !jobIds.has(jobId)) return;
-    if (!byJob.has(jobId)) byJob.set(jobId, []);
-    byJob.get(jobId).push(s);
-  });
-  return byJob;
-}
-
-// Everything the section and its drill-downs are built from, so the figures,
-// the Excel sheet and every click-through can never drift apart.
-function buildSalesByMarketingCategory(jobsAll) {
+// Each sale/upsell of the report, tagged with its Marketing Category — the
+// single source for the section, its drill-downs and its Excel sheet.
+function salesWithMarketingCategory(salesAll, upsellsAll) {
   const categoryByNumber = marketingCategoryByJobNumber();
-  const qualified = jobsAll.filter((j) => j.lead === 'Qualified');
-  const salesByJob = linkedOriginalSalesByJobId(qualified);
-  const entries = qualified.map((j) => {
-    const outcome = j.had_sale_at_visit ? 'saleMade' : j.converted_later ? 'convertedLater' : 'knockback';
-    const sales = outcome === 'knockback' ? [] : salesByJob.get(j.id) || [];
-    return {
-      job: j,
-      category: categoryByNumber.get(normKey(j.job_number)) || NO_BOOKED_LEAD_CALL,
-      outcome,
-      sales,
-      value: sales.reduce((sum, s) => sum + num(s.sale_value_ex_gst), 0),
-    };
-  });
-  return entries;
-}
-
-function salesCategoryFigures(category, entries) {
-  const count = (o) => entries.filter((e) => e.outcome === o).length;
-  const saleMade = count('saleMade');
-  const convertedLater = count('convertedLater');
-  const sales = saleMade + convertedLater;
-  const totalSalesValueExGst = entries.reduce((sum, e) => sum + e.value, 0);
+  const categoryOf = (row) => categoryByNumber.get(normKey(row.job_number)) || NO_BOOKED_LEAD_CALL;
   return {
-    category,
-    attendedQualified: entries.length,
-    saleMade,
-    convertedLater,
-    sales,
-    knockbacks: count('knockback'),
-    conversionPct: pct(sales, entries.length),
-    totalSalesValueExGst,
-    // null when there are no sales — shown as a dash, never $0.
-    averageSaleValue: sales ? totalSalesValueExGst / sales : null,
+    sales: salesAll.map((s) => ({ row: s, category: categoryOf(s) })),
+    upsells: upsellsAll.map((u) => ({ row: u, category: categoryOf(u) })),
   };
 }
 
-function computeSalesByMarketingCategory(jobsAll) {
-  const entries = buildSalesByMarketingCategory(jobsAll);
-  const groups = new Map();
-  entries.forEach((e) => {
-    if (!groups.has(e.category)) groups.set(e.category, []);
-    groups.get(e.category).push(e);
-  });
-  const rows = Array.from(groups.entries())
-    .map(([category, list]) => salesCategoryFigures(category, list))
-    .sort((a, b) => b.attendedQualified - a.attendedQualified || a.category.localeCompare(b.category));
-  return { rows, totals: salesCategoryFigures('Total', entries) };
+function salesCategoryFigures(category, sales, upsells) {
+  const invoiceValue = sales.reduce((sum, x) => sum + num(x.row.sale_value_ex_gst), 0);
+  const upsellValue = upsells.reduce((sum, x) => sum + num(x.row.sale_value_ex_gst), 0);
+  return {
+    category,
+    sales: sales.length,
+    totalSalesValueExGst: invoiceValue + upsellValue,
+    averageInvoiceValue: sales.length ? invoiceValue / sales.length : null,
+  };
+}
+
+function computeSalesByMarketingCategory(salesAll, upsellsAll) {
+  const { sales, upsells } = salesWithMarketingCategory(salesAll, upsellsAll);
+  const categories = [...new Set([...sales, ...upsells].map((x) => x.category))];
+  const rows = categories
+    .map((c) => salesCategoryFigures(c, sales.filter((x) => x.category === c), upsells.filter((x) => x.category === c)))
+    .sort((a, b) => b.totalSalesValueExGst - a.totalSalesValueExGst || a.category.localeCompare(b.category));
+  return { rows, totals: salesCategoryFigures('Total', sales, upsells) };
 }
 
 // The exact records behind one Sales by Marketing Category figure. No
 // `category` means the Total row.
-function pickSalesByCategorySubset(jobsAll, category, field) {
-  const everyEntry = buildSalesByMarketingCategory(jobsAll);
-  const entries = category ? everyEntry.filter((e) => e.category === category) : everyEntry;
+function pickSalesByCategorySubset(salesAll, upsellsAll, category, field) {
+  const tagged = salesWithMarketingCategory(salesAll, upsellsAll);
+  const inCategory = (list) => (category ? list.filter((x) => x.category === category) : list).map((x) => x.row);
+  const sales = inCategory(tagged.sales);
+  const upsells = inCategory(tagged.upsells);
   const label = category || 'All categories';
-  const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
-  const tagJobs = (list) => list.map((e) => ({ kind: jobKind(e.job), id: e.job.id }));
-  const of = (o) => entries.filter((e) => e.outcome === o);
-  const sold = entries.filter((e) => e.outcome !== 'knockback');
   switch (field) {
-    case 'attendedQualified':
-      return { rows: tagJobs(entries), label: `${label} — Attended Qualified Jobs` };
-    case 'saleMade':
-      return { rows: tagJobs(of('saleMade')), label: `${label} — Sale Made` };
-    case 'convertedLater':
-      return { rows: tagJobs(of('convertedLater')), label: `${label} — Converted Later` };
     case 'sales':
-      return { rows: tagJobs(sold), label: `${label} — Sold Jobs` };
-    case 'knockbacks':
-      return { rows: tagJobs(of('knockback')), label: `${label} — Qualified No Sale / Knockbacks` };
-    case 'conversionPct':
-      return {
-        rows: tagJobs(entries),
-        label: `${label} — Sales Conversion %`,
-        outcomes: [
-          { label: 'Sale made', count: of('saleMade').length },
-          { label: 'Converted later', count: of('convertedLater').length },
-          { label: 'Knock back', count: of('knockback').length },
-        ],
-      };
+      return { rows: tagSales(sales), label: `${label} — Sales (invoices)` };
     case 'totalSalesValue':
-    case 'averageSaleValue': {
-      // The sold jobs plus every sale whose value was summed — a sale made at
-      // the visit is shown on its job's own entry, a Quote Approved Later sale
-      // as its own entry.
-      const saleRows = tagSales(sold.flatMap((e) => e.sales));
-      const keys = new Set();
-      const rows = [...tagJobs(sold), ...saleRows].filter((r) => {
-        const k = `${r.kind}:${r.id}`;
-        if (keys.has(k)) return false;
-        keys.add(k);
-        return true;
-      });
-      return { rows, label: `${label} — ${field === 'totalSalesValue' ? 'Total Sales Value ex GST' : 'Average Value per Sold Job'}` };
-    }
+      return { rows: [...tagSales(sales), ...tagUpsells(upsells)], label: `${label} — Total Sales Value ex GST` };
+    case 'averageInvoiceValue':
+      return { rows: tagSales(sales), label: `${label} — Average Invoice Value (ex GST)` };
     default:
       return null;
   }
@@ -1432,7 +1340,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
 
   const revenueBySuburb = computeRevenueBySuburb(salesAll, upsellsAll);
 
-  const salesByMarketingCategory = computeSalesByMarketingCategory(jobsAll);
+  const salesByMarketingCategory = computeSalesByMarketingCategory(salesAll, upsellsAll);
 
   return {
     company,
@@ -1694,7 +1602,7 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
     };
   }
   if (metric === 'salesByMarketingCategory') {
-    return pickSalesByCategorySubset(jobsAll, category, field);
+    return pickSalesByCategorySubset(salesAll, upsellsAll, category, field);
   }
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see
