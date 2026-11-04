@@ -212,3 +212,63 @@ test('Sales by Marketing Category: the Total row equals the cards under every fi
     server.close();
   }
 });
+
+test('Sales by Marketing Category: new work sold at a callback is Repeat customer — only when the callback link is proven', async () => {
+  const server = await startTestServer();
+  try {
+    const { A, t1, plumbing, j } = await seed(server);
+    const b = ok(await server.request('GET', '/settings/bundle'));
+    const reason = b.lists.callback_reason[0].id;
+    const sold = async (jobNumber, inv, value, visitDate = '2026-05-15') =>
+      ok(await server.request('POST', '/tech/new-job', {
+        kind: 'new_job_sale_made', visitDate, technicianId: t1.id, jobNumber, tradeId: plumbing.id, jobTypeId: plumbing.jobTypes[0].id,
+        lead: 'Qualified', invoiceNumber: inv, invoiceDate: visitDate, saleValueExGst: value,
+      })).entry;
+    const callbackCall = async (jobNumber, callAt) =>
+      ok(await server.request('POST', '/calls', { callAt, direction: 'Inbound', callType: 'Call back', jobNumber, callBackReasonId: reason }));
+    const callbackEntry = async (jobNumber, newJobNumber) =>
+      ok(await server.request('POST', '/tech/call-backs', { jobNumber, newJobNumber, visitDate: '2026-05-14', technicianId: t1.id, creditedTechnicianId: t1.id, callBackReasonId: reason }));
+
+    // 1. Proven: the Technician & Sales Call Back's NEW callback JN.
+    await callbackEntry('M-1', 'CB-NEW');
+    await sold('CB-NEW', 'INV-CB1', 250);
+    // 2. Proven: a "Call back" call, then a sale on that JN (no Lead call, not an original JN, visited after the call).
+    await callbackCall('CB-2', '2026-05-06T09:00');
+    await sold('CB-2', 'INV-CB2', 300, '2026-05-10');
+    // Not proven -> unchanged:
+    await callbackCall('CB-3', '2026-05-20T09:00'); // the call came AFTER the sale
+    await sold('CB-3', 'INV-CB3', 111, '2026-05-10');
+    await callbackEntry('CB-4', ''); // the call recorded the Call Back's ORIGINAL JN
+    await callbackCall('CB-4', '2026-05-06T09:00');
+    await sold('CB-4', 'INV-CB4', 222, '2026-05-12');
+    await callbackCall('M-1', '2026-05-07T09:00'); // the original job (booked Lead call A) keeps its source
+    await callbackCall('M-7', '2026-05-07T09:00'); // the original job has a booked Lead call with no source -> stays Unassigned
+
+    const before = dump();
+    const data = ok(await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31'));
+    const s = data.salesByMarketingCategory;
+    assert.deepEqual(row(s, 'Repeat customer'), { category: 'Repeat customer', sales: 2, totalSalesValueExGst: 550, averageInvoiceValue: 275 }, 'INV-CB1 and INV-CB2 only');
+    assert.deepEqual(row(s, A.name), { category: A.name, sales: 2, totalSalesValueExGst: 1600, averageInvoiceValue: 700 }, "the original job's sale (and its Upsell) keep their category");
+    assert.deepEqual(row(s, NO_CALL), { category: NO_CALL, sales: 3, totalSalesValueExGst: 300 + 111 + 222, averageInvoiceValue: 211 }, 'unproven callback links stay Unassigned');
+    assert.equal(row(s, 'Unassigned').sales, 1, 'M-7 (booked Lead call, no source) unchanged');
+    assert.deepEqual({ sales: s.totals.sales, value: s.totals.totalSalesValueExGst }, cardsOf(data), 'Total row still equals the cards');
+
+    const drill = ok(await server.request('GET', '/reports/tech/drilldown?from=2026-05-01&to=2026-05-31&metric=salesByMarketingCategory&category=Repeat%20customer&field=sales'));
+    const cbSales = dbAll("SELECT job_id FROM sales WHERE invoice_number IN ('INV-CB1', 'INV-CB2')").map((r) => `new_job_sale_made:${r.job_id}`).sort();
+    assert.deepEqual(keys(drill.rows), cbSales, 'drill-down: exactly the two callback sales');
+
+    const res = await server.rawGet('/reports/tech.xlsx?from=2026-05-01&to=2026-05-31');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.buffer);
+    const values = wb.getWorksheet('Sales by Category').getSheetValues().filter(Boolean).map((r) => r.slice(1));
+    assert.deepEqual(values.find((r) => r[0] === 'Repeat customer'), ['Repeat customer', 2, 550, 275], 'Excel: the same');
+
+    // A Call Back on its own is never a sale, and the Calls Report's lead figures are untouched.
+    const calls = ok(await server.request('GET', '/reports/calls?from=2026-05-01&to=2026-05-31'));
+    assert.equal(calls.leadsByCategory.totals.leads, calls.kpis.leadsCount);
+    assert.equal(j.M1.jobNumber, 'M-1');
+    assert.deepEqual(dump(), before, 'reporting only — nothing changed');
+  } finally {
+    server.close();
+  }
+});
