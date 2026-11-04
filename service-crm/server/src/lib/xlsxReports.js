@@ -386,7 +386,11 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
   // jobs attended in this period by visit date, their eventual outcome, and
   // the value of their own original sales (no Upsells).
   const salesByCategory = wb.addWorksheet('Sales by Category');
-  addTitleBlock(salesByCategory, 'Technician & Sales Report — Sales by Marketing Category', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
+  addTitleBlock(salesByCategory, 'Technician & Sales Report — Sales by Marketing Category', [
+    ...filterSummaryLines({ from: filters.from, to: filters.to, extra }),
+    'Grouped by original visit date. Sold Jobs = Sale Made + Converted Later jobs; Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs.',
+    'The Summary sheet\'s Sales and Value figures use invoice dates and Value includes Upsells, so totals may differ.',
+  ]);
   addDataTable(
     salesByCategory,
     [
@@ -394,13 +398,13 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
       { key: 'attendedQualified', label: 'Attended Qualified Jobs' },
       { key: 'saleMade', label: 'Sale Made' },
       { key: 'convertedLater', label: 'Converted Later' },
-      { key: 'sales', label: 'Sales' },
+      { key: 'sales', label: 'Sold Jobs' },
       { key: 'knockbacks', label: 'Qualified No Sale / Knockbacks' },
       { key: 'conversionPct', label: 'Sales Conversion %', value: (r) => `${r.conversionPct}%` },
       { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
       {
         key: 'averageSaleValue',
-        label: 'Average Sale Value per Sale',
+        label: 'Average Value per Sold Job',
         value: (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue)),
         numFmt: CURRENCY_FORMAT,
         width: 18,

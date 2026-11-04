@@ -140,11 +140,11 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     ['attendedQualified', 'Attended Qualified Jobs', (r) => r.attendedQualified],
     ['saleMade', 'Sale Made', (r) => r.saleMade],
     ['convertedLater', 'Converted Later', (r) => r.convertedLater],
-    ['sales', 'Sales', (r) => r.sales],
+    ['sales', 'Sold Jobs', (r) => r.sales],
     ['knockbacks', 'Qualified No Sale / Knockbacks', (r) => r.knockbacks],
     ['conversionPct', 'Sales Conversion %', (r) => `${r.conversionPct}%`],
     ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => money(r.totalSalesValueExGst)],
-    ['averageSaleValue', 'Average Sale Value per Sale', (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue))],
+    ['averageSaleValue', 'Average Value per Sold Job', (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue))],
   ];
 
   const REVENUE_BY_SUBURB_COLUMNS = [
@@ -636,9 +636,12 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
             ) : (
               <div>
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
-                  Qualified jobs attended in this period (by visit date) and their eventual outcome, by the Marketing Category of the
-                  booked Lead call for the same Job Number. Value is each sold job's own original sales, including a later Quote
-                  Approved Later invoice; Upsells are not included, so it can differ from Value (ex GST) above.
+                  Groups results by the original visit date: Qualified jobs attended in this period and their eventual outcome, by
+                  the Marketing Category of the booked Lead call for the same Job Number. Sold Jobs = Sale Made jobs + Converted
+                  Later jobs (each attended job counted once); Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs. Value is
+                  each sold job's own original sales, including a later Quote Approved Later invoice, with no Upsells. The Sales and
+                  Value (ex GST) cards above use invoice dates instead, and the Value card includes Upsells — which is why these
+                  totals may differ.
                 </div>
                 <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
                   <table className="data-table">

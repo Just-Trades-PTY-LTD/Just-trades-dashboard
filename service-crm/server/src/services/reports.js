@@ -1277,7 +1277,7 @@ function pickSalesByCategorySubset(jobsAll, category, field) {
     case 'convertedLater':
       return { rows: tagJobs(of('convertedLater')), label: `${label} — Converted Later` };
     case 'sales':
-      return { rows: tagJobs(sold), label: `${label} — Sales` };
+      return { rows: tagJobs(sold), label: `${label} — Sold Jobs` };
     case 'knockbacks':
       return { rows: tagJobs(of('knockback')), label: `${label} — Qualified No Sale / Knockbacks` };
     case 'conversionPct':
@@ -1303,7 +1303,7 @@ function pickSalesByCategorySubset(jobsAll, category, field) {
         keys.add(k);
         return true;
       });
-      return { rows, label: `${label} — ${field === 'totalSalesValue' ? 'Total Sales Value ex GST' : 'Average Sale Value per Sale'}` };
+      return { rows, label: `${label} — ${field === 'totalSalesValue' ? 'Total Sales Value ex GST' : 'Average Value per Sold Job'}` };
     }
     default:
       return null;
