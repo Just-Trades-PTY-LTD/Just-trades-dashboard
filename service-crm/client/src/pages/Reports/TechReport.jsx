@@ -130,7 +130,22 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb } = data;
+  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb, salesByMarketingCategory } = data;
+
+  // Sales by Marketing Category — Qualified jobs attended in this period (by
+  // visit date) and their eventual outcome, by the Marketing Category of the
+  // lead that booked them. See services/reports.js's
+  // computeSalesByMarketingCategory for the exact rules.
+  const SALES_BY_CATEGORY_COLUMNS = [
+    ['attendedQualified', 'Attended Qualified Jobs', (r) => r.attendedQualified],
+    ['saleMade', 'Sale Made', (r) => r.saleMade],
+    ['convertedLater', 'Converted Later', (r) => r.convertedLater],
+    ['sales', 'Sales', (r) => r.sales],
+    ['knockbacks', 'Qualified No Sale / Knockbacks', (r) => r.knockbacks],
+    ['conversionPct', 'Sales Conversion %', (r) => `${r.conversionPct}%`],
+    ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => money(r.totalSalesValueExGst)],
+    ['averageSaleValue', 'Average Sale Value per Sale', (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue))],
+  ];
 
   const REVENUE_BY_SUBURB_COLUMNS = [
     ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => `${money(r.totalSalesValueExGst)}`],
@@ -612,6 +627,56 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
               </table>
             </div>
           )}
+        </AdjustableSection>
+
+        <AdjustableSection id="salesByMarketingCategory" title="Sales by Marketing Category" defaultSize="lg" layout={layout}>
+          {(cfg) =>
+            salesByMarketingCategory.rows.length === 0 ? (
+              <div className="empty-state">No attended Qualified jobs in this range.</div>
+            ) : (
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
+                  Qualified jobs attended in this period (by visit date) and their eventual outcome, by the Marketing Category of the
+                  booked Lead call for the same Job Number. Value is each sold job's own original sales, including a later Quote
+                  Approved Later invoice; Upsells are not included, so it can differ from Value (ex GST) above.
+                </div>
+                <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Marketing Category</th>
+                        {SALES_BY_CATEGORY_COLUMNS.map(([key, label]) => (
+                          <th key={key}>{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...salesByMarketingCategory.rows, salesByMarketingCategory.totals].map((r) => {
+                        const isTotal = r === salesByMarketingCategory.totals;
+                        return (
+                          <tr key={isTotal ? '__total' : r.category} style={isTotal ? { fontWeight: 600 } : undefined}>
+                            <td>{r.category}</td>
+                            {SALES_BY_CATEGORY_COLUMNS.map(([key, label, render]) => (
+                              <td
+                                key={key}
+                                className="clickable-stat"
+                                onClick={() =>
+                                  openDrilldown('salesByMarketingCategory', isTotal ? { field: key } : { category: r.category, field: key })
+                                }
+                                title={`View the records behind ${r.category} — ${label}`}
+                              >
+                                {render(r)}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          }
         </AdjustableSection>
 
         <KnockbackReasonsTracker
