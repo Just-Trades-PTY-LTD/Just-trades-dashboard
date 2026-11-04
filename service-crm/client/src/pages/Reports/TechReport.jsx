@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useReportLayout } from '../../lib/reportLayout.js';
+import { useReportAccess, OWN_RECORD_FIELDS } from '../../lib/reportAccess.js';
 import { useReportFilters } from '../../lib/useReportFilters.js';
 import { money, currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset } from '../../lib/dates.js';
 import { DateField, FilterSelect, DateRangePresetSelect, TextField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
@@ -76,6 +77,9 @@ function rateLabel(v) {
 
 export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilldown }) {
   const settings = useSettings();
+  // A Technician account sees this same team report, read-only, from the
+  // statistics-only API (see lib/reportAccess.js and routes/me.js).
+  const access = useReportAccess();
   const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
@@ -99,7 +103,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
 
   useEffect(() => {
     setLoading(true);
-    api.reports.tech({ ...applied, granularity }).then((d) => {
+    (access.technician ? api.me.teamReport : api.reports.tech)({ ...applied, granularity }).then((d) => {
       setData(d);
       setLoading(false);
     });
@@ -110,8 +114,17 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // *applied* filters (from/to/technician/trade) plus whichever selector
   // that figure needs — see services/reports.js's drilldownTech().
   function openDrilldown(metric, extra) {
+    if (access.technician) {
+      // Only the signed-in technician's own By technician figures open
+      // records (their own); every team or other-technician figure is
+      // statistics only.
+      if (extra?.scopeTechnician === access.ownTechnicianName && OWN_RECORD_FIELDS.has(metric)) access.openOwnRecords(metric, applied);
+      return;
+    }
     setDrilldown({ ...applied, metric, ...extra });
   }
+  const opensRecords = (metric, technicianName) =>
+    !access.technician || (technicianName === access.ownTechnicianName && OWN_RECORD_FIELDS.has(metric));
 
   // Positive Reviews is a genuinely separate figure from everything else on
   // this report (see services/reports.js's positiveReviewsByTechnicianName)
@@ -119,6 +132,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // job-entry records), carrying only this report's own from/to/technicianId
   // (reviews have no trade/job type), never the Trade/Job Type filters.
   function openReviewsDrilldown(technicianName) {
+    if (access.technician) return; // reviews are in My Reviews
     setDrilldown({
       from: applied.from,
       to: applied.to,
@@ -209,7 +223,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   ];
 
   return (
-    <div>
+    <div className={access.technician ? 'report-readonly' : undefined}>
       <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <DateField label="From" value={draft.from} onChange={(v) => patch({ from: v })} invalid={!!error} />
         <DateField label="To" value={draft.to} onChange={(v) => patch({ to: v })} invalid={!!error} />
@@ -254,28 +268,30 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           onChange={(v) => patch({ leadSourceId: v })}
           options={withUnassigned(settings.lists.lead_source)}
         />
-        <a
-          className="btn btn-primary"
-          href={api.reports.techXlsxUrl({
-            ...applied,
-            // The Knockback Reasons tracker's own Trade/Reason filters
-            // (kbr-prefixed so they can never collide with or override the
-            // report's own above) — see routes/reports.js's /tech.xlsx. Its
-            // date range AND technician are deliberately NOT independent:
-            // kbrFrom/kbrTo/kbrTechnicianId are always this report's own
-            // currently applied from/to/technicianId, exactly like every
-            // other section of this export, so the Knockback Reasons sheets
-            // can never show a different reporting period or technician
-            // from the rest of the workbook.
-            kbrFrom: applied.from,
-            kbrTo: applied.to,
-            kbrTechnicianId: applied.technicianId,
-            kbrTradeId: knockbackReasonsFilters.tradeId,
-            kbrReasonId: knockbackReasonsFilters.reasonId,
-          })}
-        >
-          Export to Excel
-        </a>
+        {!access.technician && (
+          <a
+            className="btn btn-primary"
+            href={api.reports.techXlsxUrl({
+              ...applied,
+              // The Knockback Reasons tracker's own Trade/Reason filters
+              // (kbr-prefixed so they can never collide with or override the
+              // report's own above) — see routes/reports.js's /tech.xlsx. Its
+              // date range AND technician are deliberately NOT independent:
+              // kbrFrom/kbrTo/kbrTechnicianId are always this report's own
+              // currently applied from/to/technicianId, exactly like every
+              // other section of this export, so the Knockback Reasons sheets
+              // can never show a different reporting period or technician
+              // from the rest of the workbook.
+              kbrFrom: applied.from,
+              kbrTo: applied.to,
+              kbrTechnicianId: applied.technicianId,
+              kbrTradeId: knockbackReasonsFilters.tradeId,
+              kbrReasonId: knockbackReasonsFilters.reasonId,
+            })}
+          >
+            Export to Excel
+          </a>
+        )}
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
@@ -298,20 +314,26 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
             <FilterSelect label="Knockback status" value={draft.knockback} onChange={(v) => patch({ knockback: v })} options={YES_NO} />
             <FilterSelect label="Converted Later" value={draft.convertedLater} onChange={(v) => patch({ convertedLater: v })} options={YES_NO} />
             <FilterSelect label="Entry Type" value={draft.entryType} onChange={(v) => patch({ entryType: v })} options={ENTRY_TYPES} />
-            <TextField label="Suburb" value={draft.suburb} onChange={(v) => patch({ suburb: v })} />
-            <TextField label="Job Number" value={draft.jobNumber} onChange={(v) => patch({ jobNumber: v })} />
-            <FilterSelect
-              label="Created By"
-              value={draft.createdByUserId}
-              onChange={(v) => patch({ createdByUserId: v })}
-              options={withInactiveLabel(settings.staffAll)}
-            />
-            <FilterSelect
-              label="Last Edited By"
-              value={draft.lastEditedByUserId}
-              onChange={(v) => patch({ lastEditedByUserId: v })}
-              options={withInactiveLabel(settings.staffAll)}
-            />
+            {/* Not offered to Technician accounts (and ignored by their API):
+                each can narrow the figures to one identifiable job or person. */}
+            {!access.technician && (
+              <>
+                <TextField label="Suburb" value={draft.suburb} onChange={(v) => patch({ suburb: v })} />
+                <TextField label="Job Number" value={draft.jobNumber} onChange={(v) => patch({ jobNumber: v })} />
+                <FilterSelect
+                  label="Created By"
+                  value={draft.createdByUserId}
+                  onChange={(v) => patch({ createdByUserId: v })}
+                  options={withInactiveLabel(settings.staffAll)}
+                />
+                <FilterSelect
+                  label="Last Edited By"
+                  value={draft.lastEditedByUserId}
+                  onChange={(v) => patch({ lastEditedByUserId: v })}
+                  options={withInactiveLabel(settings.staffAll)}
+                />
+              </>
+            )}
           </div>
           {draft.entryType && (
             <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 10 }}>
@@ -607,9 +629,9 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                       ].map(([field, val, tooltip]) => (
                         <td
                           key={field}
-                          className={tooltip ? undefined : 'clickable-stat'}
+                          className={tooltip ? undefined : `clickable-stat${access.technician && opensRecords(field, r.name) ? ' clickable-own' : ''}`}
                           onClick={tooltip ? undefined : () => openDrilldown(field, { scopeTechnician: r.name })}
-                          title={tooltip || `View ${r.name}'s records behind this figure`}
+                          title={tooltip || (opensRecords(field, r.name) ? `View ${r.name}'s records behind this figure` : undefined)}
                         >
                           {val}
                         </td>
@@ -683,6 +705,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         </AdjustableSection>
 
         <KnockbackReasonsTracker
+          readOnly={access.technician}
           layout={layout}
           setDrilldown={setDrilldown}
           filters={knockbackReasonsFilters}

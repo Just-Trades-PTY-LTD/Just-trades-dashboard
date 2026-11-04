@@ -138,63 +138,100 @@ test('every route outside the approved list returns 403 to a Technician account'
   }
 });
 
-test('My Performance equals the admin By technician row, ignoring every tampered or unapproved filter', async () => {
+// The statistics a Technician account receives must equal the Admin/Staff
+// report exactly — just without anything record-level.
+const METRICS = ['jobsAttended', 'qualifiedJobs', 'unqualifiedJobs', 'knockbacks', 'knockbackRate', 'convertedLaterCount', 'conversionRate', 'sales', 'totalSaleExGst', 'avgSaleExGst', 'upsellsCount', 'upsellValueExGst', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate', 'actualKnockbacks', 'convertedLaterCredits', 'adjustedKnockbacks', 'bonusConversionRate'];
+const pickF = (o, f) => Object.fromEntries(f.filter((k) => k in o).map((k) => [k, o[k]]));
+function statsOf(r) {
+  return {
+    company: pickF(r.company, METRICS),
+    byTrade: r.byTrade.map((x) => pickF(x, ['trade', ...METRICS])),
+    byTechnician: r.byTechnician.map((x) => pickF(x, ['name', ...METRICS, 'positiveReviewsCount'])),
+    salesByTradePie: r.salesByTradePie,
+    jobsOppSalesByTrade: r.jobsOppSalesByTrade,
+    trend: r.trend,
+    missingTechnicianCount: r.missingTechnicianCount,
+    revenueBySuburb: r.revenueBySuburb,
+    salesByMarketingCategory: r.salesByMarketingCategory,
+  };
+}
+
+test('the team report shows the same statistics as the Admin/Staff report — every technician — and nothing record-level', async () => {
   const server = await startTestServer();
   try {
     const { sam, ryan, cody, plumbing } = await seed(server);
     ok(await link(server, sam, ryan));
-    const adminRow = (q) => server.request('GET', `/reports/tech?from=2026-05-01&to=2026-05-31${q}`).then((r) => r.data.byTechnician.find((x) => x.name === 'Ryan Tech'));
-    const unfiltered = await adminRow('');
-    const plumbingOnly = await adminRow(`&tradeId=${plumbing.id}`);
+    const range = 'from=2026-05-01&to=2026-05-31';
+    const combos = ['', `&technicianId=${cody.id}`, `&tradeId=${plumbing.id}`, '&saleMade=Yes&leadQualification=Qualified', '&entryType=new_job_no_sale', '&granularity=month'];
+    const admin = {};
+    for (const c of combos) admin[c] = statsOf(ok(await server.request('GET', `/reports/tech?${range}${c}`)));
+    const adminKbr = ok(await server.request('GET', `/reports/tech/knockback-reasons?${range}`));
+    const adminKbrCody = ok(await server.request('GET', `/reports/tech/knockback-reasons?${range}&technicianId=${cody.id}`));
     await signInAs(server, 'sam@test.local');
-    const mine = (q) => server.request('GET', `/me/performance?from=2026-05-01&to=2026-05-31${q}`).then((r) => ok(r));
-    const fields = ['jobsAttended', 'qualifiedJobs', 'sales', 'convertedLaterCredits', 'actualKnockbacks', 'adjustedKnockbacks', 'bonusConversionRate', 'totalSaleExGst', 'avgSaleExGst', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate'];
-    const plain = await mine('');
-    assert.deepEqual(Object.keys(plain.figures).sort(), [...fields].sort(), 'only the approved figures');
-    for (const f of fields) assert.deepEqual(plain.figures[f], unfiltered[f], `${f} matches the admin row`);
-    assert.equal(plain.figures.sales, 3, 'Sales (invoices): T-1, T-2 and the Quote Approved Later on T-3');
-    assert.equal(plain.figures.totalSaleExGst, 1000 + 600 + 900 + 150, 'their own value, including their own upsell, like the admin row');
-    const tampered = await mine(`&technicianId=${cody.id}&scopeTechnician=Cody%20Tech&entryType=new_job_sale_made&leadSourceId=unassigned&saleMade=No`);
-    assert.deepEqual(tampered.figures, plain.figures, 'tampered technician and unapproved filters are ignored');
-    const trade = await mine(`&tradeId=${plumbing.id}`);
-    for (const f of fields) assert.deepEqual(trade.figures[f], plumbingOnly[f], `${f} with trade filter`);
-    const body = JSON.stringify(await mine(''));
-    assert.ok(!body.includes('Cody') && !body.includes('5000'), 'nothing about another technician or the company');
-
-    const reasons = ok(await server.request('GET', `/me/knockback-reasons?from=2026-05-01&to=2026-05-31&technicianId=${cody.id}`));
-    assert.equal(reasons.total, 2, "Ryan's own two Actual Knockbacks only");
-    assert.deepEqual(Object.keys(reasons).sort(), ['byReason', 'total']);
+    for (const c of combos) {
+      const team = ok(await server.request('GET', `/me/team-report?${range}${c}`));
+      assert.deepEqual(statsOf(team), admin[c], `same statistics with filters "${c}"`);
+    }
+    const plain = ok(await server.request('GET', `/me/team-report?${range}`));
+    assert.deepEqual(plain.byTechnician.map((r) => r.name).sort(), ['Cody Tech', 'Ryan Tech'], 'every technician row is shown');
+    assert.equal(plain.byTechnician.find((r) => r.name === 'Cody Tech').totalSaleExGst, 5000, "other technicians' values are visible as statistics");
+    // Record-identifying filters are ignored, so they can't single out a job.
+    for (const c of ['&jobNumber=C-1', '&suburb=Woodcroft', `&createdByUserId=1`, '&lastEditedByUserId=1', '&scopeTechnician=Cody%20Tech']) {
+      assert.deepEqual(statsOf(ok(await server.request('GET', `/me/team-report?${range}${c}`))), admin[''], `"${c}" is ignored`);
+    }
+    const text = JSON.stringify(plain);
+    for (const leak of ['T-1', 'C-1', 'INV-', 'records', 'comments', 'createdBy', 'lastEdited', 'job_number', 'jobNumber', 'password', 'email']) {
+      assert.ok(!text.includes(leak), `no "${leak}" in the technician report response`);
+    }
+    // Team Knockback Reasons: counts only, never the job records.
+    const kbr = ok(await server.request('GET', `/me/team-knockback-reasons?${range}`));
+    assert.deepEqual(kbr, { total: adminKbr.total, byReason: adminKbr.byReason });
+    assert.ok(adminKbr.records.length > 0 && !('records' in kbr), 'the admin response has records; the technician one never does');
+    assert.deepEqual(ok(await server.request('GET', `/me/team-knockback-reasons?${range}&technicianId=${cody.id}`)), { total: adminKbrCody.total, byReason: adminKbrCody.byReason });
+    // Filter names only — no staff accounts.
+    const settings = ok(await server.request('GET', '/me/report-settings'));
+    assert.deepEqual(Object.keys(settings).sort(), ['lists', 'ownTechnicianId', 'ownTechnicianName', 'technicians', 'trades']);
+    assert.equal(settings.ownTechnicianName, 'Ryan Tech');
+    assert.ok(!JSON.stringify(settings).includes('@'), 'no account emails');
   } finally {
     server.close();
   }
 });
 
-test('drill-downs open only the technician\'s own records, the same as the admin row, without audit details', async () => {
+test("only the technician's own figures open records — their own, under the report's filters; other technicians' never", async () => {
   const server = await startTestServer();
   try {
-    const { sam, ryan, cody } = await seed(server);
+    const { sam, ryan, cody, plumbing } = await seed(server);
     ok(await link(server, sam, ryan));
-    const adminDrill = async (field) =>
-      ok(await server.request('GET', `/reports/tech/drilldown?from=2026-05-01&to=2026-05-31&metric=${field}&scopeTechnician=Ryan%20Tech`)).rows.map((r) => `${r.kind}:${r.id}`).sort();
+    const range = 'from=2026-05-01&to=2026-05-31';
     const fields = ['jobsAttended', 'qualifiedJobs', 'sales', 'convertedLaterCredits', 'actualKnockbacks', 'totalSaleExGst', 'avgSaleExGst', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate'];
+    const adminDrill = async (field, extra = '') =>
+      ok(await server.request('GET', `/reports/tech/drilldown?${range}&metric=${field}&scopeTechnician=Ryan%20Tech${extra}`)).rows.map((r) => `${r.kind}:${r.id}`).sort();
     const expected = {};
     for (const f of fields) expected[f] = await adminDrill(f);
+    const expectedPlumbing = await adminDrill('jobsAttended', `&tradeId=${plumbing.id}`);
     await signInAs(server, 'sam@test.local');
     for (const f of fields) {
-      const d = ok(await server.request('GET', `/me/performance/drilldown?from=2026-05-01&to=2026-05-31&field=${f}&scopeTechnician=Cody%20Tech&technicianId=${cody.id}`));
-      assert.deepEqual(d.rows.map((r) => `${r.kind}:${r.id}`).sort(), expected[f], `${f} records match the admin drill-down for Ryan`);
+      // Tampered: another technician's id and name, and record-identifying filters.
+      const d = ok(await server.request('GET', `/me/performance/drilldown?${range}&field=${f}&scopeTechnician=Cody%20Tech&technicianId=${cody.id}&jobNumber=C-1`));
+      assert.deepEqual(d.rows.map((r) => `${r.kind}:${r.id}`).sort(), expected[f], `${f}: always and only Ryan's own records`);
       for (const r of d.rows) {
-        assert.ok(!('createdByName' in r) && !('lastEditedByName' in r) && !('historyCount' in r) && !('canDelete' in r), 'no audit/admin details');
+        for (const hidden of ['createdByName', 'lastEditedByName', 'historyCount', 'canDelete', 'comments', 'suburb', 'archived']) {
+          assert.ok(!(hidden in r), `${f}: no ${hidden}`);
+        }
         assert.notEqual(r.technicianName, 'Cody Tech');
       }
     }
-    const value = ok(await server.request('GET', '/me/performance/drilldown?from=2026-05-01&to=2026-05-31&field=totalSaleExGst'));
-    assert.ok(value.rows.some((r) => r.saleValueExGst === 900), 'sale values are shown in their own records');
-    const reason = ok(await server.request('GET', `/me/performance/drilldown?from=2026-05-01&to=2026-05-31&field=knockbackByReason&category=${encodeURIComponent((await server.request('GET', '/me/knockback-reasons?from=2026-05-01&to=2026-05-31')).data.byReason[0].name)}`));
-    assert.equal(reason.count, 2);
-    assert.ok(reason.rows.every((r) => r.technicianName === 'Ryan Tech'));
-    for (const f of ['unqualifiedJobs', 'missingTechnician', 'revenueBySuburb', 'salesByMarketingCategory', 'upsellValueExGst', '']) {
-      assert.equal((await server.request('GET', `/me/performance/drilldown?field=${f}`)).status, 400, `field "${f}" is not openable`);
+    const withTrade = ok(await server.request('GET', `/me/performance/drilldown?${range}&field=jobsAttended&tradeId=${plumbing.id}`));
+    assert.deepEqual(withTrade.rows.map((r) => `${r.kind}:${r.id}`).sort(), expectedPlumbing, "the report's filters apply to the own records too");
+    const value = ok(await server.request('GET', `/me/performance/drilldown?${range}&field=totalSaleExGst`));
+    assert.ok(value.rows.some((r) => r.saleValueExGst === 900), 'their own sale values are shown');
+    for (const f of ['unqualifiedJobs', 'missingTechnician', 'revenueBySuburb', 'salesByMarketingCategory', 'salesByTradePie', 'jobsOppSalesByTrade', 'knockbackByReason', 'upsellValueExGst', '']) {
+      assert.equal((await server.request('GET', `/me/performance/drilldown?field=${f}&category=Plumbing`)).status, 400, `"${f}" never opens records`);
+    }
+    // The unrestricted record drill-downs stay closed whatever is asked.
+    for (const p of [`/reports/tech/drilldown?metric=sales&scopeTechnician=Cody%20Tech`, '/reports/tech/drilldown?metric=revenueBySuburb&category=Unassigned', '/reports/tech/knockback-reasons', '/reports/reviews/drilldown?metric=total', '/tech/entries']) {
+      assert.equal((await server.request('GET', p)).status, 403, p);
     }
   } finally {
     server.close();
@@ -241,7 +278,7 @@ test('an inactive or missing linked technician blocks the account and never fall
     const me = ok(await server.request('GET', '/auth/me'));
     assert.equal(me.user.role, 'technician');
     assert.equal(me.user.technicianActive, false);
-    for (const p of ['/me/performance', '/me/reviews', '/me/knockback-reasons', '/me/filters', '/me/performance/drilldown?field=sales']) {
+    for (const p of ['/me/team-report', '/me/team-knockback-reasons', '/me/report-settings', '/me/reviews', '/me/performance/drilldown?field=sales']) {
       const res = await server.request('GET', p);
       assert.equal(res.status, 403, p);
       assert.equal(res.data.inactiveTechnician, true);
@@ -255,7 +292,7 @@ test('an inactive or missing linked technician blocks the account and never fall
     ok(await link(server, kim, temp));
     dbRun('DELETE FROM technicians WHERE id = ?', [temp.id]);
     await signInAs(server, 'kim@test.local');
-    assert.equal((await server.request('GET', '/me/performance')).status, 403);
+    assert.equal((await server.request('GET', '/me/team-report')).status, 403);
     assert.equal((await server.request('GET', '/calls')).status, 403);
   } finally {
     server.close();
@@ -278,7 +315,7 @@ test('one active link per account and per technician; admins and inactive techni
     const roleChange = await server.request('PATCH', `/users/${sam.id}`, { role: 'admin' });
     assert.equal(roleChange.status, 400, "a Technician account can't be made an admin directly");
     // Staff and admin accounts can't use the technician routes.
-    assert.equal((await server.request('GET', '/me/performance')).status, 403);
+    assert.equal((await server.request('GET', '/me/team-report')).status, 403);
     await signInAs(server, 'kim@test.local');
     assert.equal((await server.request('GET', '/me/reviews')).status, 403);
   } finally {
@@ -308,7 +345,7 @@ test('changing back to Staff needs confirmation, signs out, restores Staff acces
     const me = await signInAs(server, 'sam@test.local');
     assert.equal(me.role, 'staff');
     assert.equal((await server.request('GET', '/calls')).status, 200, 'Staff access restored');
-    assert.equal((await server.request('GET', '/me/performance')).status, 403);
+    assert.equal((await server.request('GET', '/me/team-report')).status, 403);
     // The technician can be linked again afterwards.
     await server.login();
     ok(await link(server, sam, ryan));
@@ -333,14 +370,14 @@ test('a technician linked to an active Technician account cannot be deleted; dea
     );
     assert.deepEqual(dbAll('SELECT * FROM technicians ORDER BY id'), before, 'no part of the technician record was deleted');
     await signInAs(server, 'sam@test.local');
-    assert.equal((await server.request('GET', '/me/performance')).status, 200, 'the linked account is still a working Technician account');
+    assert.equal((await server.request('GET', '/me/team-report')).status, 200, 'the linked account is still a working Technician account');
     assert.equal((await server.request('GET', '/calls')).status, 403, '...and still restricted');
 
     // Deactivating the technician still works and blocks the account at once.
     await server.login();
     ok(await server.request('PATCH', `/settings/technicians/${spare.id}`, { active: false }));
     await signInAs(server, 'sam@test.local');
-    assert.equal((await server.request('GET', '/me/performance')).status, 403);
+    assert.equal((await server.request('GET', '/me/team-report')).status, 403);
     assert.equal((await server.request('GET', '/calls')).status, 403, 'blocked, never Staff');
 
     // Back to Staff closes the link; deletion is then decided by the normal rules.

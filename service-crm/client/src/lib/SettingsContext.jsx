@@ -18,7 +18,10 @@ const EMPTY_BUNDLE = {
   followUpDefaultDueDays: 10,
 };
 
-export function SettingsProvider({ children }) {
+// `loadBundle` replaces the normal settings + staff-directory load — used by
+// Technician accounts, which may only read the report's filter names
+// (api.me.reportSettings) and never the staff directory.
+export function SettingsProvider({ children, loadBundle }) {
   const [bundle, setBundle] = useState(EMPTY_BUNDLE);
   // `staff` is active-only — for dropdowns that assign new work (e.g.
   // "Handled by"). `staffAll` includes deactivated accounts — for a
@@ -29,11 +32,16 @@ export function SettingsProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (loadBundle) {
+      const b = await loadBundle();
+      setBundle({ ...EMPTY_BUNDLE, ...b, lists: { ...EMPTY_BUNDLE.lists, ...b.lists } });
+      return;
+    }
     const [b, s, sAll] = await Promise.all([api.settings.bundle(), api.users.directory(), api.users.directoryAll()]);
     setBundle(b);
     setStaff(s);
     setStaffAll(sAll);
-  }, []);
+  }, [loadBundle]);
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));

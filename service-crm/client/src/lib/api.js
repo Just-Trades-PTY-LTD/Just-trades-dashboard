@@ -42,10 +42,10 @@ export const api = {
   },
   // Technician accounts only — always scoped by the server to the linked technician.
   me: {
-    filters: () => request('GET', '/me/filters'),
-    performance: (params) => request('GET', `/me/performance${qs(params)}`),
+    reportSettings: () => request('GET', '/me/report-settings'),
+    teamReport: (params) => request('GET', `/me/team-report${qs(params)}`),
+    teamKnockbackReasons: (params) => request('GET', `/me/team-knockback-reasons${qs(params)}`),
     performanceDrilldown: (params) => request('GET', `/me/performance/drilldown${qs(params)}`),
-    knockbackReasons: (params) => request('GET', `/me/knockback-reasons${qs(params)}`),
     reviews: (params) => request('GET', `/me/reviews${qs(params)}`),
   },
   settings: {
