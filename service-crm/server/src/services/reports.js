@@ -1465,8 +1465,10 @@ const NOT_RECORDED_REASON = 'Not recorded';
 // historical reporting" even once its quote is approved later — the
 // separate Converted Later sale is never itself a job and so can never
 // appear here.
-export function computeKnockbackReasonsReport({ from, to, technicianId, tradeId, reasonId } = {}) {
-  const { jobsAll } = fetchTechRaw({ from, to, technicianId, tradeId });
+// jobTypeId is optional — only the technician's own My Knockback Reasons
+// passes it (the admin tracker never does, so its figures are unchanged).
+export function computeKnockbackReasonsReport({ from, to, technicianId, tradeId, jobTypeId, reasonId } = {}) {
+  const { jobsAll } = fetchTechRaw({ from, to, technicianId, tradeId, jobTypeId });
   let knockbacks = genuineKnockbackJobs(jobsAll);
   if (reasonId) knockbacks = knockbacks.filter((j) => String(j.knockback_reason_id || '') === String(reasonId));
 

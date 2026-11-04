@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { get, run } from '../db/index.js';
 import { hashPassword, verifyPassword, newToken } from '../lib/password.js';
-import { requireAuth, SESSION_COOKIE_NAME } from '../middleware/auth.js';
+import { requireAuth, SESSION_COOKIE_NAME, withAccessType } from '../middleware/auth.js';
 import { config } from '../config.js';
 
 export function createAuthRouter() {
@@ -27,7 +27,9 @@ export function createAuthRouter() {
     const expiresAt = new Date(Date.now() + config.sessionDays * 24 * 60 * 60 * 1000).toISOString();
     run('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)', [token, user.id, expiresAt]);
     res.cookie(SESSION_COOKIE_NAME, token, cookieOptions());
-    res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    // role is 'technician' for a Technician account (see withAccessType).
+    const { id, name, email: userEmail, role, technicianId, technicianName, technicianActive } = withAccessType(user);
+    res.json({ user: { id, name, email: userEmail, role, technicianId, technicianName, technicianActive } });
   });
 
   router.post('/logout', (req, res) => {
