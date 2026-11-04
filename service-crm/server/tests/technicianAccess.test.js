@@ -139,30 +139,26 @@ test('every route outside the approved list returns 403 to a Technician account'
 });
 
 // The statistics a Technician account receives must equal the Admin/Staff
-// report exactly — just without anything record-level.
-const METRICS = ['jobsAttended', 'qualifiedJobs', 'unqualifiedJobs', 'knockbacks', 'knockbackRate', 'convertedLaterCount', 'conversionRate', 'sales', 'totalSaleExGst', 'avgSaleExGst', 'upsellsCount', 'upsellValueExGst', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate', 'actualKnockbacks', 'convertedLaterCredits', 'adjustedKnockbacks', 'bonusConversionRate'];
+// report exactly — but only for the approved sections, nothing record-level.
+const SUMMARY = ['jobsAttended', 'qualifiedJobs', 'sales', 'convertedLaterCredits', 'actualKnockbacks', 'adjustedKnockbacks', 'bonusConversionRate', 'totalSaleExGst', 'avgSaleExGst', 'upsellsCount', 'upsellValueExGst', 'unqualifiedJobs', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate'];
+const BY_TRADE = ['trade', 'jobsAttended', 'totalSaleExGst', 'avgSaleExGst', 'knockbacks', 'convertedLaterCount', 'conversionRate', 'qualifiedJobs', 'sales', 'upsellsCount', 'upsellValueExGst', 'callBacks', 'pendingCancellations', 'inspectionRate', 'optionRate'];
 const pickF = (o, f) => Object.fromEntries(f.filter((k) => k in o).map((k) => [k, o[k]]));
 function statsOf(r) {
   return {
-    company: pickF(r.company, METRICS),
-    byTrade: r.byTrade.map((x) => pickF(x, ['trade', ...METRICS])),
-    byTechnician: r.byTechnician.map((x) => pickF(x, ['name', ...METRICS, 'positiveReviewsCount'])),
+    company: pickF(r.company, SUMMARY),
     salesByTradePie: r.salesByTradePie,
-    jobsOppSalesByTrade: r.jobsOppSalesByTrade,
-    trend: r.trend,
-    missingTechnicianCount: r.missingTechnicianCount,
-    revenueBySuburb: r.revenueBySuburb,
-    salesByMarketingCategory: r.salesByMarketingCategory,
+    byTrade: r.byTrade.map((x) => pickF(x, BY_TRADE)),
+    byTechnician: r.byTechnician.map((x) => pickF(x, ['name', ...SUMMARY, 'positiveReviewsCount'])),
   };
 }
 
-test('the team report shows the same statistics as the Admin/Staff report — every technician — and nothing record-level', async () => {
+test('the team report: approved sections only, the same statistics as the Admin/Staff report, every technician, nothing record-level', async () => {
   const server = await startTestServer();
   try {
     const { sam, ryan, cody, plumbing } = await seed(server);
     ok(await link(server, sam, ryan));
     const range = 'from=2026-05-01&to=2026-05-31';
-    const combos = ['', `&technicianId=${cody.id}`, `&tradeId=${plumbing.id}`, '&saleMade=Yes&leadQualification=Qualified', '&entryType=new_job_no_sale', '&granularity=month'];
+    const combos = ['', `&technicianId=${cody.id}`, `&tradeId=${plumbing.id}`, `&tradeId=${plumbing.id}&jobTypeId=${plumbing.jobTypes[0].id}`, '&leadQualification=Qualified', `&leadQualification=Not%20Qualified&technicianId=${ryan.id}`];
     const admin = {};
     for (const c of combos) admin[c] = statsOf(ok(await server.request('GET', `/reports/tech?${range}${c}`)));
     const adminKbr = ok(await server.request('GET', `/reports/tech/knockback-reasons?${range}`));
@@ -171,16 +167,18 @@ test('the team report shows the same statistics as the Admin/Staff report — ev
     for (const c of combos) {
       const team = ok(await server.request('GET', `/me/team-report?${range}${c}`));
       assert.deepEqual(statsOf(team), admin[c], `same statistics with filters "${c}"`);
+      assert.deepEqual(team, statsOf(team), 'exactly these fields and nothing else');
+      assert.deepEqual(Object.keys(team).sort(), ['byTechnician', 'byTrade', 'company', 'salesByTradePie']);
     }
     const plain = ok(await server.request('GET', `/me/team-report?${range}`));
     assert.deepEqual(plain.byTechnician.map((r) => r.name).sort(), ['Cody Tech', 'Ryan Tech'], 'every technician row is shown');
     assert.equal(plain.byTechnician.find((r) => r.name === 'Cody Tech').totalSaleExGst, 5000, "other technicians' values are visible as statistics");
     // Record-identifying filters are ignored, so they can't single out a job.
-    for (const c of ['&jobNumber=C-1', '&suburb=Woodcroft', `&createdByUserId=1`, '&lastEditedByUserId=1', '&scopeTechnician=Cody%20Tech']) {
+    for (const c of ['&jobNumber=C-1', '&suburb=Woodcroft', `&createdByUserId=1`, '&lastEditedByUserId=1', '&scopeTechnician=Cody%20Tech', '&leadSourceId=unassigned', '&saleMade=Yes', '&knockback=Yes', '&convertedLater=No', '&entryType=call_back', '&granularity=day']) {
       assert.deepEqual(statsOf(ok(await server.request('GET', `/me/team-report?${range}${c}`))), admin[''], `"${c}" is ignored`);
     }
     const text = JSON.stringify(plain);
-    for (const leak of ['T-1', 'C-1', 'INV-', 'records', 'comments', 'createdBy', 'lastEdited', 'job_number', 'jobNumber', 'password', 'email']) {
+    for (const leak of ['T-1', 'C-1', 'INV-', 'records', 'comments', 'createdBy', 'lastEdited', 'job_number', 'jobNumber', 'password', 'email', 'salesByMarketingCategory', 'revenueBySuburb', 'trend', 'jobsOppSalesByTrade', 'missingTechnician', 'suburb', 'Marketing', 'leadSource']) {
       assert.ok(!text.includes(leak), `no "${leak}" in the technician report response`);
     }
     // Team Knockback Reasons: counts only, never the job records.
@@ -210,6 +208,8 @@ test("only the technician's own figures open records — their own, under the re
     const expected = {};
     for (const f of fields) expected[f] = await adminDrill(f);
     const expectedPlumbing = await adminDrill('jobsAttended', `&tradeId=${plumbing.id}`);
+    const reasonName = ok(await server.request('GET', `/reports/tech/knockback-reasons?${range}&technicianId=${ryan.id}`)).byReason[0].name;
+    const adminReason = ok(await server.request('GET', `/reports/tech/drilldown?${range}&metric=knockbackByReason&technicianId=${ryan.id}&category=${encodeURIComponent(reasonName)}`)).rows.map((r) => `${r.kind}:${r.id}`).sort();
     await signInAs(server, 'sam@test.local');
     for (const f of fields) {
       // Tampered: another technician's id and name, and record-identifying filters.
@@ -226,7 +226,12 @@ test("only the technician's own figures open records — their own, under the re
     assert.deepEqual(withTrade.rows.map((r) => `${r.kind}:${r.id}`).sort(), expectedPlumbing, "the report's filters apply to the own records too");
     const value = ok(await server.request('GET', `/me/performance/drilldown?${range}&field=totalSaleExGst`));
     assert.ok(value.rows.some((r) => r.saleValueExGst === 900), 'their own sale values are shown');
-    for (const f of ['unqualifiedJobs', 'missingTechnician', 'revenueBySuburb', 'salesByMarketingCategory', 'salesByTradePie', 'jobsOppSalesByTrade', 'knockbackByReason', 'upsellValueExGst', '']) {
+    // Knockback Reasons filtered to themselves: their own reason records only,
+    // even when another technician is asked for.
+    const ownReason = ok(await server.request('GET', `/me/performance/drilldown?${range}&field=knockbackByReason&category=${encodeURIComponent(reasonName)}&technicianId=${cody.id}`));
+    assert.deepEqual(ownReason.rows.map((r) => `${r.kind}:${r.id}`).sort(), adminReason);
+    assert.ok(ownReason.rows.length > 0 && ownReason.rows.every((r) => r.technicianName === 'Ryan Tech'));
+    for (const f of ['unqualifiedJobs', 'missingTechnician', 'revenueBySuburb', 'salesByMarketingCategory', 'salesByTradePie', 'jobsOppSalesByTrade', 'upsellValueExGst', 'conversionRate', '']) {
       assert.equal((await server.request('GET', `/me/performance/drilldown?field=${f}&category=Plumbing`)).status, 400, `"${f}" never opens records`);
     }
     // The unrestricted record drill-downs stay closed whatever is asked.
@@ -238,31 +243,70 @@ test("only the technician's own figures open records — their own, under the re
   }
 });
 
-test('My Reviews: only reviews credited to them, shared ones labelled without other names, strictly view-only', async () => {
+test('Reviews: the whole team, read-only, credited names shown, no audit fields, no writes', async () => {
   const server = await startTestServer();
   try {
     const { sam, ryan, cody, rOwn, rShared, rOther } = await seed(server);
     ok(await link(server, sam, ryan));
+    const adminReport = ok(await server.request('GET', '/reports/reviews'));
+    const adminCody = ok(await server.request('GET', `/reports/reviews?technicianId=${cody.id}&ratingClass=Positive`));
     await signInAs(server, 'sam@test.local');
-    const mine = ok(await server.request('GET', `/me/reviews?technicianId=${cody.id}`));
-    assert.deepEqual(mine.rows.map((r) => r.id).sort(), [rOwn.id, rShared.id].sort(), 'never the review credited only to Cody');
-    assert.equal(mine.rows.find((r) => r.id === rShared.id).shared, true);
-    assert.equal(mine.rows.find((r) => r.id === rOwn.id).shared, false);
-    assert.deepEqual(Object.keys(mine.rows[0]).sort(), ['classification', 'id', 'notes', 'rating', 'reviewDate', 'shared']);
-    assert.ok(!JSON.stringify(mine).includes('Cody'), "no other technician's name or review");
-    assert.deepEqual(mine.totals, { total: 2, positive: 2, neutral: 0, negative: 0, averageRating: 4.5, byStars: [{ stars: 5, count: 1 }, { stars: 4, count: 1 }, { stars: 3, count: 0 }, { stars: 2, count: 0 }, { stars: 1, count: 0 }] });
+    const all = ok(await server.request('GET', '/me/reviews'));
+    assert.deepEqual(all.rows.map((r) => r.id).sort(), [rOwn.id, rShared.id, rOther.id].sort(), "every technician's reviews");
+    assert.deepEqual(all.rows.find((r) => r.id === rShared.id).technicians.sort(), ['Cody Tech', 'Ryan Tech'], 'shared review names everyone credited');
+    assert.deepEqual(all.rows.find((r) => r.id === rOther.id).technicians, ['Cody Tech']);
+    assert.deepEqual(Object.keys(all.rows[0]).sort(), ['classification', 'id', 'notes', 'rating', 'reviewDate', 'technicians']);
+    assert.deepEqual(Object.keys(all).sort(), ['byTechnician', 'rows', 'totals']);
+    assert.deepEqual(
+      { total: all.totals.total, positive: all.totals.positive, neutral: all.totals.neutral, negative: all.totals.negative, averageRating: all.totals.averageRating },
+      { total: adminReport.kpis.total, positive: adminReport.kpis.positive, neutral: adminReport.kpis.neutral, negative: adminReport.kpis.negative, averageRating: adminReport.kpis.avgRating },
+      'team totals reconcile with the admin Reviews report'
+    );
+    assert.deepEqual(all.byTechnician, adminReport.byTechnician.map((t) => ({ name: t.name, total: t.total, positive: t.positive })));
+    assert.deepEqual(all.totals.byStars, [{ stars: 5, count: 1 }, { stars: 4, count: 1 }, { stars: 3, count: 0 }, { stars: 2, count: 1 }, { stars: 1, count: 0 }]);
+    const filtered = ok(await server.request('GET', `/me/reviews?technicianId=${cody.id}&ratingClass=Positive`));
+    assert.equal(filtered.totals.total, adminCody.kpis.total);
+    const text = JSON.stringify(all);
+    for (const leak of ['createdBy', 'lastEdited', 'updatedAt', 'createdAt', 'reviewLinkSent', 'jobNumber', 'email']) assert.ok(!text.includes(leak), `no ${leak}`);
     const before = snapshot();
     assert.equal((await server.request('POST', '/reviews', { reviewDate: '2026-05-21', rating: 5, technicianIds: [ryan.id] })).status, 403, 'add');
     assert.equal((await server.request('PATCH', `/reviews/${rOther.id}`, { technicianIds: [ryan.id] })).status, 403, 'reassign');
-    assert.equal((await server.request('PATCH', `/reviews/${rOwn.id}`, { rating: 1 })).status, 403, 'edit own');
-    assert.equal((await server.request('GET', '/reviews')).status, 403, 'list all');
+    assert.equal((await server.request('PATCH', `/reviews/${rOwn.id}`, { rating: 1, notes: 'x', reviewDate: '2026-01-01' })).status, 403, 'edit');
+    assert.equal((await server.request('DELETE', `/reviews/${rOwn.id}`)).status, 403, 'delete');
+    assert.equal((await server.request('GET', '/reviews')).status, 403, 'the full review list with audit fields');
     assert.equal((await server.request('GET', '/reports/reviews.xlsx')).status, 403, 'export');
-    assert.equal((await server.request('GET', '/reports/reviews')).status, 403, 'company review report');
+    assert.equal((await server.request('GET', '/reports/reviews/drilldown?metric=total')).status, 403, 'review records with audit fields');
     assert.deepEqual(snapshot(), before);
-    // The shared review still counts for Cody in the admin report.
-    await server.login();
-    const report = ok(await server.request('GET', '/reports/reviews'));
-    assert.equal(report.kpis.total, 3);
+  } finally {
+    server.close();
+  }
+});
+
+test('an existing database with active Technician links: starting the new version changes no link, account or record, and sessions stay restricted', async () => {
+  const server = await startTestServer();
+  try {
+    const { sam, kim, ryan, cody } = await seed(server);
+    ok(await link(server, sam, ryan));
+    ok(await link(server, kim, cody));
+    ok(await server.request('POST', `/users/${kim.id}/technician-unlink`, { confirm: true })); // a history row
+    ok(await link(server, kim, cody));
+    await signInAs(server, 'sam@test.local');
+    const samCookie = server.getCookie();
+    const links = dbAll('SELECT * FROM technician_accounts ORDER BY id');
+    const before = snapshot();
+    const sessions = dbAll('SELECT * FROM sessions ORDER BY token');
+    // "Deploy": open the same database again with this version's start-up
+    // (schema + migrations), as a fresh deployment would.
+    const { createApp } = await import('../src/app.js');
+    createApp({ dbPath: server.dbPath });
+    assert.deepEqual(dbAll('SELECT * FROM technician_accounts ORDER BY id'), links, 'links and link history untouched');
+    assert.deepEqual(snapshot(), before, 'accounts, passwords, roles, technicians and business records untouched');
+    assert.deepEqual(dbAll('SELECT * FROM sessions ORDER BY token'), sessions, 'no one is signed out by the deploy');
+    server.setCookie(samCookie);
+    const me = ok(await server.request('GET', '/auth/me'));
+    assert.equal(me.user.role, 'technician', 'the existing session is still a Technician session');
+    assert.equal((await server.request('GET', '/calls')).status, 403);
+    assert.equal((await server.request('GET', '/me/team-report')).status, 200, 'and gets the revised report straight away');
   } finally {
     server.close();
   }

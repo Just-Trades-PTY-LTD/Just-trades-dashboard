@@ -262,12 +262,14 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           onChange={(v) => patch({ leadQualification: v })}
           options={LEAD_QUALIFICATION_OPTIONS}
         />
-        <FilterSelect
-          label="Lead Source"
-          value={draft.leadSourceId}
-          onChange={(v) => patch({ leadSourceId: v })}
-          options={withUnassigned(settings.lists.lead_source)}
-        />
+        {!access.technician && (
+          <FilterSelect
+            label="Lead Source"
+            value={draft.leadSourceId}
+            onChange={(v) => patch({ leadSourceId: v })}
+            options={withUnassigned(settings.lists.lead_source)}
+          />
+        )}
         {!access.technician && (
           <a
             className="btn btn-primary"
@@ -295,7 +297,9 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
-        <AdvancedFiltersToggle open={advancedOpen} onToggle={() => setAdvancedOpen((o) => !o)} activeCount={advancedActiveCount} />
+        {!access.technician && (
+          <AdvancedFiltersToggle open={advancedOpen} onToggle={() => setAdvancedOpen((o) => !o)} activeCount={advancedActiveCount} />
+        )}
         {/* Refresh Report is the button used most often, so it always stays
             pinned to the far right of its row — marginLeft: auto here rather
             than on Export to Excel (which moved earlier to make room for the
@@ -306,7 +310,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         </button>
       </div>
 
-      {advancedOpen && (
+      {!access.technician && advancedOpen && (
         <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
           <div className="grid-form">
@@ -350,7 +354,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         </div>
       )}
 
-      {missingTechnicianCount > 0 && (
+      {!access.technician && missingTechnicianCount > 0 && (
         <div
           className="notice panel error clickable-stat"
           style={{ marginBottom: 16, cursor: 'pointer' }}
@@ -408,99 +412,105 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           )}
         </AdjustableSection>
 
-        <AdjustableSection id="jobsOppSalesByTrade" title="Jobs, qualified leads & sales by trade" defaultSize="md" layout={layout}>
-          {(cfg) => (
-            <ResponsiveContainer width="100%" height={cfg.chartHeight}>
-              <BarChart data={jobsOppSalesByTrade}>
-                <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} />
-                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
-                <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
-                <Legend />
-                <Bar
-                  dataKey="Jobs"
-                  fill="var(--chart-teal)"
-                  style={{ cursor: 'pointer' }}
-                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Jobs' })}
-                />
-                <Bar
-                  dataKey="Qualified leads"
-                  fill="var(--chart-orange)"
-                  style={{ cursor: 'pointer' }}
-                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Qualified leads' })}
-                />
-                <Bar
-                  dataKey="Sales"
-                  fill="var(--chart-violet)"
-                  style={{ cursor: 'pointer' }}
-                  onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Sales' })}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </AdjustableSection>
-
-        <AdjustableSection id="knockbackAdjustmentByTechnician" title="Knockbacks: Actual vs Adjusted by Technician" defaultSize="md" layout={layout}>
-          {(cfg) =>
-            knockbackAdjustmentByTechnician.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>
-                No Knockbacks or Converted Later credits in this range yet.
-              </div>
-            ) : (
+        {!access.technician && (
+          <AdjustableSection id="jobsOppSalesByTrade" title="Jobs, qualified leads & sales by trade" defaultSize="md" layout={layout}>
+            {(cfg) => (
               <ResponsiveContainer width="100%" height={cfg.chartHeight}>
-                <BarChart data={knockbackAdjustmentByTechnician}>
+                <BarChart data={jobsOppSalesByTrade}>
                   <CartesianGrid stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} />
                   <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
                   <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
                   <Legend />
                   <Bar
-                    dataKey="Actual Knockbacks"
+                    dataKey="Jobs"
                     fill="var(--chart-teal)"
                     style={{ cursor: 'pointer' }}
-                    onClick={(entry) => openDrilldown('actualKnockbacks', { scopeTechnician: entry.name })}
+                    onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Jobs' })}
                   />
                   <Bar
-                    dataKey="Converted Later"
+                    dataKey="Qualified leads"
                     fill="var(--chart-orange)"
                     style={{ cursor: 'pointer' }}
-                    onClick={(entry) => openDrilldown('convertedLaterCredits', { scopeTechnician: entry.name })}
+                    onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Qualified leads' })}
                   />
-                  {/* Adjusted Knockbacks is purely calculated (Actual Knockbacks
-                      − Converted Later) — it isn't its own group of records,
-                      so this bar isn't clickable, unlike the two beside it. */}
-                  <Bar dataKey="Adjusted Knockbacks" fill="var(--chart-violet)" />
+                  <Bar
+                    dataKey="Sales"
+                    fill="var(--chart-violet)"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(entry) => openDrilldown('jobsOppSalesByTrade', { category: entry.name, series: 'Sales' })}
+                  />
                 </BarChart>
               </ResponsiveContainer>
-            )
-          }
-        </AdjustableSection>
+            )}
+          </AdjustableSection>
+        )}
 
-        <AdjustableSection
-          id="trend"
-          title="Sales over time (ex GST)"
-          defaultSize="lg"
-          layout={layout}
-          headerRight={
-            <select className="btn" style={{ padding: '4px 10px' }} value={granularity} onChange={(e) => setGranularity(e.target.value)}>
-              <option value="day">Daily</option>
-              <option value="week">Weekly</option>
-              <option value="month">Monthly</option>
-            </select>
-          }
-        >
-          {(cfg) => (
-            <ResponsiveContainer width="100%" height={cfg.chartHeight}>
-              <LineChart data={trend}>
-                <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="period" stroke="var(--ink-muted)" fontSize={11} />
-                <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} tickFormatter={(v) => `$${v}`} />
-                <Tooltip formatter={(v) => money(v)} />
-                <Line type="monotone" dataKey="value" stroke="var(--chart-teal)" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </AdjustableSection>
+        {!access.technician && (
+          <AdjustableSection id="knockbackAdjustmentByTechnician" title="Knockbacks: Actual vs Adjusted by Technician" defaultSize="md" layout={layout}>
+            {(cfg) =>
+              knockbackAdjustmentByTechnician.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '30px 0', textAlign: 'center' }}>
+                  No Knockbacks or Converted Later credits in this range yet.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+                  <BarChart data={knockbackAdjustmentByTechnician}>
+                    <CartesianGrid stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--ink-muted)" fontSize={11} interval={0} angle={-20} textAnchor="end" height={60} />
+                    <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} />
+                    <Tooltip cursor={{ fill: 'var(--surface-2)' }} />
+                    <Legend />
+                    <Bar
+                      dataKey="Actual Knockbacks"
+                      fill="var(--chart-teal)"
+                      style={{ cursor: 'pointer' }}
+                      onClick={(entry) => openDrilldown('actualKnockbacks', { scopeTechnician: entry.name })}
+                    />
+                    <Bar
+                      dataKey="Converted Later"
+                      fill="var(--chart-orange)"
+                      style={{ cursor: 'pointer' }}
+                      onClick={(entry) => openDrilldown('convertedLaterCredits', { scopeTechnician: entry.name })}
+                    />
+                    {/* Adjusted Knockbacks is purely calculated (Actual Knockbacks
+                        − Converted Later) — it isn't its own group of records,
+                        so this bar isn't clickable, unlike the two beside it. */}
+                    <Bar dataKey="Adjusted Knockbacks" fill="var(--chart-violet)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
+            }
+          </AdjustableSection>
+        )}
+
+        {!access.technician && (
+          <AdjustableSection
+            id="trend"
+            title="Sales over time (ex GST)"
+            defaultSize="lg"
+            layout={layout}
+            headerRight={
+              <select className="btn" style={{ padding: '4px 10px' }} value={granularity} onChange={(e) => setGranularity(e.target.value)}>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            }
+          >
+            {(cfg) => (
+              <ResponsiveContainer width="100%" height={cfg.chartHeight}>
+                <LineChart data={trend}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="period" stroke="var(--ink-muted)" fontSize={11} />
+                  <YAxis allowDecimals={false} stroke="var(--ink-muted)" fontSize={12} tickFormatter={(v) => `$${v}`} />
+                  <Tooltip formatter={(v) => money(v)} />
+                  <Line type="monotone" dataKey="value" stroke="var(--chart-teal)" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </AdjustableSection>
+        )}
 
         <AdjustableSection id="byTrade" title="By trade" defaultSize="lg" layout={layout}>
           {(cfg) => (
@@ -651,61 +661,70 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           )}
         </AdjustableSection>
 
-        <AdjustableSection id="salesByMarketingCategory" title="Sales by Marketing Category" defaultSize="lg" layout={layout}>
-          {(cfg) =>
-            salesByMarketingCategory.rows.length === 0 ? (
-              <div className="empty-state">No attended Qualified jobs in this range.</div>
-            ) : (
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
-                  Groups results by the original visit date: Qualified jobs attended in this period and their eventual outcome, by
-                  the Marketing Category of the booked Lead call for the same Job Number. Sold Jobs = Sale Made jobs + Converted
-                  Later jobs (each attended job counted once); Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs. Value is
-                  each sold job's own original sales, including a later Quote Approved Later invoice, with no Upsells. The Sales and
-                  Value (ex GST) cards above use invoice dates instead, and the Value card includes Upsells — which is why these
-                  totals may differ.
+        {!access.technician && (
+          <AdjustableSection id="salesByMarketingCategory" title="Sales by Marketing Category" defaultSize="lg" layout={layout}>
+            {(cfg) =>
+              salesByMarketingCategory.rows.length === 0 ? (
+                <div className="empty-state">No attended Qualified jobs in this range.</div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
+                    Groups results by the original visit date: Qualified jobs attended in this period and their eventual outcome, by
+                    the Marketing Category of the booked Lead call for the same Job Number. Sold Jobs = Sale Made jobs + Converted
+                    Later jobs (each attended job counted once); Sales Conversion % = Sold Jobs ÷ Attended Qualified Jobs. Value is
+                    each sold job's own original sales, including a later Quote Approved Later invoice, with no Upsells. The Sales and
+                    Value (ex GST) cards above use invoice dates instead, and the Value card includes Upsells — which is why these
+                    totals may differ.
+                  </div>
+                  <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Marketing Category</th>
+                          {SALES_BY_CATEGORY_COLUMNS.map(([key, label]) => (
+                            <th key={key}>{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...salesByMarketingCategory.rows, salesByMarketingCategory.totals].map((r) => {
+                          const isTotal = r === salesByMarketingCategory.totals;
+                          return (
+                            <tr key={isTotal ? '__total' : r.category} style={isTotal ? { fontWeight: 600 } : undefined}>
+                              <td>{r.category}</td>
+                              {SALES_BY_CATEGORY_COLUMNS.map(([key, label, render]) => (
+                                <td
+                                  key={key}
+                                  className="clickable-stat"
+                                  onClick={() =>
+                                    openDrilldown('salesByMarketingCategory', isTotal ? { field: key } : { category: r.category, field: key })
+                                  }
+                                  title={`View the records behind ${r.category} — ${label}`}
+                                >
+                                  {render(r)}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Marketing Category</th>
-                        {SALES_BY_CATEGORY_COLUMNS.map(([key, label]) => (
-                          <th key={key}>{label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...salesByMarketingCategory.rows, salesByMarketingCategory.totals].map((r) => {
-                        const isTotal = r === salesByMarketingCategory.totals;
-                        return (
-                          <tr key={isTotal ? '__total' : r.category} style={isTotal ? { fontWeight: 600 } : undefined}>
-                            <td>{r.category}</td>
-                            {SALES_BY_CATEGORY_COLUMNS.map(([key, label, render]) => (
-                              <td
-                                key={key}
-                                className="clickable-stat"
-                                onClick={() =>
-                                  openDrilldown('salesByMarketingCategory', isTotal ? { field: key } : { category: r.category, field: key })
-                                }
-                                title={`View the records behind ${r.category} — ${label}`}
-                              >
-                                {render(r)}
-                              </td>
-                            ))}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )
-          }
-        </AdjustableSection>
+              )
+            }
+          </AdjustableSection>
+        )}
 
         <KnockbackReasonsTracker
           readOnly={access.technician}
+          // Technician accounts: a reason opens records only when this box
+          // is filtered to the signed-in technician — and then only theirs.
+          onOwnReason={
+            access.technician && String(applied.technicianId) === String(access.ownTechnicianId)
+              ? (reason, tradeId) => access.openOwnRecords('knockbackByReason', { from: applied.from, to: applied.to, tradeId, category: reason })
+              : undefined
+          }
           layout={layout}
           setDrilldown={setDrilldown}
           filters={knockbackReasonsFilters}
@@ -716,74 +735,78 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
           technicianName={withInactiveLabel(settings.technicians).find((t) => String(t.id) === String(applied.technicianId))?.name}
         />
 
-        {/* Kept last on the page, and compact by default (top 10 only) —
-            this list only grows as more suburbs are recorded over time, so
-            it must never be the thing that makes the report page excessively
-            long. The Excel export always includes every suburb regardless of
-            showAllSuburbs — see xlsxReports.js's buildTechWorkbook, which
-            reads data.revenueBySuburb directly, never this component's
-            display-only slice. */}
-        <AdjustableSection id="revenueBySuburb" title="Revenue by Suburb" defaultSize="lg" layout={layout}>
-          {(cfg) => {
-            if (revenueBySuburb.length === 0) return <div className="empty-state">No sales in this range yet.</div>;
-            const isTruncated = !showAllSuburbs && revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT;
-            const displayedSuburbs = isTruncated ? revenueBySuburb.slice(0, REVENUE_BY_SUBURB_PREVIEW_COUNT) : revenueBySuburb;
-            return (
-              <div>
-                {revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--ink-muted)' }}>
-                      {isTruncated
-                        ? `Showing top ${REVENUE_BY_SUBURB_PREVIEW_COUNT} of ${revenueBySuburb.length} suburbs by total sales value`
-                        : `Showing all ${revenueBySuburb.length} suburbs`}
-                    </span>
-                    <button className="btn btn-sm" type="button" onClick={() => setShowAllSuburbs((v) => !v)}>
-                      {isTruncated ? 'Show All' : `Show Top ${REVENUE_BY_SUBURB_PREVIEW_COUNT}`}
-                    </button>
-                  </div>
-                )}
-                <div
-                  className="table-scroll"
-                  style={!isTruncated && cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}
-                >
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Suburb</th>
-                        {REVENUE_BY_SUBURB_COLUMNS.map(([key, label]) => (
-                          <th key={key}>{label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {displayedSuburbs.map((r) => (
-                        <tr key={r.suburb}>
-                          <td
-                            className="clickable-stat"
-                            onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: 'totalSalesValue' })}
-                            title={`View the records behind ${r.suburb}`}
-                          >
-                            {r.suburb}
-                          </td>
-                          {REVENUE_BY_SUBURB_COLUMNS.map(([key, label, render]) => (
-                            <td
-                              key={key}
-                              className="clickable-stat"
-                              onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: key })}
-                              title={`View the records behind ${r.suburb} — ${label}`}
-                            >
-                              {render(r)}
-                            </td>
+        {!access.technician && (
+          <>
+            {/* Kept last on the page, and compact by default (top 10 only) —
+                this list only grows as more suburbs are recorded over time, so
+                it must never be the thing that makes the report page excessively
+                long. The Excel export always includes every suburb regardless of
+                showAllSuburbs — see xlsxReports.js's buildTechWorkbook, which
+                reads data.revenueBySuburb directly, never this component's
+                display-only slice. */}
+            <AdjustableSection id="revenueBySuburb" title="Revenue by Suburb" defaultSize="lg" layout={layout}>
+              {(cfg) => {
+                if (revenueBySuburb.length === 0) return <div className="empty-state">No sales in this range yet.</div>;
+                const isTruncated = !showAllSuburbs && revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT;
+                const displayedSuburbs = isTruncated ? revenueBySuburb.slice(0, REVENUE_BY_SUBURB_PREVIEW_COUNT) : revenueBySuburb;
+                return (
+                  <div>
+                    {revenueBySuburb.length > REVENUE_BY_SUBURB_PREVIEW_COUNT && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12.5, color: 'var(--ink-muted)' }}>
+                          {isTruncated
+                            ? `Showing top ${REVENUE_BY_SUBURB_PREVIEW_COUNT} of ${revenueBySuburb.length} suburbs by total sales value`
+                            : `Showing all ${revenueBySuburb.length} suburbs`}
+                        </span>
+                        <button className="btn btn-sm" type="button" onClick={() => setShowAllSuburbs((v) => !v)}>
+                          {isTruncated ? 'Show All' : `Show Top ${REVENUE_BY_SUBURB_PREVIEW_COUNT}`}
+                        </button>
+                      </div>
+                    )}
+                    <div
+                      className="table-scroll"
+                      style={!isTruncated && cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}
+                    >
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Suburb</th>
+                            {REVENUE_BY_SUBURB_COLUMNS.map(([key, label]) => (
+                              <th key={key}>{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedSuburbs.map((r) => (
+                            <tr key={r.suburb}>
+                              <td
+                                className="clickable-stat"
+                                onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: 'totalSalesValue' })}
+                                title={`View the records behind ${r.suburb}`}
+                              >
+                                {r.suburb}
+                              </td>
+                              {REVENUE_BY_SUBURB_COLUMNS.map(([key, label, render]) => (
+                                <td
+                                  key={key}
+                                  className="clickable-stat"
+                                  onClick={() => openDrilldown('revenueBySuburb', { category: r.suburb, field: key })}
+                                  title={`View the records behind ${r.suburb} — ${label}`}
+                                >
+                                  {render(r)}
+                                </td>
+                              ))}
+                            </tr>
                           ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          }}
-        </AdjustableSection>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }}
+            </AdjustableSection>
+          </>
+        )}
       </div>
 
       {drilldown && (

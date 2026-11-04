@@ -32,8 +32,10 @@ export function defaultKnockbackReasonsFilters() {
 // its original reason here even once its quote is later approved, since
 // that's a separate Converted Later credit, never another knock-back.
 // readOnly (Technician accounts): counts per reason from the restricted
-// team API, and no click-through to the job records.
-export default function KnockbackReasonsTracker({ readOnly, layout, setDrilldown, filters, setFilters, from, to, technicianId, technicianName }) {
+// team API, and no click-through to the job records — except their own,
+// through onOwnReason, when the report is filtered to the signed-in
+// technician.
+export default function KnockbackReasonsTracker({ readOnly, onOwnReason, layout, setDrilldown, filters, setFilters, from, to, technicianId, technicianName }) {
   const settings = useSettings();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +64,10 @@ export default function KnockbackReasonsTracker({ readOnly, layout, setDrilldown
   // showing — matching the main report's own applied filters — plus this
   // box's own Trade filter.
   function openReasonDrilldown(reasonName) {
-    if (readOnly) return;
+    if (readOnly) {
+      if (onOwnReason) onOwnReason(reasonName, filters.tradeId);
+      return;
+    }
     setDrilldown({
       from,
       to,
@@ -125,13 +130,13 @@ export default function KnockbackReasonsTracker({ readOnly, layout, setDrilldown
                   <tbody>
                     {data.byReason.map((r) => (
                       <tr key={r.name}>
-                        <td className="clickable-stat" onClick={() => openReasonDrilldown(r.name)} title={`View the knock-back records behind ${r.name}`}>
+                        <td className={`clickable-stat${onOwnReason ? " clickable-own" : ""}`} onClick={() => openReasonDrilldown(r.name)} title={`View the knock-back records behind ${r.name}`}>
                           {r.name}
                         </td>
-                        <td className="clickable-stat" onClick={() => openReasonDrilldown(r.name)}>
+                        <td className={`clickable-stat${onOwnReason ? " clickable-own" : ""}`} onClick={() => openReasonDrilldown(r.name)}>
                           {r.count}
                         </td>
-                        <td className="clickable-stat" onClick={() => openReasonDrilldown(r.name)}>
+                        <td className={`clickable-stat${onOwnReason ? " clickable-own" : ""}`} onClick={() => openReasonDrilldown(r.name)}>
                           {r.percent}%
                         </td>
                       </tr>

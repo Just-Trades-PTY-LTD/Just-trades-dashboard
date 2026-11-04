@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset, money } from '../../lib/dates.js';
-import { DateField, DateRangePresetSelect } from '../../components/Fields.jsx';
+import { DateField, DateRangePresetSelect, FilterSelect } from '../../components/Fields.jsx';
 import { SettingsProvider } from '../../lib/SettingsContext.jsx';
 import { ReportAccessContext } from '../../lib/reportAccess.js';
 import TechReport from '../Reports/TechReport.jsx';
@@ -42,7 +42,10 @@ export default function TechnicianApp({ user, logout }) {
   const [records, setRecords] = useState(null);
 
   function openOwnRecords(field, filters) {
-    const label = `${user.technicianName} — ${FIELD_LABELS[field] || field}`;
+    const label =
+      field === 'knockbackByReason'
+        ? `${user.technicianName} — Knockbacks: ${filters.category}`
+        : `${user.technicianName} — ${FIELD_LABELS[field] || field}`;
     setRecords({ label, loading: true });
     api.me
       .performanceDrilldown({ ...filters, field })
@@ -73,7 +76,7 @@ export default function TechnicianApp({ user, logout }) {
         <div className="panel empty-state">Your technician record is inactive or missing, so there's nothing to show. Please contact an admin.</div>
       ) : tab === 'report' ? (
         <SettingsProvider loadBundle={loadTechnicianBundle}>
-          <ReportAccessContext.Provider value={{ technician: true, ownTechnicianName: user.technicianName, openOwnRecords }}>
+          <ReportAccessContext.Provider value={{ technician: true, ownTechnicianName: user.technicianName, ownTechnicianId: user.technicianId, openOwnRecords }}>
             <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>
               Read-only team report. Only your own figures in the By technician table open records (your own).
             </div>
@@ -82,7 +85,7 @@ export default function TechnicianApp({ user, logout }) {
           {records && <RecordsModal records={records} onClose={() => setRecords(null)} />}
         </SettingsProvider>
       ) : tab === 'reviews' ? (
-        <MyReviews />
+        <TeamReviews />
       ) : (
         <MyAccount user={user} />
       )}
@@ -190,56 +193,98 @@ function outcome(r) {
   return r.workCompletion || 'Sale';
 }
 
-function MyReviews() {
+const RATING_OPTIONS = ['5', '4', '3', '2', '1'].map((v) => ({ id: v, name: `${v} star${v === '1' ? '' : 's'}` }));
+const CLASS_OPTIONS = ['Positive', 'Neutral', 'Negative'].map((v) => ({ id: v, name: v }));
+
+// The team's reviews, read-only: totals, star breakdown, per-technician
+// breakdown and every review with the technicians credited to it.
+function TeamReviews() {
   const [filters, patch] = useMyFilters();
+  const [technicians, setTechnicians] = useState([]);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
+    api.me
+      .reportSettings()
+      .then((r) => setTechnicians(r.technicians.map((t) => ({ id: t.id, name: t.active ? t.name : `${t.name} (inactive)` }))))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
     setError('');
     api.me
-      .reviews({ from: filters.from, to: filters.to })
+      .reviews(filters)
       .then(setData)
       .catch((err) => setError(err.message));
-  }, [filters.from, filters.to]);
+  }, [filters]);
   return (
     <div>
       <div className="panel" style={{ padding: 16, marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <DateFilters filters={filters} patch={patch} />
+        <FilterSelect label="Technician" value={filters.technicianId || ''} onChange={(v) => patch({ technicianId: v })} options={technicians} />
+        <FilterSelect label="Star rating" value={filters.rating || ''} onChange={(v) => patch({ rating: v, ratingClass: '' })} options={RATING_OPTIONS} />
+        <FilterSelect label="Classification" value={filters.ratingClass || ''} onChange={(v) => patch({ ratingClass: v, rating: '' })} options={CLASS_OPTIONS} />
       </div>
       {error && <div className="notice error panel">{error}</div>}
       {data && (
         <>
-          <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>My review totals</div>
-            <table className="data-table" data-testid="my-review-totals">
-              <tbody>
-                <tr><th style={{ textAlign: 'left', width: 220 }}>Total reviews</th><td>{data.totals.total}</td></tr>
-                <tr><th style={{ textAlign: 'left' }}>Positive (4–5★)</th><td>{data.totals.positive}</td></tr>
-                <tr><th style={{ textAlign: 'left' }}>Neutral (3★)</th><td>{data.totals.neutral}</td></tr>
-                <tr><th style={{ textAlign: 'left' }}>Negative (1–2★)</th><td>{data.totals.negative}</td></tr>
-                <tr><th style={{ textAlign: 'left' }}>Average rating</th><td>{data.totals.averageRating ?? '—'}</td></tr>
-                {data.totals.byStars.map((b) => (
-                  <tr key={b.stars}>
-                    <th style={{ textAlign: 'left' }}>{'★'.repeat(b.stars)}</th>
-                    <td>{b.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid-charts" style={{ marginBottom: 14 }}>
+            <div className="panel" style={{ padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Team review totals</div>
+              <table className="data-table" data-testid="team-review-totals">
+                <tbody>
+                  <tr><th style={{ textAlign: 'left', width: 200 }}>Total reviews</th><td>{data.totals.total}</td></tr>
+                  <tr><th style={{ textAlign: 'left' }}>Positive (4–5★)</th><td>{data.totals.positive}</td></tr>
+                  <tr><th style={{ textAlign: 'left' }}>Neutral (3★)</th><td>{data.totals.neutral}</td></tr>
+                  <tr><th style={{ textAlign: 'left' }}>Negative (1–2★)</th><td>{data.totals.negative}</td></tr>
+                  <tr><th style={{ textAlign: 'left' }}>Average rating</th><td>{data.totals.averageRating ?? '—'}</td></tr>
+                  {data.totals.byStars.map((b) => (
+                    <tr key={b.stars}>
+                      <th style={{ textAlign: 'left' }}>{'★'.repeat(b.stars)}</th>
+                      <td>{b.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="panel" style={{ padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Reviews by technician</div>
+              {data.byTechnician.length === 0 ? (
+                <div className="empty-state">No reviews in this range.</div>
+              ) : (
+                <table className="data-table" data-testid="team-reviews-by-technician">
+                  <thead>
+                    <tr>
+                      <th>Technician</th>
+                      <th>Reviews</th>
+                      <th>Positive</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byTechnician.map((t) => (
+                      <tr key={t.name}>
+                        <td>{t.name}</td>
+                        <td>{t.total}</td>
+                        <td>{t.positive}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
           <div className="panel" style={{ padding: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>My reviews</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Reviews</div>
             {data.rows.length === 0 ? (
-              <div className="empty-state">No reviews credited to you in this range.</div>
+              <div className="empty-state">No reviews in this range.</div>
             ) : (
-              <table className="data-table" data-testid="my-reviews">
+              <table className="data-table" data-testid="team-reviews">
                 <thead>
                   <tr>
                     <th>Date</th>
                     <th>Rating</th>
                     <th>Status</th>
+                    <th>Technician(s)</th>
                     <th>Review</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -248,8 +293,16 @@ function MyReviews() {
                       <td className="mono">{r.reviewDate}</td>
                       <td>{'★'.repeat(r.rating)}</td>
                       <td>{r.classification}</td>
-                      <td style={{ maxWidth: 460 }}>{r.notes || '—'}</td>
-                      <td>{r.shared && <span className="badge badge-info">Shared review</span>}</td>
+                      <td>
+                        {r.technicians.join(', ') || '—'}
+                        {r.technicians.length > 1 && (
+                          <>
+                            {' '}
+                            <span className="badge badge-info">Shared review</span>
+                          </>
+                        )}
+                      </td>
+                      <td style={{ maxWidth: 420 }}>{r.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
