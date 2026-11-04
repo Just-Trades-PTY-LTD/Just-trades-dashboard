@@ -37,7 +37,8 @@ export function withAccessType(user) {
 
 // Deny-by-default for Technician accounts: every /api route is refused
 // (403) except signing in/out, "who am I", changing their own password, their
-// own report-layout preferences and the read-only /api/me routes. Anything
+// own report-layout preferences and the read-only /api/me routes (the
+// restricted team report and reviews — see routes/me.js). Anything
 // added to the app later is therefore closed to technicians automatically.
 const TECHNICIAN_ALLOWED = [
   ['POST', /^\/api\/auth\/(login|logout|change-password)$/],
@@ -52,7 +53,7 @@ export function technicianGate(req, res, next) {
   const path = req.originalUrl.split('?')[0];
   if (!path.startsWith('/api/')) return next();
   if (TECHNICIAN_ALLOWED.some(([method, re]) => method === req.method && re.test(path))) return next();
-  return res.status(403).json({ error: 'Technician accounts can only use My Performance and My Reviews.' });
+  return res.status(403).json({ error: 'Technician accounts can only use the Technician & Sales Report, Reviews and My Account.' });
 }
 
 export function attachUser(req, res, next) {
