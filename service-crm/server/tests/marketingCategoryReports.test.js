@@ -196,6 +196,11 @@ test('Sales by Marketing Category: attended Qualified jobs only, outcomes once e
     await wb.xlsx.load(res.buffer);
     const values = wb.getWorksheet('Sales by Category').getSheetValues().filter(Boolean).map((r) => r.slice(1));
     const header = values.findIndex((r) => r[0] === 'Marketing Category');
+    assert.deepEqual(values[header], [
+      'Marketing Category', 'Attended Qualified Jobs', 'Sale Made', 'Converted Later', 'Sold Jobs', 'Qualified No Sale / Knockbacks',
+      'Sales Conversion %', 'Total Sales Value (ex GST)', 'Average Value per Sold Job',
+    ]);
+    assert.match(values.slice(0, header).flat().join(' '), /Grouped by original visit date.*Sold Jobs ÷ Attended Qualified Jobs/);
     const money = (v) => Math.round(v * 100) / 100;
     assert.deepEqual(
       values.slice(header + 1),
