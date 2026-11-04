@@ -52,9 +52,10 @@ test('exact matches on a blank Sale Made form: suburb, comments, trade/job type,
   assert.ok(!('lead' in patch) && !('inspectionSheet' in patch) && !('optionSheet' in patch), 'qualification and sheets are never touched');
 });
 
-test('No Sale: never gets invoice or work completion', () => {
+test('No Sale: never gets invoice or work completion, and is never switched to Sale Made', () => {
   const { patch } = run(result(), blank('new_job_no_sale', { lead: 'Not Qualified', inspectionSheet: 'N/A', optionSheet: 'N/A' }));
   assert.deepEqual(Object.keys(patch).sort(), ['comments', 'jobTypeId', 'suburb', 'tradeId']);
+  assert.ok(!('kind' in patch) && !('lead' in patch), 'an invoice in AroFlo never turns a No Sale entry into Sale Made, and Lead is never touched');
 });
 
 test('no matches: unmatched or ambiguous task type, no suburb, no invoice — fields left blank with a note', () => {
