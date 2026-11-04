@@ -12,11 +12,10 @@ import {
 
 const RESULT = { found: true, suburb: 'Woodcroft (5162)', description: 'Split system not cooling' };
 
-test('new entry: suburb applied on a confident match, comments only if blank', () => {
+test('new entry: suburb applied on a confident match only if blank, comments only if blank', () => {
   assert.deepEqual(arofloAutoFill({ result: RESULT, form: { suburb: 'Morphett Vale (5162)', comments: '' }, applySuburb: true, editing: false }), {
-    suburb: 'Woodcroft (5162)',
     comments: 'Split system not cooling',
-  });
+  }, 'a suburb already on the form is never replaced');
   assert.deepEqual(arofloAutoFill({ result: RESULT, form: { suburb: '', comments: 'Typed by staff' }, applySuburb: true, editing: false }), {
     suburb: 'Woodcroft (5162)',
   });

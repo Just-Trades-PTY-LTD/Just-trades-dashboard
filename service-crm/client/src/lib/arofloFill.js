@@ -1,7 +1,7 @@
 // What a "Look up in AroFlo" result is allowed to put straight into the form.
 //
 // A brand-new entry: Suburb (where the entry type has one) is applied on a
-// confident match, and Comments only if still blank — nothing is saved until
+// confident match only if still blank, and Comments only if still blank — nothing is saved until
 // staff log the entry.
 //
 // Editing an entry that's already saved: nothing is applied. Clicking
@@ -11,7 +11,9 @@
 export function arofloAutoFill({ result, form, applySuburb, editing }) {
   if (!result?.found || editing) return {};
   const fill = {};
-  if (applySuburb && result.suburb) fill.suburb = result.suburb;
+  // Never replaces a suburb already on the form (typed, or filled from a
+  // Calls & Contacts record) — only a blank one is filled.
+  if (applySuburb && result.suburb && !form.suburb) fill.suburb = result.suburb;
   if (result.description && !form.comments) fill.comments = result.description;
   return fill;
 }

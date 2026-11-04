@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
-import { todayLocalDate } from '../../lib/dates.js';
+import { todayLocalDate, nowLocalDateTime } from '../../lib/dates.js';
 import { DateField, NumberField, SelectField, TextAreaField, YesNoField, Checkbox } from '../../components/Fields.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
+import { prefillStep, revertPrefill } from '../../lib/arofloPrefill.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
 import { changeLead, switchNewJobKind, hasEnteredDetails, confirmMessage, NA } from '../../lib/leadTransitions.js';
@@ -153,6 +154,53 @@ function ActivityTable({ title, rows, emptyText }) {
   );
 }
 
+const PREFILL_LABELS = {
+  suburb: 'Suburb',
+  comments: 'Comments',
+  tradeId: 'Trade',
+  jobTypeId: 'Job type',
+  invoiceNumber: 'Invoice number',
+  invoiceDate: 'Invoice date',
+  saleValueExGst: 'Sale value ex GST',
+  workCompletion: 'Work completion',
+  installDate: 'Install date',
+  installTechnicianId: 'Install technician',
+};
+
+// What the automatic AroFlo lookup did on a new New Job entry: which blank
+// fields it filled (all still editable, nothing saved), what it left for
+// staff and why, and single values offered where the field already holds
+// something else.
+function ArofloPrefillSummary({ plan, onUse }) {
+  return (
+    <div style={{ fontSize: 12.5, marginBottom: 10 }} data-testid="aroflo-prefill">
+      {plan.filled.length > 0 ? (
+        <div>
+          <strong>Filled from AroFlo</strong> (check, and change anything that's wrong — nothing is saved until you log the entry):{' '}
+          {plan.filled.map((f) => PREFILL_LABELS[f] || f).join(', ')}.
+        </div>
+      ) : (
+        <div>Nothing was filled automatically from AroFlo.</div>
+      )}
+      {plan.notes.length > 0 && (
+        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+          {plan.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      {plan.suggestions.map((sug) => (
+        <div key={sug.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <span>AroFlo suggests {sug.label} (not applied — you've already entered something different).</span>
+          <button className="btn btn-sm" type="button" onClick={() => onUse(sug.values)}>
+            Use this
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ArofloActivity({ activity }) {
   if (!activity) return null;
   return (
@@ -191,6 +239,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // What each Job Number lookup last auto-filled (see lib/lookupFill.js), so
   // correcting the Job Number takes back the old job's values.
   const lookupFills = useRef({});
+  // New, unsaved New Job entries only: what the AroFlo lookup filled
+  // ({ field: { value, prior } }), the Job Number it was for, and its notes
+  // and suggestions — see lib/arofloPrefill.js.
+  const arofloFilled = useRef({ jn: '', fields: {} });
+  // The Job Number an AroFlo lookup is running for right now ('' if none) —
+  // a ref, so a Job Number typed while a slow lookup runs is never blocked
+  // by state that hasn't re-rendered yet.
+  const arofloInFlight = useRef('');
+  const [arofloPlan, setArofloPlan] = useState(null);
   function applyLookupFill(source, wanted) {
     const { patch: changes, filled } = nextLookupFill(formRef.current, lookupFills.current[source], wanted);
     lookupFills.current[source] = filled;
@@ -205,6 +262,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     setInvalidFields(new Set());
     setArofloResult(null);
     setPriorSuburb('');
+    arofloFilled.current = { jn: '', fields: {} };
+    arofloInFlight.current = '';
+    setArofloPlan(null);
   }, [editing]);
 
   function patch(p) {
@@ -361,6 +421,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     setInvalidFields(new Set());
     setArofloResult(null);
     setPriorSuburb('');
+    arofloFilled.current = { jn: '', fields: {} };
+    arofloInFlight.current = '';
+    setArofloPlan(null);
   }
 
   // New Job, Existing Job — Upsell, and Call Back — a deliberate, optional
@@ -384,6 +447,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     if (!jn) return;
     const seq = ++arofloSeq.current;
     const kindAtStart = form.kind;
+    arofloInFlight.current = jn;
     setArofloLoading(true);
     setArofloResult(null);
     // Still the latest lookup, for the same entry type and a Job Number
@@ -400,6 +464,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       const result = await api.aroflo.lookup(jn, { activity: true });
       if (!stillApplies()) return;
       setArofloResult(result);
+      if (!editing && (kindAtStart === 'new_job_no_sale' || kindAtStart === 'new_job_sale_made')) {
+        applyNewJobPrefill(jn, result);
+        return;
+      }
       const current = formRef.current;
       if (arofloAutoFill({ result, form: current, applySuburb, editing: !!editing }).suburb) setPriorSuburb(current.suburb);
       // Re-checked inside the update against the very latest form, so text
@@ -408,9 +476,65 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     } catch (err) {
       if (!stillApplies()) return;
       setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
+      if (!editing && (kindAtStart === 'new_job_no_sale' || kindAtStart === 'new_job_sale_made')) applyNewJobPrefill(jn, { found: false });
     } finally {
-      if (seq === arofloSeq.current) setArofloLoading(false);
+      if (seq === arofloSeq.current) {
+        setArofloLoading(false);
+        arofloInFlight.current = '';
+      }
     }
+  }
+
+  // New, unsaved New Job entry: fill blank fields from one reliable AroFlo
+  // match (lib/arofloPrefill.js), first taking back anything an earlier
+  // lookup filled that's still showing. Form only — never saved here.
+  function applyNewJobPrefill(jn, result) {
+    const [date, time] = nowLocalDateTime().split('T');
+    const { plan, patch: changes, filled } = prefillStep({
+      result,
+      form: formRef.current,
+      previous: arofloFilled.current.fields,
+      now: { date, time },
+      trades: settings.trades,
+      technicians: settings.technicians,
+      defaults: { invoiceDate: emptyForm().invoiceDate },
+    });
+    arofloFilled.current = { jn, fields: filled };
+    setArofloPlan({ ...plan, filled: Object.keys(filled) });
+    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+  }
+
+  // The New Job Number field changed: drop the previous lookup's
+  // suggestions and take back what it filled (only where still showing).
+  function changeNewJobNumber(value) {
+    const prev = arofloFilled.current;
+    const inFlight = arofloInFlight.current;
+    if (!editing && (prev.jn || arofloResult || inFlight) && value.trim() !== (prev.jn || inFlight)) {
+      // Any lookup still running is for the old number: its answer is dropped.
+      arofloSeq.current += 1;
+      arofloInFlight.current = '';
+      setArofloLoading(false);
+      const undo = revertPrefill(formRef.current, prev.fields);
+      arofloFilled.current = { jn: '', fields: {} };
+      setArofloResult(null);
+      setArofloPlan(null);
+      patch({ ...undo, jobNumber: value });
+      return;
+    }
+    patch({ jobNumber: value });
+  }
+
+  // Leaving the Job Number field on a new entry runs the lookup once for
+  // that number (the button stays for a manual retry).
+  function autoLookupNewJob() {
+    const jn = (formRef.current.jobNumber || '').trim();
+    if (editing || !jn || arofloInFlight.current === jn) return;
+    if (arofloFilled.current.jn === jn && arofloResult) return;
+    runArofloLookup(jn);
+  }
+
+  function applyArofloSuggestion(values) {
+    patch(values);
   }
 
   // Editing only: staff chose AroFlo's suburb/description over what's saved.
@@ -877,7 +1001,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           />
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Job number (JN) *</label>
-            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <input
+              className="mono"
+              placeholder="e.g. 10432"
+              value={form.jobNumber}
+              onChange={(e) => changeNewJobNumber(e.target.value)}
+              onBlur={autoLookupNewJob}
+            />
             <button
               className="btn"
               type="button"
@@ -944,6 +1074,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                 AroFlo status: {arofloResult.status || '—'}
                 {arofloResult.taskType && <> · AroFlo task type: {arofloResult.taskType}</>}
               </div>
+              {isNewJob && !editing && arofloPlan && <ArofloPrefillSummary plan={arofloPlan} onUse={applyArofloSuggestion} />}
               {arofloResult.invoices.length > 0 && (isSaleMade || isExistingJob) && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Invoice(s) found — select one to use, or enter manually</div>
