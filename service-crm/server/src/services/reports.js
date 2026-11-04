@@ -285,7 +285,7 @@ export function computeCallsReport(filters = {}) {
     trend,
     inboundByHour,
     staffPerf,
-    leadsToSalesByCategory: computeLeadsToSalesByMarketingCategory(leads),
+    leadsByCategory: computeLeadsByMarketingCategory(leads),
   };
 }
 
@@ -395,6 +395,9 @@ export function drilldownCalls({ metric, category, segment, staffName, field, ..
       label: `Pending Cancellation reasons — ${category}`,
     };
   }
+  if (metric === 'leadsByCategory') {
+    return pickLeadsByCategorySubset(leads, category, field);
+  }
   if (metric === 'inboundByHour') {
     const hh = String(category).padStart(2, '0');
     const inboundCalls = reportCalls.filter((c) => c.direction === 'Inbound');
@@ -408,36 +411,72 @@ export function drilldownCalls({ metric, category, segment, staffName, field, ..
 }
 
 // ---------------------------------------------------------------------------
-// Leads to Sales by Marketing Category — a breakdown of this same report's
-// own Lead population (never a separate calls fetch), attributing any
-// eventual sale back to the Marketing Category (the existing Lead Source
-// field) recorded on the call that originally booked it.
+// Leads by Marketing Category (Calls Report) — enquiry and booking
+// performance only. Built from this report's own already-filtered Lead calls
+// (never a second fetch), each counted under its OWN Lead Source. Never uses
+// jobs, attendance, knockbacks, sales or revenue: a booked lead is a
+// successful booking whether or not its appointment has happened yet.
+// Total Leads / Booked Leads / Lead-to-Booking % reconcile exactly with this
+// report's own Leads / Booked / Booking rate cards (same population, same
+// booked = 'Yes' rule).
 // ---------------------------------------------------------------------------
 
-// Blank/null is shown as "Unassigned" here specifically — a deliberate,
-// explicitly requested wording for this one section only, distinct from
-// catLabel()'s "Not specified" used by every other breakdown on this report.
+// Blank/null is shown as "Unassigned" in the marketing breakdowns — distinct
+// from catLabel()'s "Not specified" used by the other breakdowns here.
 function marketingCategoryLabel(v) {
   return v || 'Unassigned';
 }
 
-// Every active sale, grouped by its own (normalized) Job Number — covers a
-// sale made at the original visit, an Approved Later sale, and an Upsell
-// alike, since all three always carry the *original* job's Job Number (see
-// schema.sql's own comment on sales.job_number). Deliberately never date- or
-// trade/job-type-filtered: whether a lead ever converted doesn't depend on
-// which period or trade this report's own filters currently happen to be
-// scoped to, only on whether a matching sale exists at all.
-function fetchActiveSalesByJobNumber() {
-  const rows = all(`SELECT * FROM sales WHERE archived = 0`);
-  const map = new Map();
-  rows.forEach((s) => {
-    const key = normKey(s.job_number);
-    if (!key) return;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(s);
+function leadsCategoryFigures(category, list) {
+  const booked = list.filter((c) => c.booked === 'Yes').length;
+  return {
+    category,
+    leads: list.length,
+    booked,
+    notBooked: list.length - booked,
+    leadToBookingPct: pct(booked, list.length),
+  };
+}
+
+function computeLeadsByMarketingCategory(leads) {
+  const groups = new Map();
+  leads.forEach((c) => {
+    const key = marketingCategoryLabel(c.lead_source_name);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
   });
-  return map;
+  const rows = Array.from(groups.entries())
+    .map(([category, list]) => leadsCategoryFigures(category, list))
+    .sort((a, b) => b.leads - a.leads || a.category.localeCompare(b.category));
+  return { rows, totals: leadsCategoryFigures('Total', leads) };
+}
+
+// The exact calls behind one Leads by Marketing Category figure. No
+// `category` means the Total row (every category combined).
+function pickLeadsByCategorySubset(leads, category, field) {
+  const list = category ? leads.filter((c) => marketingCategoryLabel(c.lead_source_name) === category) : leads;
+  const label = category || 'All categories';
+  const booked = list.filter((c) => c.booked === 'Yes');
+  const notBooked = list.filter((c) => c.booked !== 'Yes');
+  switch (field) {
+    case 'leads':
+      return { rows: list, label: `${label} — Total Leads` };
+    case 'booked':
+      return { rows: booked, label: `${label} — Booked Leads` };
+    case 'notBooked':
+      return { rows: notBooked, label: `${label} — Leads Not Booked` };
+    case 'leadToBookingPct':
+      return {
+        rows: list,
+        label: `${label} — Lead-to-Booking %`,
+        outcomes: [
+          { label: 'Booked', count: booked.length },
+          { label: 'Not booked', count: notBooked.length },
+        ],
+      };
+    default:
+      return null;
+  }
 }
 
 // Groups this report's own (already date/staff/trade/job-type scoped) Lead
@@ -465,164 +504,6 @@ function groupBookedLeadsByJobNumber(leads) {
     }
   });
   return groups;
-}
-
-function emptyMarketingCategoryFigures(category) {
-  return { category, leads: 0, booked: 0, converted: 0, notConverted: 0, totalSalesValueExGst: 0 };
-}
-
-// Shared by computeLeadsToSalesByMarketingCategory() and
-// drilldownLeadsToSalesByMarketingCategory() below so the on-screen figures,
-// the Excel export and every click-through can never drift apart from each
-// other — same principle as fetchCallsRaw() above.
-function buildMarketingCategoryData(leads) {
-  const jobNumberGroups = groupBookedLeadsByJobNumber(leads);
-  const salesByJobNumber = fetchActiveSalesByJobNumber();
-
-  const byCategory = new Map();
-  function bucket(category) {
-    if (!byCategory.has(category)) byCategory.set(category, emptyMarketingCategoryFigures(category));
-    return byCategory.get(category);
-  }
-
-  leads.forEach((c) => {
-    bucket(marketingCategoryLabel(c.lead_source_name)).leads += 1;
-  });
-
-  jobNumberGroups.forEach((representativeCall, jobNumberKey) => {
-    const figures = bucket(marketingCategoryLabel(representativeCall.lead_source_name));
-    figures.booked += 1;
-    const sales = salesByJobNumber.get(jobNumberKey) || [];
-    if (sales.length) {
-      figures.converted += 1;
-      figures.totalSalesValueExGst += sales.reduce((sum, s) => sum + num(s.sale_value_ex_gst), 0);
-    } else {
-      figures.notConverted += 1;
-    }
-  });
-
-  return { byCategory, jobNumberGroups, salesByJobNumber };
-}
-
-function finishMarketingCategoryFigures(figures) {
-  return {
-    ...figures,
-    leadToBookingPct: pct(figures.booked, figures.leads),
-    bookedToSalePct: pct(figures.converted, figures.booked),
-    overallLeadToSalePct: pct(figures.converted, figures.leads),
-    averageSaleValue: figures.converted ? figures.totalSalesValueExGst / figures.converted : 0,
-  };
-}
-
-// Folded into computeCallsReport()'s own return above — takes this report's
-// own already-filtered `leads` array directly, never a second calls fetch.
-function computeLeadsToSalesByMarketingCategory(leads) {
-  const { byCategory } = buildMarketingCategoryData(leads);
-  const rows = Array.from(byCategory.values())
-    .map(finishMarketingCategoryFigures)
-    .sort((a, b) => b.leads - a.leads || a.category.localeCompare(b.category));
-
-  const totalsRaw = rows.reduce(
-    (acc, r) => {
-      acc.leads += r.leads;
-      acc.booked += r.booked;
-      acc.converted += r.converted;
-      acc.notConverted += r.notConverted;
-      acc.totalSalesValueExGst += r.totalSalesValueExGst;
-      return acc;
-    },
-    emptyMarketingCategoryFigures('Total')
-  );
-
-  return { rows, totals: finishMarketingCategoryFigures(totalsRaw) };
-}
-
-// Every clickable figure on the Leads to Sales by Marketing Category section
-// — resolved against the exact same job-number groups/sales map the report
-// itself computed its numbers from, never a fresh, potentially-drifting
-// re-derivation. Returns { label, callIds, saleRows }: saleRows are already
-// tagged {kind,id} the same way the Technician & Sales report's own
-// drill-down tags a sale, so the route can re-expand them via the exact same
-// listTechEntries() lookup that report already relies on — a sale made at
-// the visit folds into its job's own entry (by job_id), an Approved Later
-// sale and an Upsell are each their own entry (by the sale's own id).
-export function drilldownLeadsToSalesByMarketingCategory({ category, field, ...filters }) {
-  const reportCalls = fetchCallsRaw(filters);
-  const leads = reportCalls.filter((c) => c.call_type === 'Lead');
-  const { jobNumberGroups, salesByJobNumber } = buildMarketingCategoryData(leads);
-
-  function saleKind(s) {
-    if (s.source === 'sale_made_at_visit') return { kind: 'new_job_sale_made', id: s.job_id };
-    if (s.is_upsell) return { kind: 'existing_job_upsell', id: s.id };
-    return { kind: 'quote_approved_later', id: s.id };
-  }
-
-  // No category means the Totals row — every category combined, never a
-  // literal "Total" string match against lead_source_name.
-  const matchesCategory = (c) => !category || marketingCategoryLabel(c.lead_source_name) === category;
-  const label = category || 'All categories';
-
-  const categoryGroups = Array.from(jobNumberGroups.entries()).filter(([, call]) => matchesCategory(call));
-  const converted = categoryGroups.filter(([key]) => (salesByJobNumber.get(key) || []).length);
-  const notConverted = categoryGroups.filter(([key]) => !(salesByJobNumber.get(key) || []).length);
-
-  const categoryLeads = leads.filter(matchesCategory);
-
-  if (field === 'leads') {
-    return { label: `${label} — Leads`, callIds: categoryLeads.map((c) => c.id), saleRows: [] };
-  }
-  if (field === 'booked') {
-    return { label: `${label} — Booked leads`, callIds: categoryGroups.map(([, call]) => call.id), saleRows: [] };
-  }
-  if (field === 'notConverted') {
-    return { label: `${label} — Leads not converted to sale`, callIds: notConverted.map(([, call]) => call.id), saleRows: [] };
-  }
-  if (field === 'leadToBookingPct') {
-    return {
-      label: `${label} — Lead-to-Booking %`,
-      callIds: categoryLeads.map((c) => c.id),
-      saleRows: [],
-      outcomes: [
-        { label: 'Booked', count: categoryGroups.length },
-        { label: 'Not booked', count: categoryLeads.length - categoryGroups.length },
-      ],
-    };
-  }
-  if (field === 'bookedToSalePct') {
-    return {
-      label: `${label} — Booked-to-Sale %`,
-      callIds: categoryGroups.map(([, call]) => call.id),
-      saleRows: [],
-      outcomes: [
-        { label: 'Converted to sale', count: converted.length },
-        { label: 'Not converted', count: notConverted.length },
-      ],
-    };
-  }
-  if (field === 'overallLeadToSalePct') {
-    return {
-      label: `${label} — Overall Lead-to-Sale %`,
-      callIds: categoryLeads.map((c) => c.id),
-      saleRows: [],
-      outcomes: [
-        { label: 'Converted to sale', count: converted.length },
-        { label: 'Not converted to sale', count: categoryLeads.length - converted.length },
-      ],
-    };
-  }
-  if (field === 'converted' || field === 'totalSalesValue' || field === 'averageSaleValue') {
-    const labels = {
-      converted: 'Leads converted to sale',
-      totalSalesValue: 'Total sales value ex GST',
-      averageSaleValue: 'Average sale value',
-    };
-    return {
-      label: `${label} — ${labels[field]}`,
-      callIds: converted.map(([, call]) => call.id),
-      saleRows: converted.flatMap(([key]) => (salesByJobNumber.get(key) || []).map(saleKind)),
-    };
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,6 +1131,185 @@ function computeRevenueBySuburb(salesAll, upsellsAll) {
     .sort((a, b) => b.totalSalesValueExGst - a.totalSalesValueExGst || a.suburb.localeCompare(b.suburb));
 }
 
+// ---------------------------------------------------------------------------
+// Sales by Marketing Category (Technician & Sales report) — the eventual
+// outcome of the Qualified jobs ATTENDED in the report's period (visit
+// date), by the Marketing Category of the lead that booked each job.
+//
+// - Population: this report's own already-filtered jobs (every filter,
+//   including Entry Type), Qualified only. Future/unattended bookings,
+//   booked calls with no job entry, cancellations, unbooked calls and Not
+//   Qualified jobs are never in it, so they can never lower the conversion.
+// - Marketing Category: the Lead Source of the earliest booked Lead call
+//   with the job's Job Number (groupBookedLeadsByJobNumber — the same rule
+//   as this report's Lead Source filter). No such call: "Unassigned (no
+//   booked Lead call)"; a booked call with no Lead Source: "Unassigned".
+// - Each job is exactly one of Sale Made / Converted Later / Knockback, the
+//   same split as splitJobs(), so the totals equal the report's Qualified
+//   Jobs, Converted later, Knock backs and Conversion Rate.
+// - Value: the original (non-Upsell) sales linked to each SOLD job, whatever
+//   their invoice date (a later Quote Approved Later invoice still counts
+//   towards the period the job was attended in), de-duplicated by invoice
+//   number like fetchSalesAll(). Upsells are never included. A sale is
+//   linked to a job by its own job_id; a legacy sale without one by Job
+//   Number, only when exactly one active job has that number — so no sale is
+//   ever counted against two jobs.
+// - Adjusted Knockbacks are deliberately not split by category: that weekly
+//   per-technician credit can offset a knockback from a different category.
+// Read-only: nothing here is stored or changes any record.
+// ---------------------------------------------------------------------------
+export const NO_BOOKED_LEAD_CALL = 'Unassigned (no booked Lead call)';
+
+function marketingCategoryByJobNumber() {
+  const calls = all(
+    `SELECT c.*, ls.name AS lead_source_name FROM calls c
+     LEFT JOIN list_items ls ON ls.id = c.lead_source_id
+     WHERE c.archived = 0 AND c.call_type = 'Lead'`
+  );
+  const map = new Map();
+  groupBookedLeadsByJobNumber(calls).forEach((call, key) => map.set(key, marketingCategoryLabel(call.lead_source_name)));
+  return map;
+}
+
+// Original (non-Upsell) active sales with an invoice number, de-duplicated by
+// invoice number exactly as fetchSalesAll() does (most recently logged kept),
+// but with no date or other filter — they follow their job.
+function linkedOriginalSalesByJobId(jobs) {
+  const rows = all(
+    `SELECT s.* FROM sales s WHERE s.archived = 0 AND s.invoice_number != '' AND s.is_upsell = 0 ORDER BY s.id DESC`
+  );
+  const seen = new Set();
+  const deduped = rows.filter((s) => {
+    const key = (s.invoice_number || '').trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const activeJobCountByNumber = new Map();
+  all('SELECT job_number FROM jobs WHERE archived = 0').forEach((j) => {
+    const key = normKey(j.job_number);
+    if (key) activeJobCountByNumber.set(key, (activeJobCountByNumber.get(key) || 0) + 1);
+  });
+  const jobIds = new Set(jobs.map((j) => j.id));
+  const jobIdByNumber = new Map(jobs.map((j) => [normKey(j.job_number), j.id]));
+  const byJob = new Map();
+  deduped.forEach((s) => {
+    let jobId = s.job_id;
+    if (!jobId) {
+      const key = normKey(s.job_number);
+      if (activeJobCountByNumber.get(key) === 1) jobId = jobIdByNumber.get(key);
+    }
+    if (!jobId || !jobIds.has(jobId)) return;
+    if (!byJob.has(jobId)) byJob.set(jobId, []);
+    byJob.get(jobId).push(s);
+  });
+  return byJob;
+}
+
+// Everything the section and its drill-downs are built from, so the figures,
+// the Excel sheet and every click-through can never drift apart.
+function buildSalesByMarketingCategory(jobsAll) {
+  const categoryByNumber = marketingCategoryByJobNumber();
+  const qualified = jobsAll.filter((j) => j.lead === 'Qualified');
+  const salesByJob = linkedOriginalSalesByJobId(qualified);
+  const entries = qualified.map((j) => {
+    const outcome = j.had_sale_at_visit ? 'saleMade' : j.converted_later ? 'convertedLater' : 'knockback';
+    const sales = outcome === 'knockback' ? [] : salesByJob.get(j.id) || [];
+    return {
+      job: j,
+      category: categoryByNumber.get(normKey(j.job_number)) || NO_BOOKED_LEAD_CALL,
+      outcome,
+      sales,
+      value: sales.reduce((sum, s) => sum + num(s.sale_value_ex_gst), 0),
+    };
+  });
+  return entries;
+}
+
+function salesCategoryFigures(category, entries) {
+  const count = (o) => entries.filter((e) => e.outcome === o).length;
+  const saleMade = count('saleMade');
+  const convertedLater = count('convertedLater');
+  const sales = saleMade + convertedLater;
+  const totalSalesValueExGst = entries.reduce((sum, e) => sum + e.value, 0);
+  return {
+    category,
+    attendedQualified: entries.length,
+    saleMade,
+    convertedLater,
+    sales,
+    knockbacks: count('knockback'),
+    conversionPct: pct(sales, entries.length),
+    totalSalesValueExGst,
+    // null when there are no sales — shown as a dash, never $0.
+    averageSaleValue: sales ? totalSalesValueExGst / sales : null,
+  };
+}
+
+function computeSalesByMarketingCategory(jobsAll) {
+  const entries = buildSalesByMarketingCategory(jobsAll);
+  const groups = new Map();
+  entries.forEach((e) => {
+    if (!groups.has(e.category)) groups.set(e.category, []);
+    groups.get(e.category).push(e);
+  });
+  const rows = Array.from(groups.entries())
+    .map(([category, list]) => salesCategoryFigures(category, list))
+    .sort((a, b) => b.attendedQualified - a.attendedQualified || a.category.localeCompare(b.category));
+  return { rows, totals: salesCategoryFigures('Total', entries) };
+}
+
+// The exact records behind one Sales by Marketing Category figure. No
+// `category` means the Total row.
+function pickSalesByCategorySubset(jobsAll, category, field) {
+  const everyEntry = buildSalesByMarketingCategory(jobsAll);
+  const entries = category ? everyEntry.filter((e) => e.category === category) : everyEntry;
+  const label = category || 'All categories';
+  const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
+  const tagJobs = (list) => list.map((e) => ({ kind: jobKind(e.job), id: e.job.id }));
+  const of = (o) => entries.filter((e) => e.outcome === o);
+  const sold = entries.filter((e) => e.outcome !== 'knockback');
+  switch (field) {
+    case 'attendedQualified':
+      return { rows: tagJobs(entries), label: `${label} — Attended Qualified Jobs` };
+    case 'saleMade':
+      return { rows: tagJobs(of('saleMade')), label: `${label} — Sale Made` };
+    case 'convertedLater':
+      return { rows: tagJobs(of('convertedLater')), label: `${label} — Converted Later` };
+    case 'sales':
+      return { rows: tagJobs(sold), label: `${label} — Sales` };
+    case 'knockbacks':
+      return { rows: tagJobs(of('knockback')), label: `${label} — Qualified No Sale / Knockbacks` };
+    case 'conversionPct':
+      return {
+        rows: tagJobs(entries),
+        label: `${label} — Sales Conversion %`,
+        outcomes: [
+          { label: 'Sale made', count: of('saleMade').length },
+          { label: 'Converted later', count: of('convertedLater').length },
+          { label: 'Knock back', count: of('knockback').length },
+        ],
+      };
+    case 'totalSalesValue':
+    case 'averageSaleValue': {
+      // The sold jobs plus every sale whose value was summed — a sale made at
+      // the visit is shown on its job's own entry, a Quote Approved Later sale
+      // as its own entry.
+      const saleRows = tagSales(sold.flatMap((e) => e.sales));
+      const keys = new Set();
+      const rows = [...tagJobs(sold), ...saleRows].filter((r) => {
+        const k = `${r.kind}:${r.id}`;
+        if (keys.has(k)) return false;
+        keys.add(k);
+        return true;
+      });
+      return { rows, label: `${label} — ${field === 'totalSalesValue' ? 'Total Sales Value ex GST' : 'Average Sale Value per Sale'}` };
+    }
+    default:
+      return null;
+  }
+}
+
 export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week', ...restFilters } = {}) {
   const filters = { from, to, technicianId, tradeId, jobTypeId, ...restFilters };
   const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, includedPopulations } = fetchTechRaw(filters);
@@ -1372,7 +1432,20 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
 
   const revenueBySuburb = computeRevenueBySuburb(salesAll, upsellsAll);
 
-  return { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, includedPopulations, revenueBySuburb };
+  const salesByMarketingCategory = computeSalesByMarketingCategory(jobsAll);
+
+  return {
+    company,
+    byTrade,
+    byTechnician,
+    salesByTradePie,
+    jobsOppSalesByTrade,
+    trend,
+    missingTechnicianCount,
+    includedPopulations,
+    revenueBySuburb,
+    salesByMarketingCategory,
+  };
 }
 
 // A legacy job saved before Reason for Knockback was ever required — shown
@@ -1617,6 +1690,9 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
       rows: [...tagSales(matchingSales), ...tagUpsells(matchingUpsells)],
       label: `${category} — Total Sales Value (ex GST)`,
     };
+  }
+  if (metric === 'salesByMarketingCategory') {
+    return pickSalesByCategorySubset(jobsAll, category, field);
   }
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see
