@@ -177,27 +177,22 @@ export function buildCallsWorkbook(data, filters, lookups) {
     { key: 'value', label: 'Inbound Calls' },
   ], data.inboundByHour);
 
-  // Leads to Sales by Marketing Category — same figures, same Job-Number
-  // grouping/attribution rules as the on-screen section (see
-  // services/reports.js's computeLeadsToSalesByMarketingCategory), so this
-  // export can never show a different number than what's on screen.
-  const leadsToSales = wb.addWorksheet('Leads to Sales');
-  addTitleBlock(leadsToSales, 'Calls Report — Leads to Sales by Marketing Category', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
+  // Leads by Marketing Category — the exact rows/totals the on-screen
+  // section shows (services/reports.js's computeLeadsByMarketingCategory),
+  // built from this same filtered report, so the Total row always equals the
+  // Summary sheet's Leads / Booked / Booking rate.
+  const leadsByCategory = wb.addWorksheet('Leads by Category');
+  addTitleBlock(leadsByCategory, 'Calls Report — Leads by Marketing Category', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
   addDataTable(
-    leadsToSales,
+    leadsByCategory,
     [
       { key: 'category', label: 'Marketing Category', width: 26 },
-      { key: 'leads', label: 'Leads' },
+      { key: 'leads', label: 'Total Leads' },
       { key: 'booked', label: 'Booked Leads' },
-      { key: 'converted', label: 'Leads Converted to Sale' },
-      { key: 'notConverted', label: 'Leads Not Converted to Sale' },
+      { key: 'notBooked', label: 'Leads Not Booked' },
       { key: 'leadToBookingPct', label: 'Lead-to-Booking %', value: (r) => `${r.leadToBookingPct}%` },
-      { key: 'bookedToSalePct', label: 'Booked-to-Sale %', value: (r) => `${r.bookedToSalePct}%` },
-      { key: 'overallLeadToSalePct', label: 'Overall Lead-to-Sale %', value: (r) => `${r.overallLeadToSalePct}%` },
-      { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
-      { key: 'averageSaleValue', label: 'Average Sale Value', value: (r) => money(r.averageSaleValue), numFmt: CURRENCY_FORMAT, width: 16 },
     ],
-    [...data.leadsToSalesByCategory.rows, data.leadsToSalesByCategory.totals]
+    [...data.leadsByCategory.rows, data.leadsByCategory.totals]
   );
 
   return wb;
@@ -384,6 +379,34 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
       { key: 'averageSaleValue', label: 'Average Sale Value', value: (r) => money(r.averageSaleValue), numFmt: CURRENCY_FORMAT, width: 16 },
     ],
     [...data.revenueBySuburb, suburbTotal]
+  );
+
+  // Sales by Marketing Category — the exact rows/totals the on-screen section
+  // shows (services/reports.js's computeSalesByMarketingCategory): Qualified
+  // jobs attended in this period by visit date, their eventual outcome, and
+  // the value of their own original sales (no Upsells).
+  const salesByCategory = wb.addWorksheet('Sales by Category');
+  addTitleBlock(salesByCategory, 'Technician & Sales Report — Sales by Marketing Category', filterSummaryLines({ from: filters.from, to: filters.to, extra }));
+  addDataTable(
+    salesByCategory,
+    [
+      { key: 'category', label: 'Marketing Category', width: 30 },
+      { key: 'attendedQualified', label: 'Attended Qualified Jobs' },
+      { key: 'saleMade', label: 'Sale Made' },
+      { key: 'convertedLater', label: 'Converted Later' },
+      { key: 'sales', label: 'Sales' },
+      { key: 'knockbacks', label: 'Qualified No Sale / Knockbacks' },
+      { key: 'conversionPct', label: 'Sales Conversion %', value: (r) => `${r.conversionPct}%` },
+      { key: 'totalSalesValueExGst', label: 'Total Sales Value (ex GST)', value: (r) => money(r.totalSalesValueExGst), numFmt: CURRENCY_FORMAT, width: 20 },
+      {
+        key: 'averageSaleValue',
+        label: 'Average Sale Value per Sale',
+        value: (r) => (r.averageSaleValue === null ? '—' : money(r.averageSaleValue)),
+        numFmt: CURRENCY_FORMAT,
+        width: 18,
+      },
+    ],
+    [...data.salesByMarketingCategory.rows, data.salesByMarketingCategory.totals]
   );
 
   // Knockback Reasons tracker — its own two sheets, built from

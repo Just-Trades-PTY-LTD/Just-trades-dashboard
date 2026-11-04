@@ -20,8 +20,8 @@ function markLegacyNotQualified(jobNumber) {
 //     narrows Sales/Upsells/Call Backs/Pending Cancellations too, via each
 //     row's own original job — never left unfiltered alongside a narrowed
 //     Jobs count
-//   - Lead Source resolves identically to the already-shipped Leads to Sales
-//     attribution (earliest Lead call wins)
+//   - Lead Source resolves identically to the Marketing Category
+//     attribution (earliest booked Lead call wins)
 //   - Suburb resolves via the original job for Sales/Call Backs/Pending
 //     Cancellations (which have no reliable suburb of their own), never the
 //     row's own blank/absent column
@@ -133,7 +133,7 @@ test('Sale Made filter on Jobs propagates to exclude a Quote Approved Later sale
   }
 });
 
-test('Lead Source on the Technician & Sales Report resolves identically to Leads to Sales\' own attribution', async () => {
+test('Lead Source on the Technician & Sales Report resolves by the earliest booked Lead call for the Job Number', async () => {
   const server = await startTestServer();
   try {
     const { plumbing, jobTypeId, sourceA, tech } = await setup(server);
