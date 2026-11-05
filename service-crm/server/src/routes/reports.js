@@ -73,7 +73,7 @@ export function createReportsRouter() {
     if (!result) return res.status(400).json({ error: `This figure can't be linked to specific records: "${metric}".` });
     const keySet = new Set(result.rows.map((r) => `${r.kind}:${r.id}`));
     const rows = listTechEntries({ includeArchived: 'true' }).filter((e) => keySet.has(`${e.kind}:${e.id}`));
-    res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, kind: 'tech', rows });
+    res.json({ label: result.label, count: rows.length, outcomes: result.outcomes || null, offsets: result.offsets || null, kind: 'tech', rows });
   });
 
   router.get('/reviews', (req, res) => {

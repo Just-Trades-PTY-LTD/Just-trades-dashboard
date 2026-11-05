@@ -211,7 +211,7 @@ const TECH_TABLE_COLUMNS = (nameLabel) => [
   { key: 'avgSaleExGst', label: 'Avg sale', value: (r) => money(r.avgSaleExGst), numFmt: CURRENCY_FORMAT, width: 14 },
   { key: 'knockbacks', label: 'Knock backs' },
   { key: 'convertedLaterCount', label: 'Converted later' },
-  { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
+  { key: 'conversionRate', label: 'Conversion %', value: (r) => (r.qualifiedJobs ? `${r.conversionRate}%` : '—') },
   { key: 'qualifiedJobs', label: 'Qual. leads' },
   { key: 'sales', label: 'Sales' },
   // Reported separately from Sales/Value above — never folded into either
@@ -408,6 +408,53 @@ export function buildTechWorkbook(data, filters, lookups, knockbackReasonsData, 
     ],
     [...data.salesByMarketingCategory.rows, data.salesByMarketingCategory.totals]
   );
+
+  // Marketing Conversion by Category — the exact rows/totals/note the
+  // on-screen section shows (services/reports.js's
+  // computeMarketingConversionByCategory), then every applied Converted
+  // Later credit and the knockback it offset, with cross-category offsets
+  // labelled and the real linked job and its category shown.
+  const conversion = data.marketingConversionByCategory;
+  if (conversion) {
+    const conversionSheet = wb.addWorksheet('Conversion by Category');
+    addTitleBlock(conversionSheet, 'Technician & Sales Report — Marketing Conversion by Category', [
+      ...filterSummaryLines({ from: filters.from, to: filters.to, extra }),
+      "Grouped by visit date: the same jobs as the Summary sheet's Jobs Attended. Not combined with Sales by Category (invoice date).",
+      'Sold Jobs = Qualified jobs with Sale Made + knockbacks offset by Converted Later. Conversion % = Sold Jobs ÷ Qualified Jobs.',
+      conversion.note,
+    ]);
+    addDataTable(
+      conversionSheet,
+      [
+        { key: 'category', label: 'Marketing Category', width: 30 },
+        { key: 'totalJobs', label: 'Total Jobs' },
+        { key: 'qualifiedJobs', label: 'Qualified Jobs' },
+        { key: 'soldJobs', label: 'Sold Jobs' },
+        { key: 'adjustedKnockbacks', label: 'Adjusted Knockbacks', width: 20 },
+        { key: 'conversionRate', label: 'Conversion %', value: (r) => `${r.conversionRate}%` },
+      ],
+      [...conversion.rows, conversion.totals]
+    );
+    conversionSheet.addRow([]);
+    addSectionHeading(conversionSheet, 'Converted Later credits applied (how each offset was assigned)');
+    addDataTable(
+      conversionSheet,
+      [
+        { key: 'invoiceNumber', label: 'Invoice', width: 12 },
+        { key: 'invoiceDate', label: 'Invoice Date', width: 13 },
+        { key: 'technician', label: 'Technician', width: 16 },
+        { key: 'week', label: 'Week (Mon)', width: 13 },
+        { key: 'invoiceCategory', label: 'Invoice Category', width: 30 },
+        { key: 'linkedJob', label: 'Linked Original Job', value: (o) => (o.linkedJob ? `JN ${o.linkedJob.jobNumber} (visited ${o.linkedJob.visitDate})` : 'None'), width: 30 },
+        { key: 'linkedCategory', label: 'Linked Job Category', value: (o) => (o.linkedJob ? o.linkedJob.category : '—'), width: 30 },
+        { key: 'offsetJob', label: 'Offset Knockback', value: (o) => `JN ${o.offsetJob.jobNumber} (visited ${o.offsetJob.visitDate})`, width: 30 },
+        { key: 'offsetCategory', label: 'Offset Category', value: (o) => o.offsetJob.category, width: 30 },
+        { key: 'stepLabel', label: 'Assigned By', width: 18 },
+        { key: 'explanation', label: 'Explanation', width: 90 },
+      ],
+      conversion.offsets
+    );
+  }
 
   // Knockback Reasons tracker — its own two sheets, built from
   // knockbackReasonsFilters/knockbackReasonsData. Only Trade/Reason

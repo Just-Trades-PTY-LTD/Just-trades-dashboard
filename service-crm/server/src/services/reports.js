@@ -515,29 +515,18 @@ function matchesTextOrUnassigned(value, selected) {
   return value === selected;
 }
 
-// Every active Lead call, regardless of this report's own date range — the
-// same reasoning as Leads to Sales' own sales lookup: whether a Job Number
-// traces back to a particular Lead Source doesn't depend on which period
-// the report itself happens to be scoped to.
-function fetchAllActiveLeadCalls() {
-  return all(`SELECT * FROM calls WHERE archived = 0 AND call_type = 'Lead'`);
-}
-
-// Job Number -> the lead_source_id of whichever Lead call is authoritative
-// for it (the earliest one, booked='Yes', see groupBookedLeadsByJobNumber
-// above) — null where no such call exists, read back everywhere below as
-// "Unassigned". Built once per report/drill-down call, not once per row.
-function leadSourceIdByJobNumber() {
-  const groups = groupBookedLeadsByJobNumber(fetchAllActiveLeadCalls());
-  const map = new Map();
-  groups.forEach((call, key) => map.set(key, call.lead_source_id || null));
-  return map;
-}
-
-function matchesLeadSource(jobNumber, selected, leadSourceMap) {
+// Lead calls are read regardless of this report's own date range: whether a
+// Job Number traces back to a Lead Source doesn't depend on the period.
+// This report's Lead Source filter follows the same final Marketing Category
+// attribution as Sales by Marketing Category and Marketing Conversion by
+// Category (see marketingAttribution below): a proven callback job/sale is
+// Repeat customer, otherwise the earliest booked Lead call's Lead Source,
+// otherwise "Unassigned". Built once per report/drill-down call. The Calls
+// Report's own Lead Source filter is separate and reads each call's own
+// Lead Source.
+function matchesLeadSource(row, selected, attribution) {
   if (!selected) return true;
-  const key = normKey(jobNumber);
-  return matchesIdOrUnassigned(key ? leadSourceMap.get(key) : null, selected);
+  return matchesIdOrUnassigned(attribution.resolve(row).leadSourceId, selected);
 }
 
 // Resolves a sale/upsell/call-back/pending-cancellation row back to the one
@@ -614,7 +603,7 @@ function fetchJobsAll({
      LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
      WHERE j.archived = 0`
   );
-  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   let filtered = rows.filter(
     (j) =>
       inRange(j.visit_date, from, to) &&
@@ -622,7 +611,7 @@ function fetchJobsAll({
       (!tradeId || j.trade_id === Number(tradeId)) &&
       (!jobTypeId || j.job_type_id === Number(jobTypeId)) &&
       matchesTextOrUnassigned(j.lead, leadQualification) &&
-      (!leadSourceMap || matchesLeadSource(j.job_number, leadSourceId, leadSourceMap)) &&
+      (!leadSourceAttribution || matchesLeadSource(j, leadSourceId, leadSourceAttribution)) &&
       matchesYesNo(j.had_sale_at_visit, saleMade) &&
       matchesYesNo(j.knockback, knockback) &&
       matchesYesNo(j.converted_later, convertedLater) &&
@@ -653,12 +642,12 @@ function fetchJobsAll({
 // these four row types, resolved via the one original job/Job Number each
 // row already carries. `isJob` is always false here (jobs apply these
 // directly against their own columns in fetchJobsAll instead).
-function applyLinkedJobFilters(rows, entityType, { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId }, resolveOriginalJob, leadSourceMap) {
+function applyLinkedJobFilters(rows, entityType, { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId }, resolveOriginalJob, leadSourceAttribution) {
   let filtered = rows.filter((r) => {
     if (leadQualification || saleMade || knockback || convertedLater) {
       if (!matchesJobLevelFilters(resolveOriginalJob(r.job_number), { leadQualification, saleMade, knockback, convertedLater })) return false;
     }
-    if (leadSourceMap && !matchesLeadSource(r.job_number, leadSourceId, leadSourceMap)) return false;
+    if (leadSourceAttribution && !matchesLeadSource(r, leadSourceId, leadSourceAttribution)) return false;
     if (suburb && normKey(resolveSuburb(r, false, resolveOriginalJob)) !== normKey(suburb)) return false;
     return true;
   });
@@ -717,13 +706,13 @@ function fetchSalesAll({
     }
   });
   const resolveOriginalJob = makeOriginalJobResolver();
-  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   return applyLinkedJobFilters(
     deduped,
     'sale',
     { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
     resolveOriginalJob,
-    leadSourceMap
+    leadSourceAttribution
   );
 }
 
@@ -767,13 +756,13 @@ function fetchUpsellsAll({
       (!createdByUserId || s.created_by_user_id === Number(createdByUserId))
   );
   const resolveOriginalJob = makeOriginalJobResolver();
-  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   return applyLinkedJobFilters(
     filtered,
     'sale',
     { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
     resolveOriginalJob,
-    leadSourceMap
+    leadSourceAttribution
   );
 }
 
@@ -810,13 +799,13 @@ function fetchCallBacksAll({
       (!createdByUserId || c.created_by_user_id === Number(createdByUserId))
   );
   const resolveOriginalJob = makeOriginalJobResolver();
-  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   return applyLinkedJobFilters(
     filtered,
     'call_back',
     { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
     resolveOriginalJob,
-    leadSourceMap
+    leadSourceAttribution
   );
 }
 
@@ -859,13 +848,13 @@ function fetchPendingCancelsAll({
       (!createdByUserId || p.created_by_user_id === Number(createdByUserId))
   );
   const resolveOriginalJob = makeOriginalJobResolver();
-  const leadSourceMap = leadSourceId ? leadSourceIdByJobNumber() : null;
+  const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   return applyLinkedJobFilters(
     filtered,
     'pending_cancellation',
     { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
     resolveOriginalJob,
-    leadSourceMap
+    leadSourceAttribution
   );
 }
 
@@ -1160,22 +1149,48 @@ function computeRevenueBySuburb(salesAll, upsellsAll) {
 // ---------------------------------------------------------------------------
 export const NO_BOOKED_LEAD_CALL = 'Unassigned (no booked Lead call)';
 
-function marketingCategoryByJobNumber() {
-  const calls = all(
-    `SELECT c.*, ls.name AS lead_source_name FROM calls c
-     LEFT JOIN list_items ls ON ls.id = c.lead_source_id
-     WHERE c.archived = 0 AND c.call_type = 'Lead'`
-  );
-  const map = new Map();
-  groupBookedLeadsByJobNumber(calls).forEach((call, key) => map.set(key, marketingCategoryLabel(call.lead_source_name)));
-  return map;
+// The "Repeat customer" Lead Source as it's set up in Settings (falls back to
+// the plain label, with no id, if it was ever renamed/removed).
+function repeatCustomerItem() {
+  const [item] = all("SELECT id, name FROM list_items WHERE category = 'lead_source' AND lower(trim(name)) = 'repeat customer'");
+  return { id: item?.id ?? null, name: item?.name || 'Repeat customer' };
 }
 
-// The name of the "Repeat customer" Lead Source as it's set up in Settings
-// (falls back to the plain label if it was ever renamed/removed).
-function repeatCustomerLabel() {
-  const [item] = all("SELECT name FROM list_items WHERE category = 'lead_source' AND lower(trim(name)) = 'repeat customer'");
-  return item?.name || 'Repeat customer';
+// The one final Marketing Category attribution, shared by Sales by Marketing
+// Category, Marketing Conversion by Category and this report's Lead Source
+// filter, so the filter, both tables, their drill-downs and Excel can never
+// disagree about where a record came from. In order:
+// 1. a Call Back entry's NEW callback Job Number -> Repeat customer;
+// 2. the earliest booked Lead call with the Job Number -> its Lead Source
+//    ("Unassigned" when that call has no Lead Source);
+// 3. a proven callback-call Job Number (see callbackSaleCheck) -> Repeat
+//    customer;
+// 4. otherwise "Unassigned (no booked Lead call)".
+// `resolve(row)` returns { category, leadSourceId } — leadSourceId is what
+// the Lead Source filter compares (null = "Unassigned"). Works for a job,
+// sale, upsell, call back or pending cancellation row. Read-only.
+function marketingAttribution() {
+  const leadCalls = groupBookedLeadsByJobNumber(
+    all(
+      `SELECT c.*, ls.name AS lead_source_name FROM calls c
+       LEFT JOIN list_items ls ON ls.id = c.lead_source_id
+       WHERE c.archived = 0 AND c.call_type = 'Lead'`
+    )
+  );
+  const callback = callbackSaleCheck();
+  const repeat = repeatCustomerItem();
+  const repeatResult = { category: repeat.name, leadSourceId: repeat.id };
+  function resolve(row) {
+    const key = normKey(row.job_number);
+    if (key && callback.byNewCallbackJn(key)) return repeatResult;
+    if (key && leadCalls.has(key)) {
+      const call = leadCalls.get(key);
+      return { category: marketingCategoryLabel(call.lead_source_name), leadSourceId: call.lead_source_id || null };
+    }
+    if (key && callback.byCallbackCall(key, row)) return repeatResult;
+    return { category: NO_BOOKED_LEAD_CALL, leadSourceId: null };
+  }
+  return { resolve, categoryOf: (row) => resolve(row).category };
 }
 
 // Whether a sale was new work sold at a technician callback — proven only
@@ -1205,27 +1220,24 @@ function callbackSaleCheck() {
   const visitDateByJobId = new Map(all('SELECT id, visit_date FROM jobs').map((j) => [j.id, j.visit_date]));
   return {
     byNewCallbackJn: (key) => newCallbackJns.has(key),
+    // The day the record happened: a sale/upsell's job visit (or, without a
+    // job, its invoice date); a job's or call back's visit date; a pending
+    // cancellation's logged date.
     byCallbackCall: (key, row) => {
       if (!firstCallbackCall.has(key) || originalCallbackJns.has(key)) return false;
-      const saleDay = (row.job_id && visitDateByJobId.get(row.job_id)) || row.invoice_date || '';
-      return !!saleDay && saleDay >= firstCallbackCall.get(key);
+      const day =
+        row.invoice_date !== undefined
+          ? (row.job_id && visitDateByJobId.get(row.job_id)) || row.invoice_date || ''
+          : row.visit_date || row.date_logged || '';
+      return !!day && day >= firstCallbackCall.get(key);
     },
   };
 }
 
 // Each sale/upsell of the report, tagged with its Marketing Category — the
 // single source for the section, its drill-downs and its Excel sheet.
-function salesWithMarketingCategory(salesAll, upsellsAll) {
-  const categoryByNumber = marketingCategoryByJobNumber();
-  const callback = callbackSaleCheck();
-  const repeatCustomer = repeatCustomerLabel();
-  const categoryOf = (row) => {
-    const key = normKey(row.job_number);
-    if (key && callback.byNewCallbackJn(key)) return repeatCustomer;
-    if (categoryByNumber.has(key)) return categoryByNumber.get(key);
-    if (key && callback.byCallbackCall(key, row)) return repeatCustomer;
-    return NO_BOOKED_LEAD_CALL;
-  };
+function salesWithMarketingCategory(salesAll, upsellsAll, attribution = marketingAttribution()) {
+  const { categoryOf } = attribution;
   return {
     sales: salesAll.map((s) => ({ row: s, category: categoryOf(s) })),
     upsells: upsellsAll.map((u) => ({ row: u, category: categoryOf(u) })),
@@ -1254,6 +1266,195 @@ function computeSalesByMarketingCategory(salesAll, upsellsAll) {
 
 // The exact records behind one Sales by Marketing Category figure. No
 // `category` means the Total row.
+//
+// ---------------------------------------------------------------------------
+// Marketing Conversion by Category (Technician & Sales report) — how the
+// jobs ATTENDED in the period converted, by Marketing Category. A separate
+// population from Sales by Marketing Category (invoice date): the two are
+// never combined.
+//
+// - Population: exactly the report's own jobsAll (visit date in the period,
+//   every report filter applied), so Total Jobs/Qualified Jobs equal the
+//   Summary's Jobs Attended/Qualified Jobs.
+// - Marketing Category: marketingAttribution() on each job.
+// - Sold Jobs = Qualified jobs with Sale Made + Actual Knockbacks offset by
+//   an applied Converted Later credit. Adjusted Knockbacks = the remaining
+//   Actual Knockbacks. Conversion % = Sold Jobs ÷ Qualified Jobs. So per
+//   category Sold + Adjusted Knockbacks = Qualified, and the Total row equals
+//   the Summary's Converted Later / Adjusted Knockbacks / Conversion %.
+// - Credits: the Summary's own technician/week buckets and the exact
+//   credits it applies (bucketConvertedLaterCredits/bucketOutcome — the
+//   count per bucket never changes here). Which knockback each applied
+//   credit offsets, in order:
+//   1. its own linked original job (sales.job_id, or the job it converted),
+//      when that job is an Actual Knockback in the same technician/week;
+//   2. otherwise the oldest Actual Knockback in that technician/week in the
+//      invoice's own Marketing Category;
+//   3. otherwise the technician's oldest Actual Knockback that week, in
+//      another category — labelled as cross-category, with the real linked
+//      job and its category, in the drill-down, the note and Excel.
+// Read-only: nothing here is stored or changes any record.
+// ---------------------------------------------------------------------------
+const OFFSET_STEPS = {
+  linked: 'Linked job',
+  sameCategory: 'Same category',
+  otherCategory: 'Another category',
+};
+
+function marketingConversionDetail(jobsAll, salesAll) {
+  const attribution = marketingAttribution();
+  const categoryOf = (row) => attribution.categoryOf(row);
+  const jobsById = new Map(
+    all(`SELECT j.*, t.name AS technician_name FROM jobs j LEFT JOIN technicians t ON t.id = j.technician_id`).map((j) => [j.id, j])
+  );
+  const jobConvertedBySale = new Map();
+  jobsById.forEach((j) => {
+    if (j.converted_by_sale_id && !jobConvertedBySale.has(j.converted_by_sale_id)) jobConvertedBySale.set(j.converted_by_sale_id, j);
+  });
+  const linkedJobOf = (sale) => (sale.job_id && jobsById.get(sale.job_id)) || jobConvertedBySale.get(sale.id) || null;
+  const jobSummary = (j) => (j ? { id: j.id, jobNumber: String(j.job_number || '').trim(), visitDate: j.visit_date, technician: j.technician_name || '', category: categoryOf(j) } : null);
+  const byOldestVisit = (x, y) => (x.visit_date || '').localeCompare(y.visit_date || '') || x.id - y.id;
+
+  const offsets = [];
+  bucketConvertedLaterCredits(jobsAll, salesAll).forEach((b) => {
+    const { usedCredits } = bucketOutcome(b);
+    if (!usedCredits.length) return;
+    const pool = [...b.knockbackJobs].sort(byOldestVisit);
+    const take = (i) => pool.splice(i, 1)[0];
+    const assigned = new Map();
+    usedCredits.forEach((s) => {
+      const linked = linkedJobOf(s);
+      const i = linked ? pool.findIndex((j) => j.id === linked.id) : -1;
+      if (i >= 0) assigned.set(s.id, { job: take(i), step: 'linked' });
+    });
+    usedCredits.forEach((s) => {
+      if (assigned.has(s.id)) return;
+      const i = pool.findIndex((j) => categoryOf(j) === categoryOf(s));
+      if (i >= 0) assigned.set(s.id, { job: take(i), step: 'sameCategory' });
+    });
+    usedCredits.forEach((s) => {
+      if (!assigned.has(s.id) && pool.length) assigned.set(s.id, { job: take(0), step: 'otherCategory' });
+    });
+    usedCredits.forEach((s) => {
+      const a = assigned.get(s.id);
+      const linked = linkedJobOf(s);
+      const offsetJob = jobSummary(a.job);
+      const linkedJob = jobSummary(linked);
+      const linkedText = linkedJob ? `linked job JN ${linkedJob.jobNumber} (${linkedJob.category}, visited ${linkedJob.visitDate})` : 'no linked original job';
+      const explanation =
+        a.step === 'linked'
+          ? `Offsets its own linked job JN ${offsetJob.jobNumber} (${offsetJob.category}).`
+          : a.step === 'sameCategory'
+          ? `${linkedJob ? `The ${linkedText} wasn't eligible that week` : 'No linked original job'} — offsets JN ${offsetJob.jobNumber} in the same category (${offsetJob.category}).`
+          : `Cross-category: the ${linkedText} wasn't eligible that week — offsets JN ${offsetJob.jobNumber} (${offsetJob.category}), the technician's oldest eligible knockback that week.`;
+      offsets.push({
+        saleId: s.id,
+        invoiceNumber: s.invoice_number,
+        invoiceDate: s.invoice_date,
+        jobNumber: s.job_number,
+        technician: b.techName,
+        week: b.week,
+        invoiceCategory: categoryOf(s),
+        linkedJob,
+        offsetJob,
+        step: a.step,
+        stepLabel: OFFSET_STEPS[a.step],
+        explanation,
+      });
+    });
+  });
+  offsets.sort((x, y) => (x.invoiceDate || '').localeCompare(y.invoiceDate || '') || x.saleId - y.saleId);
+
+  const offsetByJobId = new Map(offsets.map((o) => [o.offsetJob.id, o]));
+  const taggedJobs = jobsAll.map((j) => {
+    const qualified = j.lead === 'Qualified';
+    const sold = qualified && (!!j.had_sale_at_visit || offsetByJobId.has(j.id));
+    return { job: j, category: categoryOf(j), qualified, sold, adjustedKnockback: qualified && !sold };
+  });
+  return { taggedJobs, offsets };
+}
+
+function conversionCategoryFigures(category, tagged) {
+  const qualifiedJobs = tagged.filter((x) => x.qualified).length;
+  const soldJobs = tagged.filter((x) => x.sold).length;
+  return {
+    category,
+    totalJobs: tagged.length,
+    qualifiedJobs,
+    soldJobs,
+    adjustedKnockbacks: tagged.filter((x) => x.adjustedKnockback).length,
+    conversionRate: pctPrecise(soldJobs, qualifiedJobs),
+  };
+}
+
+function crossCategoryNote(offsets) {
+  const cross = offsets.filter((o) => o.step === 'otherCategory');
+  if (!offsets.length) return 'No Converted Later credits were applied in this period.';
+  if (!cross.length) {
+    return offsets.length === 1
+      ? 'The 1 Converted Later credit offset a knockback in its own category — none crossed categories.'
+      : `All ${offsets.length} Converted Later credits offset knockbacks in their own category — none crossed categories.`;
+  }
+  const noLink = cross.filter((o) => !o.linkedJob).length;
+  return (
+    `${cross.length} of ${offsets.length} Converted Later credit${offsets.length === 1 ? '' : 's'} offset a knockback in another category because ` +
+    `${cross.length === 1 ? 'its' : 'their'} linked job wasn't eligible that week.` +
+    (noLink ? ` (${noLink} of these had no linked original job.)` : '')
+  );
+}
+
+function computeMarketingConversionByCategory(jobsAll, salesAll) {
+  const { taggedJobs, offsets } = marketingConversionDetail(jobsAll, salesAll);
+  const categories = [...new Set(taggedJobs.map((x) => x.category))];
+  const rows = categories
+    .map((c) => conversionCategoryFigures(c, taggedJobs.filter((x) => x.category === c)))
+    .sort((a, b) => b.totalJobs - a.totalJobs || a.category.localeCompare(b.category));
+  return {
+    rows,
+    totals: conversionCategoryFigures('Total', taggedJobs),
+    offsets,
+    crossCategoryCredits: offsets.filter((o) => o.step === 'otherCategory').length,
+    appliedCredits: offsets.length,
+    note: crossCategoryNote(offsets),
+  };
+}
+
+// The exact jobs behind one Marketing Conversion figure (no `category` = the
+// Total row). Sold Jobs also returns how each offset knockback was offset.
+function pickMarketingConversionSubset(jobsAll, salesAll, category, field) {
+  const { taggedJobs, offsets } = marketingConversionDetail(jobsAll, salesAll);
+  const inScope = category ? taggedJobs.filter((x) => x.category === category) : taggedJobs;
+  const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
+  const tag = (list) => list.map((x) => ({ kind: jobKind(x.job), id: x.job.id }));
+  const label = category || 'All categories';
+  switch (field) {
+    case 'totalJobs':
+      return { rows: tag(inScope), label: `${label} — Total Jobs` };
+    case 'qualifiedJobs':
+      return { rows: tag(inScope.filter((x) => x.qualified)), label: `${label} — Qualified Jobs` };
+    case 'conversionRate':
+      return { rows: tag(inScope.filter((x) => x.qualified)), label: `${label} — Conversion % (of these Qualified Jobs)` };
+    case 'soldJobs': {
+      const sold = inScope.filter((x) => x.sold);
+      const ids = new Set(sold.map((x) => x.job.id));
+      const scopedOffsets = offsets.filter((o) => ids.has(o.offsetJob.id));
+      return {
+        rows: tag(sold),
+        label: `${label} — Sold Jobs`,
+        outcomes: [
+          { label: 'Sale Made at visit', count: sold.length - scopedOffsets.length },
+          { label: 'Knockbacks offset by Converted Later', count: scopedOffsets.length },
+        ],
+        offsets: scopedOffsets,
+      };
+    }
+    case 'adjustedKnockbacks':
+      return { rows: tag(inScope.filter((x) => x.adjustedKnockback)), label: `${label} — Adjusted Knockbacks` };
+    default:
+      return null;
+  }
+}
+
 function pickSalesByCategorySubset(salesAll, upsellsAll, category, field) {
   const tagged = salesWithMarketingCategory(salesAll, upsellsAll);
   const inCategory = (list) => (category ? list.filter((x) => x.category === category) : list).map((x) => x.row);
@@ -1395,6 +1596,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
   const revenueBySuburb = computeRevenueBySuburb(salesAll, upsellsAll);
 
   const salesByMarketingCategory = computeSalesByMarketingCategory(salesAll, upsellsAll);
+  const marketingConversionByCategory = computeMarketingConversionByCategory(jobsAll, salesAll);
 
   return {
     company,
@@ -1407,6 +1609,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
     includedPopulations,
     revenueBySuburb,
     salesByMarketingCategory,
+    marketingConversionByCategory,
   };
 }
 
@@ -1657,6 +1860,9 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
   }
   if (metric === 'salesByMarketingCategory') {
     return pickSalesByCategorySubset(salesAll, upsellsAll, category, field);
+  }
+  if (metric === 'marketingConversionByCategory') {
+    return pickMarketingConversionSubset(jobsAll, salesAll, category, field);
   }
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see

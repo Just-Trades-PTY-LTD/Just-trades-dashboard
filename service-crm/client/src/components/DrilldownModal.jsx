@@ -99,6 +99,49 @@ export default function DrilldownModal({ kind, params, jumpToJN, jumpToJobId, on
           </div>
         )}
 
+        {/* Marketing Conversion by Category — Sold Jobs: which Converted
+            Later credit offset each knockback, and how (see
+            services/reports.js's marketingConversionDetail). */}
+        {data?.offsets?.length > 0 && (
+          <div className="drilldown-offsets" style={{ padding: '0 20px 14px' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Converted Later credits applied to these jobs</div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Technician / week</th>
+                    <th>Linked original job</th>
+                    <th>Offset knockback</th>
+                    <th>Assigned by</th>
+                    <th>Explanation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.offsets.map((o) => (
+                    <tr key={o.saleId}>
+                      <td>
+                        {o.invoiceNumber} ({o.invoiceDate})
+                      </td>
+                      <td>
+                        {o.technician} — week of {o.week}
+                      </td>
+                      <td>{o.linkedJob ? `JN ${o.linkedJob.jobNumber} — ${o.linkedJob.category}` : 'None'}</td>
+                      <td>
+                        JN {o.offsetJob.jobNumber} — {o.offsetJob.category}
+                      </td>
+                      <td>
+                        <span className={`badge ${o.step === 'otherCategory' ? 'badge-warn' : 'badge-info'}`}>{o.stepLabel}</span>
+                      </td>
+                      <td style={{ fontSize: 12 }}>{o.explanation}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {notice && <div className={`notice panel ${notice.isError ? 'error' : ''}`} style={{ margin: '0 20px 14px' }}>{notice.message}</div>}
 
         <div className="drilldown-body">
