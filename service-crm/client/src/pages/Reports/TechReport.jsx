@@ -144,7 +144,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   }
 
   if (!data || !layout.loaded) return <div className="empty-state">Loading…</div>;
-  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb, salesByMarketingCategory } = data;
+  const { company, byTrade, byTechnician, salesByTradePie, jobsOppSalesByTrade, trend, missingTechnicianCount, revenueBySuburb, salesByMarketingCategory, marketingConversionByCategory } = data;
 
   // Sales by Marketing Category — the sales invoiced in this period, by the
   // Marketing Category of each sale's original Job Number. Same invoices and
@@ -154,6 +154,19 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     ['sales', 'Sales (invoices)', (r) => r.sales],
     ['totalSalesValue', 'Total Sales Value (ex GST)', (r) => money(r.totalSalesValueExGst)],
     ['averageInvoiceValue', 'Average Invoice Value (ex GST)', (r) => (r.averageInvoiceValue === null ? '—' : money(r.averageInvoiceValue))],
+  ];
+
+  // Marketing Conversion by Category — the jobs attended (visit date) in this
+  // period, by Marketing Category, using the Summary's own Sold Jobs /
+  // Adjusted Knockbacks / Conversion % rules. A separate population from
+  // Sales by Marketing Category above. See services/reports.js's
+  // computeMarketingConversionByCategory.
+  const CONVERSION_BY_CATEGORY_COLUMNS = [
+    ['totalJobs', 'Total Jobs', (r) => r.totalJobs],
+    ['qualifiedJobs', 'Qualified Jobs', (r) => r.qualifiedJobs],
+    ['soldJobs', 'Sold Jobs', (r) => r.soldJobs],
+    ['adjustedKnockbacks', 'Adjusted Knockbacks', (r) => r.adjustedKnockbacks],
+    ['conversionRate', 'Conversion %', (r) => (r.qualifiedJobs ? `${r.conversionRate}%` : '—')],
   ];
 
   const REVENUE_BY_SUBURB_COLUMNS = [
@@ -702,6 +715,62 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )
+            }
+          </AdjustableSection>
+        )}
+
+        {!access.technician && marketingConversionByCategory && (
+          <AdjustableSection id="marketingConversionByCategory" title="Marketing Conversion by Category" defaultSize="lg" layout={layout}>
+            {(cfg) =>
+              marketingConversionByCategory.rows.length === 0 ? (
+                <div className="empty-state">No jobs attended in this range.</div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>
+                    How the jobs attended in this period converted: grouped by visit date, the same jobs as the Jobs Attended and
+                    Qualified Jobs cards (not the invoice-date sales above). Sold Jobs = Qualified jobs with Sale Made + knockbacks
+                    offset by Converted Later, using the Summary&apos;s technician/week rule, so the Total row always matches the
+                    Converted Later, Adjusted Knockbacks and Conversion % cards. Conversion % = Sold Jobs ÷ Qualified Jobs.
+                  </div>
+                  <div className="table-scroll" style={cfg.tableMaxHeight ? { maxHeight: cfg.tableMaxHeight, overflowY: 'auto' } : undefined}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Marketing Category</th>
+                          {CONVERSION_BY_CATEGORY_COLUMNS.map(([key, label]) => (
+                            <th key={key}>{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...marketingConversionByCategory.rows, marketingConversionByCategory.totals].map((r) => {
+                          const isTotal = r === marketingConversionByCategory.totals;
+                          return (
+                            <tr key={isTotal ? '__total' : r.category} style={isTotal ? { fontWeight: 600 } : undefined}>
+                              <td>{r.category}</td>
+                              {CONVERSION_BY_CATEGORY_COLUMNS.map(([key, label, render]) => (
+                                <td
+                                  key={key}
+                                  className="clickable-stat"
+                                  onClick={() =>
+                                    openDrilldown('marketingConversionByCategory', isTotal ? { field: key } : { category: r.category, field: key })
+                                  }
+                                  title={`View the records behind ${r.category} — ${label}`}
+                                >
+                                  {render(r)}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="conversion-credit-note" style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 8 }}>
+                    {marketingConversionByCategory.note}
                   </div>
                 </div>
               )
