@@ -155,6 +155,7 @@ export const api = {
     customerHistory: (jn) => request('GET', `/aroflo-test/customer-history${qs({ jn })}`),
     suburbCheck: (count) => request('GET', `/aroflo-test/suburb-check${qs({ count })}`),
     taskTypesAll: () => request('GET', '/aroflo-test/task-types-all'),
+    leadSourceOptions: () => request('GET', '/aroflo-test/lead-source-options'),
   },
   aroflo: {
     // The real New Job form's lookup — a clean summary, not the admin-only

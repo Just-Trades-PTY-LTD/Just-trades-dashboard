@@ -13,8 +13,9 @@ import {
   listTaskSchedules,
 } from '../aroflo/client.js';
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
-import { analyzeTaskSuburb } from '../aroflo/suburbMatch.js';
+import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
+import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
 // form, never the raw AroFlo shapes the admin-only /aroflo-test page shows.
@@ -65,17 +66,6 @@ function buildScheduled(task) {
   };
 }
 
-// The job's own site address as one line, for staff to read when no suburb
-// could be matched: AroFlo's address text, or its structured site record.
-function jobAddressText(task) {
-  const text = String(task.locationText || '').replace(/\s+/g, ' ').trim();
-  if (text) return text;
-  const l = task.location;
-  if (!l) return null;
-  const line = [l.address1, l.address2, l.suburb, l.state, l.postCode].filter((v) => v && String(v).trim()).join(' ');
-  return line || null;
-}
-
 export function createArofloLookupRouter() {
   const router = Router();
   router.use(requireAuth);
@@ -99,7 +89,7 @@ export function createArofloLookupRouter() {
       // "Google search"/"Google ads"), so this is surfaced as a reference
       // value only for staff to read and pick the closest match themselves —
       // never auto-applied to a call's own leadSourceId.
-      const leadSource = await getCustomFieldValue('CLIENTS', detail.client?.id || null, 'Lead Source');
+      const leadSource = await getCustomFieldValue('CLIENTS', detail.client?.id || null, LEAD_SOURCE_FIELD_NAMES);
 
       // Labour logged and visits booked on this job — display only, and only
       // when the caller asks (the Technician & Sales form does; the Lead
@@ -125,11 +115,12 @@ export function createArofloLookupRouter() {
         // never fall back to guessing, same contract as every other
         // suburb auto-fill already in this app.
         suburb: suburbAnswer.suburb,
-        // Only when no confident suburb was found: the job's own AroFlo
-        // address, shown read-only on the form so staff can choose the
-        // suburb themselves. Never stored, never the customer's postal
-        // address, and never sent when a suburb was matched.
-        addressForReference: suburbAnswer.suburb ? null : jobAddressText(detail),
+        // Only when no confident suburb was found: a privacy-safe summary of
+        // the job's own AroFlo address (suburb words, state and postcode — no
+        // house number or street), shown read-only so staff can choose the
+        // suburb. Never stored, never the customer's postal address, and
+        // never sent when a suburb was matched.
+        addressForReference: suburbAnswer.suburb ? null : addressSummary(detail),
         leadSource,
         invoices: invoices.map((inv) => ({
           invoiceNumber: inv.invoiceNumber || '',

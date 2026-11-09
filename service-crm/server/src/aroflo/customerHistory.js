@@ -31,6 +31,51 @@ export function jobOutcome(t) {
   return 'unfinished';
 }
 
+export const ADDRESS_SAME = 'same address';
+export const ADDRESS_DIFFERENT = 'different address';
+export const ADDRESS_UNABLE = 'unable to compare';
+const HOMEOWNER = /^(home\s*owner|owner|owner[\s-]*occupier|owner[\s-]*occupied)$/i;
+
+// The names AroFlo uses for the customer's Lead Source field on this account
+// (older records: "Lead/Referral Source").
+export const LEAD_SOURCE_FIELD_NAMES = ['Lead Source', 'Lead/Referral Source'];
+const isLeadSourceField = (name) => LEAD_SOURCE_FIELD_NAMES.some((n) => n.toLowerCase() === String(name || '').trim().toLowerCase());
+
+// One address as comparable text: lower case, punctuation and spacing
+// ignored, common abbreviations expanded (St/Street, Rd/Road…), "Unit"/"Lot"
+// words and "Australia" dropped, "South Australia" read as SA. Never stored,
+// never returned — only used to decide same / different.
+const ABBREVIATIONS = {
+  st: 'street', rd: 'road', ave: 'avenue', av: 'avenue', pde: 'parade', dr: 'drive', ct: 'court', cres: 'crescent', cr: 'crescent',
+  pl: 'place', tce: 'terrace', ln: 'lane', hwy: 'highway', blvd: 'boulevard', cl: 'close', gr: 'grove', cct: 'circuit', esp: 'esplanade',
+  sq: 'square', nth: 'north', sth: 'south', mt: 'mount',
+};
+const DROP_WORDS = new Set(['unit', 'u', 'lot', 'flat', 'apartment', 'apt', 'australia']);
+export function normalizeAddress(source) {
+  let text = '';
+  if (typeof source === 'string') text = source;
+  else if (source && typeof source === 'object') {
+    text = source.locationText || [source.location?.address1, source.location?.address2, source.location?.suburb, source.location?.state, source.location?.postCode].filter(Boolean).join(' ');
+  }
+  const words = String(text || '')
+    .toLowerCase()
+    .replace(/south\s+australia/g, ' sa ')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((w) => w && !DROP_WORDS.has(w))
+    .map((w) => ABBREVIATIONS[w] || w);
+  return words.join(' ');
+}
+
+export function compareAddresses(a, b) {
+  const x = normalizeAddress(a);
+  const y = normalizeAddress(b);
+  if (!x || !y || !/\d/.test(x) || !/\d/.test(y)) return ADDRESS_UNABLE;
+  return x === y ? ADDRESS_SAME : ADDRESS_DIFFERENT;
+}
+
 const itemsOf = (probe) => (probe?.available ? probe.data?.items || [] : []);
 
 function slimTask(t) {
@@ -65,7 +110,7 @@ function filterCheck(probe, items, field, value, currentId, what) {
   return { honoured: true, reason: null };
 }
 
-export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNameClients }) {
+export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNameClients, addressChecks = null, occupant = null }) {
   const clientId = currentTask?.client?.id || null;
   const client = clientDetail?.available ? clientDetail.data || {} : {};
   if (!clientId) {
@@ -83,11 +128,6 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
   if (customerFilter.reason) reasons.push(customerFilter.reason);
   const siteFilter = current.siteId ? filterCheck(probes?.siteList, siteItems, 'siteId', current.siteId, current.id, 'site') : { honoured: null, reason: null };
   if (siteFilter.reason) reasons.push(siteFilter.reason);
-  // No linked site on the job: only safe when the customer has exactly one
-  // site/property on record (then every job is at that property).
-  if (!current.siteId && siteCount !== 1) {
-    reasons.push("This job has no linked AroFlo site record and the customer doesn't have exactly one site on record, so it can't be confirmed earlier jobs were at the same property.");
-  }
 
   // 2. Active and archived history, every page.
   if (probes?.archivedList && !probes.archivedList.available) reasons.push("Archived jobs couldn't be checked.");
@@ -110,8 +150,24 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
     return byDate !== null && byDate !== Number(t.jobNumber) < Number(current.jobNumber);
   });
   if (dateDisagreements.length) reasons.push(`${dateDisagreements.length} job(s) are ordered differently by job number and by created date.`);
+  // Same property? Each earlier job's address compared with this job's
+  // (normalised, privacy-safe: only the outcome is ever kept). Without a
+  // linked AroFlo site this is the only way to tell, so any earlier job at a
+  // different address, or one that couldn't be compared, keeps it uncertain.
+  earlier.forEach((t) => {
+    t.address = addressChecks ? addressChecks.get(t.id) || ADDRESS_UNABLE : null;
+  });
+  if (addressChecks) {
+    const different = earlier.filter((t) => t.address === ADDRESS_DIFFERENT).length;
+    const unable = earlier.filter((t) => t.address === ADDRESS_UNABLE).length;
+    if (different) reasons.push(`${different} earlier job(s) were at a different address — possibly another property.`);
+    if (unable) reasons.push(`The address of ${unable} earlier job(s) couldn't be compared, so it can't be confirmed they were at the same property.`);
+  } else if (!current.siteId && earlier.length && siteCount !== 1) {
+    reasons.push("This job has no linked AroFlo site record and the earlier jobs' addresses weren't compared, so it can't be confirmed they were at the same property.");
+  }
   const earlierCompleted = earlier.filter((t) => t.outcome === 'completed');
   const earlierCompletedSameSite = current.siteId ? earlierCompleted.filter((t) => t.siteId === current.siteId) : [];
+  const earlierCompletedSameAddress = earlierCompleted.filter((t) => t.address === ADDRESS_SAME);
 
   // 4. When "same customer record" is a weak sign of "same person, same property".
   if (client.individual === false) reasons.push('The AroFlo customer is an organisation (e.g. an agency, builder, landlord or business), not an individual — its jobs may be for different people or properties.');
@@ -122,7 +178,12 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
   if (sites > 1) reasons.push(`The customer has ${sites} sites/properties — earlier jobs may be at a different property.`);
   const sameName = sameNameClients?.available ? (sameNameClients.data?.items || []).filter((c) => c.id !== clientId).length : null;
   if (sameName) reasons.push(`${sameName} other AroFlo customer record(s) have exactly the same name — possible duplicate records, so earlier jobs may sit under another record.`);
-  if (sameNameClients && !sameNameClients.available) reasons.push("Couldn't check AroFlo for other customer records with the same name.");
+  if (sameNameClients && !sameNameClients.available) {
+    reasons.push(`Couldn't check AroFlo for other customer records with the same name (AroFlo ${sameNameClients.status ? `HTTP ${sameNameClients.status}` : 'no response'}${sameNameClients.errorText ? `: ${sameNameClients.errorText}` : ''}).`);
+  }
+  if (occupant && !HOMEOWNER.test(String(occupant).trim())) {
+    reasons.push(`AroFlo records the occupant as "${occupant}", not the homeowner (e.g. a tenant, landlord or property manager) — earlier jobs may relate to someone else.`);
+  }
 
   const reliable = customerFilter.honoured === true && siteFilter.honoured !== false && !truncated && probes?.archivedList?.available !== false && reasons.length === 0;
   let assessment = 'uncertain';
@@ -154,6 +215,8 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
     earlierJobs: earlier,
     earlierCompletedCount: earlierCompleted.length,
     earlierCompletedAtThisSite: earlierCompletedSameSite.length,
+    earlierCompletedAtSameAddress: addressChecks ? earlierCompletedSameAddress.length : null,
+    occupant: occupant || null,
     laterJobs: others.filter((t) => !earlier.includes(t)),
     assessment,
     assessmentLabel: {
@@ -186,5 +249,13 @@ export function summarizeCustomFields(probe, zone) {
       fields.push({ name, value: maskContactDetails(e.customField?.value ?? e.value ?? null) });
     }
   }
-  return { zone, available: true, fields, leadSource: fields.find((f) => /lead\s*source/i.test(f.name))?.value ?? null };
+  const lead = fields.find((f) => isLeadSourceField(f.name) && f.value);
+  return {
+    zone,
+    available: true,
+    fields,
+    leadSource: lead?.value ?? null,
+    leadSourceField: lead?.name ?? null,
+    occupant: fields.find((f) => /^occupant$/i.test(String(f.name).trim()))?.value ?? null,
+  };
 }

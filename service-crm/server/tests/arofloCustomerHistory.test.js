@@ -109,7 +109,7 @@ test('uncertain, never guessed', () => {
     ['parent account', { clientDetail: { available: true, data: { id: 'C1', individual: true, parent: { id: 'P1', name: 'Agency' } } } }, /parent customer/],
     ['several sites', { probes: { ...base().probes, locations: probe([{ id: 'L1' }, { id: 'L2' }]) } }, /2 sites\/properties/],
     ['same-name duplicate record', { sameNameClients: probe([{ id: 'C1' }, { id: 'C7' }]) }, /1 other AroFlo customer record/],
-    ['no site, several or no site records', { currentTask: { ...CURRENT, location: null }, probes: { ...base().probes, siteList: null, locations: probe([]) } }, /can't be confirmed earlier jobs were at the same property/],
+    ['no site, several or no site records', { currentTask: { ...CURRENT, location: null }, probes: { ...base().probes, siteList: null, locations: probe([]) } }, /addresses weren't compared/],
     ['customer list refused', { probes: { ...base().probes, defaultList: { available: false, status: 400 } } }, /refused/],
     ['archived list refused', { probes: { ...base().probes, archivedList: { available: false, status: 400 } } }, /Archived jobs couldn't be checked/],
     ['no customer', { currentTask: { ...CURRENT, client: null } }, /no customer/],
@@ -146,6 +146,7 @@ function arofloStub({ manyJobs = false } = {}) {
     }
     if (u.pathname === '/v2/tasks') return jsonResponse(200, { items: p.get('page') === '1' ? [{ id: 'T3', jobNumber: 3000 }] : [] });
     if (u.pathname === '/v2/tasks/T3') return jsonResponse(200, CURRENT);
+    if (/^\/v2\/tasks\/(T1|H\d+)$/.test(u.pathname)) return jsonResponse(200, { id: u.pathname.split('/').pop(), location: null, locationText: `${STREET.toUpperCase()}, Woodcroft, South Australia 5162` });
     if (u.pathname === '/v2/clients/C1') return jsonResponse(200, { id: 'C1', name: 'Jane Citizen', individual: true, phone: PHONE, email: EMAIL, address: { addressLine1: STREET } });
     if (u.pathname === '/v2/clients') return jsonResponse(200, { items: [{ id: 'C1' }] });
     if (u.pathname === '/v2/locations') return jsonResponse(200, { count: 1, items: [{ id: 'L1', address1: STREET, sitePhone: PHONE }] });

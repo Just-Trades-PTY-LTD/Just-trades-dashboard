@@ -20,9 +20,13 @@ import {
   listRecentTasks,
   getTaskAddress,
   listTaskTypesActiveAndArchived,
+  fetchAddressesForComparison,
+  ADDRESS_LOOKUP_CAP,
+  sampleLeadSourceOptions,
+  cleanArofloError,
 } from '../aroflo/client.js';
-import { analyzeClientHistory, summarizeCustomFields } from '../aroflo/customerHistory.js';
-import { matchSuburbFromLocationText, analyzeTaskSuburb, legacyMatchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
+import { analyzeClientHistory, summarizeCustomFields, compareAddresses, ADDRESS_UNABLE, LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
+import { matchSuburbFromLocationText, analyzeTaskSuburb, legacyMatchSuburbFromLocationText, addressSummary } from '../aroflo/suburbMatch.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
 // zero writes to AroFlo and zero writes to this CRM's own database — it only
@@ -104,47 +108,33 @@ export function compareSuburbSources(task, clientDetail) {
   };
 }
 
-// A privacy-safe summary of a job address for the admin suburb check: never
-// the house number or the street — only the site record's suburb/state/
-// postcode, or the words after the last street-type word (Street, Road,
-// Avenue…) before the state and postcode. With no street-type word, only
-// the last two words are kept. Words containing a digit are always dropped.
-const STREET_TYPES = new Set(
-  'street st road rd avenue ave av parade pde drive dr court ct crescent cres place pl terrace tce lane ln way highway hwy boulevard blvd close cl grove gr circuit cct esplanade esp square sq walk track trk mews rise row loop link vista view chase glade'.split(' ')
-);
-const UNIT_WORDS = new Set('lot unit shop suite level flat apartment apt villa'.split(' '));
-function suburbWords(part) {
-  const words = part.split(/[\s,]+/).filter((w) => w && !/\d/.test(w) && !UNIT_WORDS.has(w.toLowerCase().replace(/\./g, '')));
-  let lastStreet = -1;
-  words.forEach((w, i) => {
-    if (STREET_TYPES.has(w.toLowerCase().replace(/\./g, ''))) lastStreet = i;
-  });
-  return lastStreet >= 0 ? words.slice(lastStreet + 1) : words.slice(-2);
-}
-export function addressSummary(task) {
-  const l = task?.location;
-  if (l?.suburb || l?.postCode) {
-    return ['site record:', l.suburb, l.state, l.postCode].filter(Boolean).join(' ');
-  }
-  const text = String(task?.locationText || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '(no address in AroFlo)';
-  const m = text.match(/^(.*?)[\s,]+(SA|S\.A\.|South\s+Australia|NSW|VIC|QLD|WA|TAS|NT|ACT)[\s,]+(\d{4})\b/i);
-  if (m) return `…${suburbWords(m[1]).join(' ')} ${m[2]} ${m[3]}`.replace('… ', '…');
-  return `…${suburbWords(text).join(' ')} (no state + postcode found)`;
-}
+export { addressSummary };
 
 export function suburbCheckRow(jobNumber, task) {
   const proposed = analyzeTaskSuburb({ location: task.location, locationText: task.locationText });
   const current = legacyMatchSuburbFromLocationText(task.locationText);
   return {
     jobNumber,
-    summary: addressSummary(task),
+    summary: addressSummary(task, proposed.suburb),
     current: current || null,
     proposed: proposed.suburb,
     outcome: proposed.status,
     reason: proposed.reason,
     change: current === proposed.suburb ? 'same' : !current && proposed.suburb ? 'newly matched' : current && !proposed.suburb ? 'now left blank' : 'different suburb',
   };
+}
+
+// The current job's customer's EARLIER jobs (lower job number), completed
+// ones first, for the same-address comparison.
+function earlierTasksForComparison(probes, detail) {
+  const byId = new Map();
+  for (const p of [probes?.defaultList, probes?.archivedList]) {
+    if (p?.available) (p.data?.items || []).forEach((t) => byId.set(t.id, t));
+  }
+  const done = (t) => String(t.status || '').toUpperCase() === 'COMPLETED' || !!t.completionDate;
+  return [...byId.values()]
+    .filter((t) => t.id !== detail.id && Number(t.jobNumber) < Number(detail.jobNumber))
+    .sort((a, b) => Number(done(b)) - Number(done(a)) || Number(b.jobNumber) - Number(a.jobNumber));
 }
 
 export function createArofloTestRouter() {
@@ -260,26 +250,35 @@ export function createArofloTestRouter() {
           const clientName = clientDetail?.available ? clientDetail.data?.name : detail.client?.name;
           const sameNameClients = await probeSameNameClients(clientName);
           const customFields = await probeCustomFields(task.id, clientId, siteId);
-          return { clientDetail, probes, sameNameClients, customFields };
+          // Same address? The earlier jobs (completed first), compared with
+          // this job's address — at most ADDRESS_LOOKUP_CAP extra requests.
+          const earlierTasks = earlierTasksForComparison(probes, detail);
+          const addressRead = await fetchAddressesForComparison(earlierTasks);
+          return { clientDetail, probes, sameNameClients, customFields, earlierTasks, addressRead };
         });
-        const { clientDetail, probes, sameNameClients, customFields } = history.result;
+        const { clientDetail, probes, sameNameClients, customFields, earlierTasks, addressRead } = history.result;
+        // Only the outcome of each comparison is kept — never an address.
+        const addressChecks = new Map(earlierTasks.map((t) => [t.id, addressRead.addresses.get(t.id) ? compareAddresses(detail, addressRead.addresses.get(t.id)) : ADDRESS_UNABLE]));
         const zones = ['TASKS (this job)', 'CLIENTS (the customer)', 'LOCATIONS (the site)'];
+        const fieldSummaries = [
+          summarizeCustomFields(customFields[0], zones[0]),
+          summarizeCustomFields(customFields.find((r) => r.tried.includes('CLIENTS')), zones[1]),
+          siteId ? summarizeCustomFields(customFields.find((r) => r.tried.includes('LOCATIONS')), zones[2]) : { zone: zones[2], available: false, note: 'This job has no linked site record.', fields: [] },
+        ].filter(Boolean);
+        const occupant = fieldSummaries.map((z) => z.occupant).find(Boolean) || null;
         return {
           found: true,
           historyCalls: history.calls,
-          analysis: analyzeClientHistory({ currentTask: detail, clientDetail, probes, sameNameClients }),
-          customFields: [
-            summarizeCustomFields(customFields[0], zones[0]),
-            summarizeCustomFields(customFields.find((r) => r.tried.includes('CLIENTS')), zones[1]),
-            siteId ? summarizeCustomFields(customFields.find((r) => r.tried.includes('LOCATIONS')), zones[2]) : { zone: zones[2], available: false, note: 'This job has no linked site record.', fields: [] },
-          ].filter(Boolean),
+          addressComparison: { compared: earlierTasks.length, extraRequests: addressRead.requests, cap: ADDRESS_LOOKUP_CAP, capped: addressRead.capped },
+          analysis: analyzeClientHistory({ currentTask: detail, clientDetail, probes, sameNameClients, addressChecks, occupant }),
+          customFields: fieldSummaries,
           probes: probes
             ? Object.fromEntries(
-                Object.entries(probes)
+                Object.entries({ ...probes, sameNameClients })
                   .filter(([, v]) => v)
                   .map(([k, v]) => [
                     k,
-                    { tried: v.tried, available: v.available, status: v.status ?? null, count: v.data?.count ?? null, returned: v.data?.items?.length ?? null, pagesFetched: v.pagesFetched ?? null, truncated: v.truncated ?? null },
+                    { tried: v.tried, available: v.available, status: v.status ?? null, error: v.errorText ?? null, count: v.data?.count ?? null, returned: v.data?.items?.length ?? null, pagesFetched: v.pagesFetched ?? null, truncated: v.truncated ?? null },
                   ])
               )
             : null,
@@ -324,6 +323,27 @@ export function createArofloTestRouter() {
     } catch (err) {
       if (err instanceof ArofloNotConfiguredError) return res.status(400).json({ error: err.message });
       if (err instanceof ArofloRequestError) return res.status(502).json({ error: err.message });
+      throw err;
+    }
+  });
+
+  // AroFlo's selectable Lead Source values, read from the custom-field
+  // definitions returned with a few recent customers. Only field names and
+  // option lists are returned — no customer, value or contact detail.
+  router.get('/lead-source-options', async (req, res) => {
+    const started = Date.now();
+    try {
+      const { result, calls } = await countArofloCalls(async () => {
+        const businessUnit = (await listBusinessUnits())[0];
+        if (!businessUnit) return { error: 'AroFlo returned no business units for this account.' };
+        return sampleLeadSourceOptions(businessUnit.id, LEAD_SOURCE_FIELD_NAMES);
+      });
+      if (result.error) return res.status(502).json({ error: result.error });
+      if (!result.available) return res.status(502).json({ error: `AroFlo refused the recent jobs list (HTTP ${result.status || '—'})${result.errorText ? `: ${result.errorText}` : ''}.` });
+      res.json({ ...result, totalCalls: calls, elapsedMs: Date.now() - started });
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) return res.status(400).json({ error: err.message });
+      if (err instanceof ArofloRequestError) return res.status(502).json({ error: cleanArofloError(err.message) });
       throw err;
     }
   });
