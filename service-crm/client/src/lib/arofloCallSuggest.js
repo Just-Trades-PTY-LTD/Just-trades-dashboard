@@ -78,6 +78,8 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
       arofloValue: result.suburb || '',
       suggestion: result.suburb ? { suburb: result.suburb, label: result.suburb } : null,
       alreadySet: !!result.suburb && same(form.suburb, result.suburb),
+      // Read-only reference when no confident suburb was found.
+      addressForReference: result.suburb ? null : result.addressForReference || null,
     },
   };
 }

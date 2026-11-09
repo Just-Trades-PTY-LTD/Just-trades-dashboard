@@ -150,6 +150,9 @@ export const api = {
     taskTypes: () => request('GET', '/aroflo-test/task-types'),
     locations: () => request('GET', '/aroflo-test/locations'),
     users: () => request('GET', '/aroflo-test/users'),
+    customerHistory: (jn) => request('GET', `/aroflo-test/customer-history${qs({ jn })}`),
+    suburbCheck: (count) => request('GET', `/aroflo-test/suburb-check${qs({ count })}`),
+    taskTypesAll: () => request('GET', '/aroflo-test/task-types-all'),
   },
   aroflo: {
     // The real New Job form's lookup — a clean summary, not the admin-only

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from '../config.js';
 
 // Stage 1 test-only client: GET requests exclusively. There is deliberately
@@ -39,7 +40,19 @@ function redactToken(value) {
   }
 }
 
+// Counts the AroFlo requests made inside one investigation (so the test page
+// can report exactly what a lookup would cost against the daily limit).
+// Nothing outside countArofloCalls() is affected.
+const callCounter = new AsyncLocalStorage();
+export async function countArofloCalls(fn) {
+  // Nested counts add up: an inner count also counts towards the outer one.
+  const store = { calls: 0, parent: callCounter.getStore() || null };
+  const result = await callCounter.run(store, fn);
+  return { result, calls: store.calls };
+}
+
 async function arofloGet(path, params = {}) {
+  for (let c = callCounter.getStore(); c; c = c.parent) c.calls += 1;
   if (!config.aroflo.apiToken) {
     throw new ArofloNotConfiguredError('AroFlo is not configured on this server (AROFLO_PAT is not set).');
   }
@@ -255,7 +268,7 @@ export async function probeClientDetail(clientId) {
 // here for the TASKS zone (the task itself) and, when a client id is known,
 // the CLIENTS zone too — Lead Source may be tracked per-customer rather
 // than per-job.
-export async function probeCustomFields(taskId, clientId) {
+export async function probeCustomFields(taskId, clientId, locationId = null) {
   const results = [];
   results.push(
     await arofloProbe('/customfields/TASKS/' + encodeURIComponent(taskId), {}, '/customfields/TASKS/{taskId}'),
@@ -263,6 +276,12 @@ export async function probeCustomFields(taskId, clientId) {
   if (clientId) {
     results.push(
       await arofloProbe('/customfields/CLIENTS/' + encodeURIComponent(clientId), {}, '/customfields/CLIENTS/{clientId}'),
+    );
+  }
+  // The job's site, when it has one (the LOCATIONS zone).
+  if (locationId) {
+    results.push(
+      await arofloProbe('/customfields/LOCATIONS/' + encodeURIComponent(locationId), {}, '/customfields/LOCATIONS/{siteId}'),
     );
   }
   return results;
@@ -330,10 +349,94 @@ export async function listTaskTypes(businessUnitId) {
   return arofloProbe('/types/tasks', { businessUnitId, limit: 100 });
 }
 
+// Active and archived task types, each read in full (AroFlo returns active
+// ones only unless `archived` is passed) — for preparing the Task Type ->
+// Trade / Job type mapping. Read-only.
+async function listAllTaskTypes(businessUnitId, archived) {
+  const label = archived ? '/types/tasks?archived=true' : '/types/tasks (active)';
+  const items = [];
+  for (let page = 1; page <= 10; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await arofloProbe('/types/tasks', { businessUnitId, archived: archived ? 'true' : undefined, page, limit: 100 }, label);
+    if (!res.available) return res;
+    const pageItems = res.data?.items || [];
+    items.push(...pageItems);
+    if (pageItems.length < 100) break;
+  }
+  return { tried: label, available: true, data: { count: items.length, items } };
+}
+
+export async function listTaskTypesActiveAndArchived(businessUnitId) {
+  const active = await listAllTaskTypes(businessUnitId, false);
+  const archived = await listAllTaskTypes(businessUnitId, true);
+  return { active, archived };
+}
+
 export async function listLocations(businessUnitId) {
   return arofloProbe('/locations', { businessUnitId, limit: 100 });
 }
 
 export async function listAroFloUsers(businessUnitId) {
   return arofloProbe('/users', { businessUnitId, limit: 100 });
+}
+
+// ---- Customer history investigation (admin AroFlo Test page only) ----
+// Read-only probes for whether AroFlo can tell us a customer's other jobs.
+// GET /tasks filtered by the documented `clientId` parameter (no status
+// filter, to see what AroFlo returns by default), the same with status=4
+// (ARCHIVED) on its own (to see whether archived jobs are left out by
+// default), and — when the job has a linked site — GET /tasks filtered by
+// `locationId`. Each list is read 100 at a time, oldest job number first, up
+// to HISTORY_MAX_PAGES pages; the result says when there were still more.
+// Only the fields the analysis needs are requested (`_fields`), so site
+// contacts and phone numbers are never even fetched. Nothing is stored.
+const HISTORY_FIELDS = 'id,jobNumber,status,substatus,client,location,taskType,requestedDateTime,timestampCreated,completionDate';
+export const HISTORY_MAX_PAGES = 5;
+
+async function probeAllPages(params, label) {
+  const items = [];
+  let reported = null;
+  let pagesFetched = 0;
+  for (let page = 1; page <= HISTORY_MAX_PAGES; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await arofloProbe('/tasks', { ...params, page, limit: 100 }, label);
+    if (!res.available) return { ...res, pagesFetched };
+    pagesFetched += 1;
+    const pageItems = res.data?.items || [];
+    items.push(...pageItems);
+    const n = Number(res.data?.count);
+    if (Number.isFinite(n)) reported = n;
+    if (pageItems.length < 100) break;
+  }
+  const truncated = (reported !== null && reported > items.length) || (pagesFetched === HISTORY_MAX_PAGES && items.length >= HISTORY_MAX_PAGES * 100);
+  return { tried: label, available: true, data: { count: reported, items }, pagesFetched, truncated };
+}
+
+export async function probeClientJobHistory(businessUnitId, clientId, locationId = null) {
+  if (!clientId) return null;
+  const base = { businessUnitId, sortBy: 'jobnumber', ascending: 'true', _fields: HISTORY_FIELDS };
+  const defaultList = await probeAllPages({ ...base, clientId }, '/tasks?clientId={clientId} (no status filter)');
+  const archivedList = await probeAllPages({ ...base, clientId, status: 4 }, '/tasks?clientId={clientId}&status=4 (archived only)');
+  const siteList = locationId ? await probeAllPages({ ...base, locationId }, '/tasks?locationId={siteId} (this site)') : null;
+  const locations = await arofloProbe('/locations', { clientId, page: 1, limit: 100, _fields: 'id' }, '/locations?clientId={clientId}');
+  return { defaultList, archivedList, siteList, locations };
+}
+
+// Other AroFlo customers with exactly the same name — a possible duplicate
+// customer record. Ids only; nothing else about them is requested.
+export async function probeSameNameClients(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  return arofloProbe('/clients', { name: trimmed, limit: 100, _fields: 'id,archived' }, '/clients?name={same name}');
+}
+
+// ---- Real-address suburb check (admin AroFlo Test page only) ----
+// The most recent tasks (newest job number first), then each task's own
+// address — only the address fields are requested. Read-only.
+export async function listRecentTasks(businessUnitId, count) {
+  return arofloProbe('/tasks', { businessUnitId, sortBy: 'jobnumber', ascending: 'false', page: 1, limit: count, _fields: 'id,jobNumber,location' }, '/tasks (newest first)');
+}
+
+export async function getTaskAddress(taskId) {
+  return arofloProbe(`/tasks/${encodeURIComponent(taskId)}`, { _fields: 'id,jobNumber,location,locationText' }, '/tasks/{taskId} (address only)');
 }
