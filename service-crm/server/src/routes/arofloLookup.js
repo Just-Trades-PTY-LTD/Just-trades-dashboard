@@ -8,13 +8,14 @@ import {
   findTaskByJobNumber,
   getTaskDetail,
   getInvoicesForTask,
-  getCustomFieldValue,
+  getCustomFieldValues,
   listTaskLabours,
   listTaskSchedules,
 } from '../aroflo/client.js';
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
+import { resolveLeadSourceValues } from '../aroflo/leadSourceMapping.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
@@ -89,7 +90,8 @@ export function createArofloLookupRouter() {
       // "Google search"/"Google ads"), so this is surfaced as a reference
       // value only for staff to read and pick the closest match themselves —
       // never auto-applied to a call's own leadSourceId.
-      const leadSource = await getCustomFieldValue('CLIENTS', detail.client?.id || null, LEAD_SOURCE_FIELD_NAMES);
+      const leadSourceValues = await getCustomFieldValues('CLIENTS', detail.client?.id || null, LEAD_SOURCE_FIELD_NAMES);
+      const leadSource = leadSourceValues[0]?.value ?? null;
 
       // Labour logged and visits booked on this job — display only, and only
       // when the caller asks (the Technician & Sales form does; the Lead
@@ -122,6 +124,11 @@ export function createArofloLookupRouter() {
         // never sent when a suburb was matched.
         addressForReference: suburbAnswer.suburb ? null : addressSummary(detail),
         leadSource,
+        // The customer's AroFlo Lead Source value(s), resolved through the
+        // admin mapping / exact name: one clear CRM Lead Source, unmapped
+        // (reference only) or a conflict between the two AroFlo fields
+        // (left for staff). A suggestion only on the call form.
+        leadSourceMatch: resolveLeadSourceValues(leadSourceValues),
         invoices: invoices.map((inv) => ({
           invoiceNumber: inv.invoiceNumber || '',
           // Adelaide calendar date: a UTC timestamp is converted, a plain

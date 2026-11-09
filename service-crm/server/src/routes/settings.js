@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { all, get, prepare, run } from '../db/index.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { listMappingsForSettings, validateMappings, saveMappings } from '../aroflo/taskTypeMapping.js';
+import { listLeadSourceMappingsForSettings, validateLeadSourceMappings, saveLeadSourceMappings } from '../aroflo/leadSourceMapping.js';
 import { getFollowUpDefaultDueDays } from './followUps.js';
 
 const LIST_CATEGORIES = [
@@ -90,6 +91,20 @@ export function createSettingsRouter() {
     if (error) return res.status(400).json({ error });
     saveMappings(mappings);
     res.json({ mappings: listMappingsForSettings() });
+  });
+
+  // ---- AroFlo Lead Source value -> CRM Lead Source mappings (admin only) ----
+  // Stored in app_settings (included in backup/restore). Only shapes future
+  // call-form suggestions — never changes any saved call.
+  router.get('/aroflo-lead-source-mappings', adminOnly, (req, res) => {
+    res.json({ mappings: listLeadSourceMappingsForSettings() });
+  });
+
+  router.put('/aroflo-lead-source-mappings', adminOnly, (req, res) => {
+    const { mappings, error } = validateLeadSourceMappings(req.body?.mappings);
+    if (error) return res.status(400).json({ error });
+    saveLeadSourceMappings(mappings);
+    res.json({ mappings: listLeadSourceMappingsForSettings() });
   });
 
   // ---- Trades & job types ----

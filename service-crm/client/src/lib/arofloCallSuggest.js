@@ -53,6 +53,26 @@ const same = (a, b) => String(a ?? '') === String(b ?? '');
 // here. kind 'tradeOnly' suggests the Trade only and lists the Job type
 // choices for staff; kind 'callback' suggests nothing (it says nothing about
 // the trade) and never changes the call type.
+// The customer's AroFlo Lead Source. The server resolves it (leadSourceMatch:
+// an admin mapping first, then the exact name; both AroFlo fields checked):
+// 'mapped' -> a "Use this" suggestion; 'unmapped' -> reference only;
+// 'conflict' (the two AroFlo fields disagree) -> both shown, no suggestion,
+// left for staff. An older server without it falls back to the exact-name
+// rule here. Never applied on its own; never overwrites a staff choice.
+function leadSourceSummary(result, form, exactFallback) {
+  const m = result.leadSourceMatch;
+  if (!m) {
+    return { arofloValue: result.leadSource || '', suggestion: exactFallback, alreadySet: !!exactFallback && same(form.leadSourceId, exactFallback.leadSourceId) };
+  }
+  const values = m.values || [];
+  const arofloValue = [...new Set(values.map((v) => v.value))].join(' / ');
+  if (m.kind === 'mapped') {
+    const suggestion = { leadSourceId: m.leadSourceId, label: m.label };
+    return { arofloValue, suggestion, alreadySet: same(form.leadSourceId, m.leadSourceId), kind: 'mapped', source: m.source, values };
+  }
+  return { arofloValue, suggestion: null, alreadySet: false, kind: m.kind, values };
+}
+
 function jobTypeSummary(result, form, trades) {
   const arofloValue = result.taskType || '';
   const m = result.taskTypeMatch;
@@ -88,11 +108,7 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
     found: true,
     status: result.status || '',
     jobType: jobTypeSummary(result, form, trades),
-    leadSource: {
-      arofloValue: result.leadSource || '',
-      suggestion: ls,
-      alreadySet: !!ls && same(form.leadSourceId, ls.leadSourceId),
-    },
+    leadSource: leadSourceSummary(result, form, ls),
     suburb: {
       arofloValue: result.suburb || '',
       suggestion: result.suburb ? { suburb: result.suburb, label: result.suburb } : null,
