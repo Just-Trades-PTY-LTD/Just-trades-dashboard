@@ -368,12 +368,27 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
           AroFlo task type: {summary.jobType.arofloValue} — choose {summary.jobType.choices.map((c) => c.name).join(' or ')}.
         </div>
       )}
+      {showLeadSource && summary.leadSource.kind === 'conflict' && (
+        <div style={{ marginTop: 4 }} data-testid="aroflo-lead-source-conflict">
+          Customer’s Lead Source: AroFlo has two different values on this customer —{' '}
+          {summary.leadSource.values.map((v, i) => (
+            <span key={v.field}>
+              {i > 0 && ' · '}
+              {v.field}: <strong>{v.value}</strong>
+            </span>
+          ))}
+          . Not chosen automatically — please pick the Lead Source above.
+        </div>
+      )}
       {showLeadSource &&
+        summary.leadSource.kind !== 'conflict' &&
         row(
           'Customer’s Lead Source',
           summary.leadSource,
           () => patch({ leadSourceId: summary.leadSource.suggestion.leadSourceId }),
-          'no single matching Lead Source here, so please pick the closest match above.'
+          summary.leadSource.kind === 'unmapped'
+            ? 'not mapped to a CRM Lead Source — shown for reference only, please pick the Lead Source above.'
+            : 'no single matching Lead Source here, so please pick the closest match above.'
         )}
       {row('Suburb', summary.suburb, () => patch({ suburb: summary.suburb.suggestion.suburb }), '', {
         showArrow: false,

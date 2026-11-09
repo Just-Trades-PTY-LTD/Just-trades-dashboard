@@ -8,6 +8,7 @@ import DataPanel from './DataPanel.jsx';
 import Activity from './Activity.jsx';
 import ArofloTest from './ArofloTest.jsx';
 import ArofloMappings from './ArofloMappings.jsx';
+import ArofloLeadSources from './ArofloLeadSources.jsx';
 import DataHealth from './DataHealth.jsx';
 
 const THEME_CHOICES = [
@@ -59,6 +60,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
           ['activity', 'Activity history'],
           ['data-health', 'Data health'],
           ['aroflo-mappings', 'AroFlo task types'],
+          ['aroflo-lead-sources', 'AroFlo lead sources'],
           ['aroflo-test', 'AroFlo test'],
         ]}
       />
@@ -69,6 +71,7 @@ export default function SettingsPage({ sub, setSub, isAdmin }) {
       {sub === 'activity' && <Activity />}
       {sub === 'data-health' && <DataHealth />}
       {sub === 'aroflo-mappings' && <ArofloMappings />}
+      {sub === 'aroflo-lead-sources' && <ArofloLeadSources />}
       {sub === 'aroflo-test' && <ArofloTest />}
     </div>
   );

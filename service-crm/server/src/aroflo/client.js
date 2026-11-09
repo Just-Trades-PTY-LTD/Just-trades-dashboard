@@ -297,29 +297,36 @@ export async function probeCustomFields(taskId, clientId, locationId = null) {
 // `items[0].customField.name`); this also checks a nested `items[].fields[]`
 // in case another zone ever shapes it like AroFlo's own documentation shows
 // instead, so either response shape is read correctly.
-// `fieldName` may be one name or a list of accepted names (first found wins,
-// in list order) — e.g. AroFlo customers carry "Lead Source" on some records
-// and "Lead/Referral Source" on others.
-export async function getCustomFieldValue(zone, id, fieldName) {
-  if (!id) return null;
+// Every non-blank value among the named fields, as [{ field, value }] in the
+// order the names are given — one request. e.g. a customer can carry both
+// "Lead Source" and the older "Lead/Referral Source". [] whenever AroFlo
+// can't answer — never throws (a lookup problem never blocks manual entry).
+export async function getCustomFieldValues(zone, id, fieldNames) {
+  if (!id) return [];
   let body;
   try {
     body = await arofloGet(`/customfields/${zone}/${encodeURIComponent(id)}`);
   } catch {
-    return null;
+    return [];
   }
-  const targets = (Array.isArray(fieldName) ? fieldName : [fieldName]).map((n) => n.toLowerCase());
+  const names = Array.isArray(fieldNames) ? fieldNames : [fieldNames];
   const found = new Map();
   for (const item of body?.items || []) {
     const entries = Array.isArray(item.fields) ? item.fields : [item];
     for (const entry of entries) {
-      const name = (entry.customField?.name || '').toLowerCase();
+      const name = String(entry.customField?.name || '').trim();
+      const target = names.find((n) => n.toLowerCase() === name.toLowerCase());
       const value = entry.customField?.value;
-      if (targets.includes(name) && value !== undefined && value !== null && String(value).trim() !== '' && !found.has(name)) found.set(name, value);
+      if (target && value !== undefined && value !== null && String(value).trim() !== '' && !found.has(target)) found.set(target, String(value).trim());
     }
   }
-  for (const t of targets) if (found.has(t)) return found.get(t);
-  return null;
+  return names.filter((n) => found.has(n)).map((n) => ({ field: n, value: found.get(n) }));
+}
+
+// The first non-blank value among the named fields (in list order), or null.
+export async function getCustomFieldValue(zone, id, fieldName) {
+  const values = await getCustomFieldValues(zone, id, fieldName);
+  return values[0]?.value ?? null;
 }
 
 // ---- Production attendance lookup ----
