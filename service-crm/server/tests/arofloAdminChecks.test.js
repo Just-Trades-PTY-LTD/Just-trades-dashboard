@@ -126,7 +126,7 @@ test('forms\' lookup: the job address is returned for reference only when no con
     try {
       let d = (await server.request('GET', '/aroflo/lookup?jn=9000')).data;
       assert.equal(d.suburb, null);
-      assert.equal(d.addressForReference, text);
+      assert.equal(d.addressForReference, '…Modbery North SA 5092', 'privacy-safe: no house number or street');
       text = '7 Smart Road Modbury North SA 5092 AUSTRALIA';
       d = (await server.request('GET', '/aroflo/lookup?jn=9000')).data;
       assert.equal(d.suburb, 'Modbury North (5092)', 'today this overlap was left blank');

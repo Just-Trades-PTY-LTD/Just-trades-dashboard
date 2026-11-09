@@ -104,6 +104,7 @@ export default function ArofloTest() {
   const [suburbCheck, setSuburbCheck] = useState(null);
   const [suburbCount, setSuburbCount] = useState('20');
   const [taskTypesAll, setTaskTypesAll] = useState(null);
+  const [leadSourceOptions, setLeadSourceOptions] = useState(null);
   const settings = useSettings();
 
   async function runLookup() {
@@ -175,8 +176,8 @@ export default function ArofloTest() {
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginBottom: 10 }}>
           For the job number above: asks AroFlo for the same customer's other jobs and
           shows whether that answer can be trusted, including active and archived jobs, the job&apos;s site, other customer records
-          with the same name, and Lead Source at job, customer and site level. Read-only, usually 6–10 AroFlo requests; the
-          request count and time are shown. Nothing is stored, and no call, job or Lead Source in the CRM is read or changed.
+          with the same name, and Lead Source at job, customer and site level. Read-only, about 8–12 AroFlo requests plus one
+          per earlier job whose address is compared (at most 10); the request count and time are shown. Nothing is stored, and no call, job or Lead Source in the CRM is read or changed.
         </div>
         <button
           className="btn"
@@ -207,6 +208,18 @@ export default function ArofloTest() {
           </button>
         </div>
         <SuburbCheck state={suburbCheck} />
+      </div>
+
+      <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>AroFlo Lead Source options</div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginBottom: 10 }}>
+          Lists the selectable values of AroFlo&apos;s customer Lead Source field (&quot;Lead Source&quot; or &quot;Lead/Referral Source&quot;),
+          read from the field definitions of up to 10 recent customers. Read-only; no customer, value or contact detail is shown or stored.
+        </div>
+        <button className="btn" type="button" disabled={leadSourceOptions?.loading} onClick={() => runListing(api.arofloTest.leadSourceOptions, setLeadSourceOptions)}>
+          {leadSourceOptions?.loading ? 'Loading…' : 'List AroFlo Lead Source options'}
+        </button>
+        <LeadSourceOptions state={leadSourceOptions} />
       </div>
 
       <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
@@ -371,6 +384,7 @@ function CustomerHistory({ state }) {
         <td>{t.completed ? t.completed.slice(0, 10) : '—'}</td>
         <td>{t.suburb || '—'}</td>
         <td>{t.siteId && t.siteId === a.currentJob?.siteId ? 'same site' : t.siteId ? 'other site' : '—'}</td>
+        <td>{t.address || '—'}</td>
       </tr>
     ));
   const facts = [
@@ -388,6 +402,14 @@ function CustomerHistory({ state }) {
     ['Pages read (100 per page): customer / archived / site', `${a.pagesRead?.customer ?? '—'} / ${a.pagesRead?.archived ?? '—'} / ${a.pagesRead?.site ?? '—'}`],
     ['History incomplete (over the page limit)', yesNo(a.truncated)],
     ['Earlier jobs / earlier completed / earlier completed at this site', `${a.earlierJobs?.length ?? 0} / ${a.earlierCompletedCount ?? 0} / ${a.earlierCompletedAtThisSite ?? 0}`],
+    ['Earlier completed jobs at the same address', a.earlierCompletedAtSameAddress ?? 'not compared'],
+    [
+      'Address comparison (only same / different / unable is kept)',
+      d.addressComparison
+        ? `${d.addressComparison.compared} earlier job(s) · ${d.addressComparison.extraRequests} extra request(s) (cap ${d.addressComparison.cap})${d.addressComparison.capped ? ' · cap reached — the rest are "unable to compare"' : ''}`
+        : '—',
+    ],
+    ['Occupant (AroFlo customer field)', a.occupant || '— (not recorded)'],
     ['AroFlo requests: whole check / history part', `${d.totalCalls} / ${d.historyCalls}`],
     ['Time taken', `${(d.elapsedMs / 1000).toFixed(1)} s`],
   ];
@@ -425,6 +447,7 @@ function CustomerHistory({ state }) {
                   <th>Completed</th>
                   <th>Suburb</th>
                   <th>Site</th>
+                  <th>Address vs this job</th>
                 </tr>
               </thead>
               <tbody>{jobRows(a[key])}</tbody>
@@ -447,7 +470,7 @@ function CustomerHistory({ state }) {
               {d.customFields.map((z) => (
                 <tr key={z.zone}>
                   <td>{z.zone}</td>
-                  <td>{z.available ? z.leadSource ?? '— (none)' : '—'}</td>
+                  <td>{z.available ? (z.leadSource ? `${z.leadSource}${z.leadSourceField ? ` (field: ${z.leadSourceField})` : ''}` : '— (none)') : '—'}</td>
                   <td style={{ fontSize: 12 }}>
                     {!z.available
                       ? z.note || `not available${z.status ? ` (HTTP ${z.status})` : ''}`
@@ -508,6 +531,46 @@ function SuburbCheck({ state }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// AroFlo's selectable Lead Source values (from the customer custom-field
+// definitions) — field names and options only, no customer information.
+function LeadSourceOptions({ state }) {
+  if (!state || state.loading) return state?.loading ? <div style={{ marginTop: 10, fontSize: 13 }}>Loading…</div> : null;
+  if (state.error) return <div style={{ marginTop: 10, color: 'var(--danger, #a3323a)' }}>{state.error}</div>;
+  const d = state.data;
+  return (
+    <div style={{ marginTop: 12 }} data-testid="lead-source-options">
+      <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+        Read the custom-field definitions of {d.customersRead} of {d.customersSampled} recent customers · {d.totalCalls} AroFlo requests ·{' '}
+        {(d.elapsedMs / 1000).toFixed(1)} s
+      </div>
+      {d.fields.length === 0 ? (
+        <div style={{ fontSize: 13 }}>None of the sampled customers had a Lead Source field.</div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>AroFlo field</th>
+              <th>Type</th>
+              <th>Seen on</th>
+              <th>Selectable options</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.fields.map((f) => (
+              <tr key={f.name}>
+                <td>{f.name}</td>
+                <td>{f.type || '—'}</td>
+                <td>{f.seenOn} customer(s)</td>
+                <td>{f.optionsListed ? f.options.join(' · ') : 'AroFlo returned no option list (free text, or hidden from this API user)'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

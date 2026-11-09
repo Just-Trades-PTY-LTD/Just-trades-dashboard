@@ -110,3 +110,37 @@ export function legacyMatchSuburbFromLocationText(locationText) {
   if (nameMatches.length !== 1) return null;
   return label(nameMatches[0]);
 }
+
+// A privacy-safe summary of a job address: never the house number or the
+// street. When a suburb was matched, it's simply that suburb, state and
+// postcode. Otherwise: the site record's suburb/state/postcode, or the words
+// after the last street-type word (Street, Road, Avenue…) before the state
+// and postcode — with words containing a digit and unit words (Lot, Unit…)
+// always dropped, and only the last two words kept when no street-type word
+// is found. Used for the forms' "address for reference" and the admin
+// suburb check. Display only — nothing is stored.
+const STREET_TYPES = new Set(
+  'street st road rd avenue ave av parade pde drive dr court ct crescent cres place pl terrace tce lane ln way highway hwy boulevard blvd close cl grove gr circuit cct esplanade esp square sq walk track trk mews rise row loop link vista view chase glade'.split(' ')
+);
+const UNIT_WORDS = new Set('lot unit shop suite level flat apartment apt villa'.split(' '));
+const plainWord = (w) => w.toLowerCase().replace(/\./g, '');
+function suburbWords(part) {
+  const kept = part.split(/[\s,]+/).filter((w) => w && !/\d/.test(w) && !UNIT_WORDS.has(plainWord(w)));
+  let lastStreet = -1;
+  kept.forEach((w, i) => {
+    if (STREET_TYPES.has(plainWord(w))) lastStreet = i;
+  });
+  const after = lastStreet >= 0 ? kept.slice(lastStreet + 1) : [];
+  return after.length ? after : kept.slice(-2);
+}
+export function addressSummary(task, matchedSuburb = null) {
+  const matched = String(matchedSuburb || '').match(/^(.*) \((\d{4})\)$/);
+  if (matched) return `…${matched[1]} SA ${matched[2]}`;
+  const l = task?.location;
+  if (l?.suburb || l?.postCode) return ['site record:', l.suburb, l.state, l.postCode].filter(Boolean).join(' ');
+  const text = String(task?.locationText || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '(no address in AroFlo)';
+  const m = text.match(/^(.*?)[\s,]+(SA|S\.A\.|South\s+Australia|NSW|VIC|QLD|WA|TAS|NT|ACT)[\s,]+(\d{4})\b/i);
+  if (m) return `…${suburbWords(m[1]).join(' ')} ${m[2]} ${m[3]}`.replace('… ', '…');
+  return `…${suburbWords(text).join(' ')} (no state + postcode found)`;
+}

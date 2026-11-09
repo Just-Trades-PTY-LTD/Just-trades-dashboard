@@ -297,6 +297,9 @@ export async function probeCustomFields(taskId, clientId, locationId = null) {
 // `items[0].customField.name`); this also checks a nested `items[].fields[]`
 // in case another zone ever shapes it like AroFlo's own documentation shows
 // instead, so either response shape is read correctly.
+// `fieldName` may be one name or a list of accepted names (first found wins,
+// in list order) — e.g. AroFlo customers carry "Lead Source" on some records
+// and "Lead/Referral Source" on others.
 export async function getCustomFieldValue(zone, id, fieldName) {
   if (!id) return null;
   let body;
@@ -305,15 +308,17 @@ export async function getCustomFieldValue(zone, id, fieldName) {
   } catch {
     return null;
   }
-  const target = fieldName.toLowerCase();
+  const targets = (Array.isArray(fieldName) ? fieldName : [fieldName]).map((n) => n.toLowerCase());
+  const found = new Map();
   for (const item of body?.items || []) {
     const entries = Array.isArray(item.fields) ? item.fields : [item];
     for (const entry of entries) {
-      if ((entry.customField?.name || '').toLowerCase() === target) {
-        return entry.customField.value ?? null;
-      }
+      const name = (entry.customField?.name || '').toLowerCase();
+      const value = entry.customField?.value;
+      if (targets.includes(name) && value !== undefined && value !== null && String(value).trim() !== '' && !found.has(name)) found.set(name, value);
     }
   }
+  for (const t of targets) if (found.has(t)) return found.get(t);
   return null;
 }
 
@@ -423,11 +428,102 @@ export async function probeClientJobHistory(businessUnitId, clientId, locationId
 }
 
 // Other AroFlo customers with exactly the same name — a possible duplicate
-// customer record. Ids only; nothing else about them is requested.
+// customer record. AroFlo documents both `name.equals` and `name` for an
+// exact match; `name.equals` is tried first, then `name`. No `_fields` is
+// sent (an unknown field name can make AroFlo refuse the whole request); only
+// the ids of the matches are ever passed on. A refusal is reported with a
+// clean status and AroFlo's own short message.
+export function cleanArofloError(detail) {
+  const raw = typeof detail === 'string' ? detail : detail?.message || detail?.error || detail?.errors?.[0]?.message || detail?.title || '';
+  return String(raw || '')
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '[email hidden]')
+    .replace(/(?:\+?61|0)[\s-]?\d(?:[\s-]?\d){7,9}/g, '[phone hidden]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
+}
 export async function probeSameNameClients(name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) return null;
-  return arofloProbe('/clients', { name: trimmed, limit: 100, _fields: 'id,archived' }, '/clients?name={same name}');
+  let last = null;
+  for (const [param, label] of [['name.equals', '/clients?name.equals={same name}'], ['name', '/clients?name={same name}']]) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await arofloProbe('/clients', { [param]: trimmed, limit: 100 }, label);
+    if (res.available) {
+      return { tried: label, available: true, data: { items: (res.data?.items || []).map((c) => ({ id: c.id, archived: c.archived ?? c.isArchived ?? null })) } };
+    }
+    last = { tried: label, available: false, status: res.status, errorText: cleanArofloError(res.detail) };
+  }
+  return last;
+}
+
+// Earlier jobs' addresses, only for comparison with the current job's (the
+// address itself is never passed on). Uses what the history list already
+// returned when it has a usable address; otherwise one address-only request
+// per job, at most `cap` requests.
+export const ADDRESS_LOOKUP_CAP = 10;
+export async function fetchAddressesForComparison(tasks, cap = ADDRESS_LOOKUP_CAP) {
+  const out = new Map();
+  let requests = 0;
+  for (const t of tasks) {
+    const l = t.location;
+    if (l && (l.address1 || l.suburb) && l.postCode) {
+      out.set(t.id, { location: l });
+      continue;
+    }
+    if (requests >= cap) {
+      out.set(t.id, null);
+      continue;
+    }
+    requests += 1;
+    // eslint-disable-next-line no-await-in-loop
+    const res = await arofloProbe(`/tasks/${encodeURIComponent(t.id)}`, { _fields: 'id,location,locationText' }, '/tasks/{taskId} (address only)');
+    out.set(t.id, res.available ? { location: res.data?.location || null, locationText: res.data?.locationText || null } : null);
+  }
+  return { addresses: out, requests, capped: tasks.length > requests && [...out.values()].some((v) => v === null) };
+}
+
+// The selectable options of the customer's Lead Source field, read from a
+// few recent jobs' customers (AroFlo returns a dropdown field's `options`
+// with each customer's custom fields). Only the field names and option lists
+// are passed on — never which customer had which value, or any customer
+// detail. Read-only.
+export async function sampleLeadSourceOptions(businessUnitId, fieldNames, sampleSize = 10) {
+  const list = await arofloProbe('/tasks', { businessUnitId, sortBy: 'jobnumber', ascending: 'false', page: 1, limit: 40, _fields: 'id,client' }, '/tasks (newest first)');
+  if (!list.available) return { available: false, status: list.status, errorText: cleanArofloError(list.detail) };
+  const clientIds = [...new Set((list.data?.items || []).map((t) => t.client?.id).filter(Boolean))].slice(0, sampleSize);
+  const wanted = fieldNames.map((n) => n.toLowerCase());
+  const fields = new Map();
+  let customersRead = 0;
+  for (const id of clientIds) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await arofloProbe(`/customfields/CLIENTS/${encodeURIComponent(id)}`, {}, '/customfields/CLIENTS/{clientId}');
+    if (!res.available) continue;
+    customersRead += 1;
+    for (const item of res.data?.items || []) {
+      for (const e of Array.isArray(item.fields) ? item.fields : [item]) {
+        const name = String(e.customField?.name || '').trim();
+        if (!wanted.includes(name.toLowerCase())) continue;
+        const f = fields.get(name) || { name, type: e.customField?.type ?? null, options: new Set(), seenOn: 0, optionsListed: false };
+        f.seenOn += 1;
+        const opts = e.customField?.options;
+        if (Array.isArray(opts) && opts.length) {
+          f.optionsListed = true;
+          opts.forEach((o) => {
+            const v = typeof o === 'string' ? o : o?.value ?? o?.name ?? o?.label;
+            if (v !== undefined && v !== null && String(v).trim()) f.options.add(String(v).trim());
+          });
+        }
+        fields.set(name, f);
+      }
+    }
+  }
+  return {
+    available: true,
+    customersSampled: clientIds.length,
+    customersRead,
+    fields: [...fields.values()].map((f) => ({ name: f.name, type: f.type, seenOn: f.seenOn, optionsListed: f.optionsListed, options: [...f.options].sort((a, b) => a.localeCompare(b)) })),
+  };
 }
 
 // ---- Real-address suburb check (admin AroFlo Test page only) ----

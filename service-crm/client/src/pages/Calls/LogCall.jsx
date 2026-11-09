@@ -381,7 +381,7 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
       })}
       {summary.suburb.addressForReference && (
         <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }} data-testid="aroflo-job-address">
-          AroFlo job address (for reference only): {summary.suburb.addressForReference}
+          AroFlo job address (suburb part, for reference only): {summary.suburb.addressForReference}
         </div>
       )}
       {showLeadSource && summary.leadSource.arofloValue && (
