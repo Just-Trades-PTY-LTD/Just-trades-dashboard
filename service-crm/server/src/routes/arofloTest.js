@@ -25,7 +25,8 @@ import {
   sampleLeadSourceOptions,
   cleanArofloError,
 } from '../aroflo/client.js';
-import { analyzeClientHistory, summarizeCustomFields, compareAddresses, ADDRESS_UNABLE, LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
+import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
+import { gatherCustomerHistory } from '../aroflo/repeatCheck.js';
 import { matchSuburbFromLocationText, analyzeTaskSuburb, legacyMatchSuburbFromLocationText, addressSummary } from '../aroflo/suburbMatch.js';
 
 // Stage 1: a completely separate, admin-only, read-only test page. It makes
@@ -122,19 +123,6 @@ export function suburbCheckRow(jobNumber, task) {
     reason: proposed.reason,
     change: current === proposed.suburb ? 'same' : !current && proposed.suburb ? 'newly matched' : current && !proposed.suburb ? 'now left blank' : 'different suburb',
   };
-}
-
-// The current job's customer's EARLIER jobs (lower job number), completed
-// ones first, for the same-address comparison.
-function earlierTasksForComparison(probes, detail) {
-  const byId = new Map();
-  for (const p of [probes?.defaultList, probes?.archivedList]) {
-    if (p?.available) (p.data?.items || []).forEach((t) => byId.set(t.id, t));
-  }
-  const done = (t) => String(t.status || '').toUpperCase() === 'COMPLETED' || !!t.completionDate;
-  return [...byId.values()]
-    .filter((t) => t.id !== detail.id && Number(t.jobNumber) < Number(detail.jobNumber))
-    .sort((a, b) => Number(done(b)) - Number(done(a)) || Number(b.jobNumber) - Number(a.jobNumber));
 }
 
 export function createArofloTestRouter() {
@@ -242,35 +230,13 @@ export function createArofloTestRouter() {
         const task = await findTaskByJobNumber(businessUnit.id, jn);
         if (!task) return { found: false, message: `No task with job number "${jn}" was found in AroFlo.` };
         const detail = await getTaskDetail(task.id);
-        const clientId = detail.client?.id || null;
-        const siteId = detail.location?.id || detail.location?.locationId || null;
-        const history = await countArofloCalls(async () => {
-          const clientDetail = await probeClientDetail(clientId);
-          const probes = await probeClientJobHistory(businessUnit.id, clientId, siteId);
-          const clientName = clientDetail?.available ? clientDetail.data?.name : detail.client?.name;
-          const sameNameClients = await probeSameNameClients(clientName);
-          const customFields = await probeCustomFields(task.id, clientId, siteId);
-          // Same address? The earlier jobs (completed first), compared with
-          // this job's address — at most ADDRESS_LOOKUP_CAP extra requests.
-          const earlierTasks = earlierTasksForComparison(probes, detail);
-          const addressRead = await fetchAddressesForComparison(earlierTasks);
-          return { clientDetail, probes, sameNameClients, customFields, earlierTasks, addressRead };
-        });
-        const { clientDetail, probes, sameNameClients, customFields, earlierTasks, addressRead } = history.result;
-        // Only the outcome of each comparison is kept — never an address.
-        const addressChecks = new Map(earlierTasks.map((t) => [t.id, addressRead.addresses.get(t.id) ? compareAddresses(detail, addressRead.addresses.get(t.id)) : ADDRESS_UNABLE]));
-        const zones = ['TASKS (this job)', 'CLIENTS (the customer)', 'LOCATIONS (the site)'];
-        const fieldSummaries = [
-          summarizeCustomFields(customFields[0], zones[0]),
-          summarizeCustomFields(customFields.find((r) => r.tried.includes('CLIENTS')), zones[1]),
-          siteId ? summarizeCustomFields(customFields.find((r) => r.tried.includes('LOCATIONS')), zones[2]) : { zone: zones[2], available: false, note: 'This job has no linked site record.', fields: [] },
-        ].filter(Boolean);
-        const occupant = fieldSummaries.map((z) => z.occupant).find(Boolean) || null;
+        const history = await countArofloCalls(() => gatherCustomerHistory(businessUnit, task, detail));
+        const { analysis, fieldSummaries, addressComparison, probes, sameNameClients } = history.result;
         return {
           found: true,
           historyCalls: history.calls,
-          addressComparison: { compared: earlierTasks.length, extraRequests: addressRead.requests, cap: ADDRESS_LOOKUP_CAP, capped: addressRead.capped },
-          analysis: analyzeClientHistory({ currentTask: detail, clientDetail, probes, sameNameClients, addressChecks, occupant }),
+          addressComparison,
+          analysis,
           customFields: fieldSummaries,
           probes: probes
             ? Object.fromEntries(

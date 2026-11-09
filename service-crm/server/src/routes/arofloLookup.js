@@ -11,11 +11,13 @@ import {
   getCustomFieldValues,
   listTaskLabours,
   listTaskSchedules,
+  countArofloCalls,
 } from '../aroflo/client.js';
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
 import { resolveLeadSourceValues } from '../aroflo/leadSourceMapping.js';
+import { gatherCustomerHistory, callbackEvidence, repeatDecision } from '../aroflo/repeatCheck.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
@@ -70,6 +72,42 @@ function buildScheduled(task) {
 export function createArofloLookupRouter() {
   const router = Router();
   router.use(requireAuth);
+
+  // Calls & Contacts: is this Lead call's customer a returning customer?
+  // Run automatically by the call form AFTER its normal lookup (so that
+  // lookup is never slowed), in the agreed order — callback first, then a
+  // confident repeat, else no earlier job / uncertain. Read-only: GET
+  // requests to AroFlo and reads of the CRM only. Returns privacy-safe
+  // results only (no address, phone or email); nothing is stored or logged,
+  // and nothing on the form changes unless staff click "Use this".
+  router.get('/lead-history', async (req, res) => {
+    const jn = (req.query.jn || '').trim();
+    if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
+    const started = Date.now();
+    const done = (body) => res.json({ ...body, elapsedMs: Date.now() - started });
+    try {
+      // 1. CRM callback evidence needs no AroFlo request at all.
+      const crmReasons = callbackEvidence(jn, req.query.excludeCallId || null);
+      if (crmReasons.length) return done({ found: true, kind: 'callback', reasons: crmReasons, requests: 0 });
+      const { result, calls } = await countArofloCalls(async () => {
+        const businessUnit = (await listBusinessUnits())[0];
+        if (!businessUnit) return { found: false, kind: 'unavailable', message: 'AroFlo did not return a business unit for this account.' };
+        const task = await findTaskByJobNumber(businessUnit.id, jn);
+        if (!task) return { found: false, kind: 'unavailable', message: `No matching AroFlo job found for "${jn}".` };
+        const detail = await getTaskDetail(task.id);
+        // AroFlo task type Call Back: decided before any history request.
+        const early = repeatDecision({ crmReasons, detail, history: null });
+        if (early) return { found: true, ...early };
+        const history = await gatherCustomerHistory(businessUnit, task, detail);
+        return { found: true, ...repeatDecision({ crmReasons, detail: null, history }) };
+      });
+      return done({ ...result, requests: calls });
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) return done({ found: false, kind: 'unavailable', message: 'AroFlo lookup is not currently configured.' });
+      if (err instanceof ArofloRequestError) return done({ found: false, kind: 'unavailable', message: 'AroFlo could not be reached for the customer history check.' });
+      throw err;
+    }
+  });
 
   router.get('/lookup', async (req, res) => {
     const jn = (req.query.jn || '').trim();
