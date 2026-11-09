@@ -165,6 +165,8 @@ export const api = {
     // kind comes back as { found: false, message }, never an HTTP error, so
     // it never blocks manual entry.
     lookup: (jn, { activity } = {}) => request('GET', `/aroflo/lookup${qs({ jn, activity: activity ? 1 : undefined })}`),
+    // Calls & Contacts: the automatic Repeat customer check (read-only).
+    leadHistory: (jn, excludeCallId) => request('GET', `/aroflo/lead-history${qs({ jn, excludeCallId })}`),
   },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',

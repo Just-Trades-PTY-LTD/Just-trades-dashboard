@@ -9,7 +9,7 @@ import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../compo
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
-import { callLookupSummary } from '../../lib/arofloCallSuggest.js';
+import { callLookupSummary, leadSourceDecision } from '../../lib/arofloCallSuggest.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -54,10 +54,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   // result is only shown while the Job Number still matches it.
   const [arofloResult, setArofloResult] = useState(null);
   const [arofloLoading, setArofloLoading] = useState(false);
+  // The automatic customer-history (Repeat customer) check, run straight
+  // after a successful lookup on a Lead call — separately, so the normal
+  // lookup's results show first. { jn, status: 'checking'|'done', result }.
+  const [history, setHistory] = useState(null);
+  const historySeq = useRef(0);
 
   useEffect(() => {
     setInvalidFields(new Set());
     setArofloResult(null);
+    historySeq.current += 1;
+    setHistory(null);
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -91,6 +98,20 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   function resetForm() {
     setForm(emptyForm(user?.id));
     setArofloResult(null);
+    historySeq.current += 1;
+    setHistory(null);
+  }
+
+  async function runCustomerHistory(jn) {
+    const seq = ++historySeq.current;
+    setHistory({ jn, status: 'checking', result: null });
+    let result;
+    try {
+      result = await api.aroflo.leadHistory(jn, editing?.id);
+    } catch (err) {
+      result = { found: false, kind: 'unavailable', message: err.message };
+    }
+    if (seq === historySeq.current) setHistory({ jn, status: 'done', result });
   }
 
   async function runArofloLeadSourceLookup(jobNumber) {
@@ -98,9 +119,12 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     if (!jn) return;
     setArofloLoading(true);
     setArofloResult(null);
+    historySeq.current += 1;
+    setHistory(null);
     try {
       const result = await api.aroflo.lookup(jn);
       setArofloResult({ jn, result });
+      if (result?.found && form.callType === 'Lead') runCustomerHistory(jn);
     } catch (err) {
       setArofloResult({ jn, result: { found: false, message: err.message || 'AroFlo could not be reached — enter the details manually.' } });
     } finally {
@@ -193,6 +217,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const arofloSummary =
     arofloResult && arofloResult.jn === form.jobNumber.trim()
       ? callLookupSummary(arofloResult.result, form, { trades: settings.trades, leadSources: settings.lists.lead_source })
+      : null;
+  const leadDecision =
+    arofloSummary && arofloSummary.found
+      ? leadSourceDecision(arofloSummary.leadSource, history && history.jn === form.jobNumber.trim() ? history : null, form, settings.lists.lead_source)
       : null;
 
   return (
@@ -296,7 +324,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
               </button>
             )}
             {form.callType === 'Lead' && arofloSummary && (
-              <ArofloCallSuggestions summary={arofloSummary} showLeadSource={showLeadSource} patch={patch} />
+              <ArofloCallSuggestions summary={arofloSummary} decision={leadDecision} showLeadSource={showLeadSource} patch={patch} />
             )}
           </div>
         )}
@@ -328,7 +356,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 // The result of "Look up in AroFlo" on a Lead call: why nothing was found,
 // or AroFlo's task type / Lead Source with "Use this" where one of this
 // CRM's options matches exactly. Clicking only changes the form.
-function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
+function ArofloCallSuggestions({ summary, decision, showLeadSource, patch }) {
   if (!summary.found) {
     return <div className="lookup-box lookup-missing">{summary.message}</div>;
   }
@@ -368,7 +396,8 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
           AroFlo task type: {summary.jobType.arofloValue} — choose {summary.jobType.choices.map((c) => c.name).join(' or ')}.
         </div>
       )}
-      {showLeadSource && summary.leadSource.kind === 'conflict' && (
+      {showLeadSource && decision && decision.mode !== 'normal' && <LeadSourceFromHistory decision={decision} patch={patch} />}
+      {showLeadSource && decision?.mode === 'normal' && summary.leadSource.kind === 'conflict' && (
         <div style={{ marginTop: 4 }} data-testid="aroflo-lead-source-conflict">
           Customer’s Lead Source: AroFlo has two different values on this customer —{' '}
           {summary.leadSource.values.map((v, i) => (
@@ -381,6 +410,7 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
         </div>
       )}
       {showLeadSource &&
+        decision?.mode === 'normal' &&
         summary.leadSource.kind !== 'conflict' &&
         row(
           'Customer’s Lead Source',
@@ -399,12 +429,62 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
           AroFlo job address (suburb part, for reference only): {summary.suburb.addressForReference}
         </div>
       )}
-      {showLeadSource && summary.leadSource.arofloValue && (
+      {showLeadSource && decision?.mode === 'normal' && summary.leadSource.arofloValue && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
           AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this
           enquiry — check before using it.
         </div>
       )}
+    </div>
+  );
+}
+
+// The Lead Source line once the automatic customer-history check has a
+// say: checking, callback, Repeat customer or uncertain (see
+// lib/arofloCallSuggest.js's leadSourceDecision). The customer's own AroFlo
+// Lead Source is shown as reference only — never used for this enquiry.
+function LeadSourceFromHistory({ decision, patch }) {
+  const original = decision.original ? (
+    <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }} data-testid="aroflo-original-lead-source">
+      Original AroFlo Lead Source: {decision.original} (reference only — not used for this enquiry)
+    </div>
+  ) : null;
+  return (
+    <div style={{ marginTop: 4 }} data-testid={`aroflo-lead-history-${decision.mode}`}>
+      {decision.mode === 'checking' && <div>Customer’s Lead Source: checking AroFlo customer history…</div>}
+      {decision.mode === 'callback' && (
+        <div>
+          Customer’s Lead Source: this appears to be a <strong>callback</strong> ({decision.reasons.join('; ')}) — no Lead Source is
+          suggested.
+        </div>
+      )}
+      {decision.mode === 'repeat' && (
+        <div>
+          Customer’s Lead Source: <strong>{decision.suggestion.label}</strong> — AroFlo shows an earlier completed job
+          {decision.earlierJob ? ` (JN ${decision.earlierJob.jobNumber}${decision.earlierJob.completed ? `, completed ${decision.earlierJob.completed}` : ''})` : ''} for
+          this customer at the same address.{' '}
+          {decision.alreadySet ? (
+            <>— already selected</>
+          ) : (
+            <button className="btn btn-sm" type="button" onClick={() => patch({ leadSourceId: decision.suggestion.leadSourceId })}>
+              Use this
+            </button>
+          )}
+        </div>
+      )}
+      {decision.mode === 'uncertain' && (
+        <div>
+          Customer’s Lead Source: not suggested — the customer history is uncertain, so please pick the Lead Source above.
+          {decision.reasons.length > 0 && (
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12 }}>
+              {decision.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {decision.mode !== 'checking' && original}
     </div>
   );
 }

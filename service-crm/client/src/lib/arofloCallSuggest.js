@@ -118,3 +118,39 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
     },
   };
 }
+
+/**
+ * The Lead Source to show on a Lead call once the automatic customer-history
+ * check is in, in the agreed order:
+ * 1. callback -> 'callback': no Lead Source suggestion;
+ * 2. confident repeat -> 'repeat': suggest Repeat customer, with AroFlo's
+ *    own (original) Lead Source shown as reference only;
+ * 3. no earlier completed job, or the check couldn't run -> 'normal': the
+ *    mapped AroFlo Lead Source as before (leadSourceSummary);
+ * 4. uncertain history -> 'uncertain': no suggestion, reasons shown.
+ * While the check is still running -> 'checking': no suggestion yet, so a
+ * mapped source can't be accepted moments before Repeat customer appears.
+ * Suggestions only — never applied on their own.
+ */
+export function leadSourceDecision(leadSource, history, form, leadSources) {
+  const original = leadSource?.arofloValue || '';
+  if (!history) return { mode: 'normal', original };
+  if (history.status === 'checking') return { mode: 'checking', original };
+  const r = history.result;
+  if (!r || !r.found || r.kind === 'unavailable' || r.kind === 'no-earlier') return { mode: 'normal', original };
+  if (r.kind === 'callback') return { mode: 'callback', original, reasons: r.reasons || [] };
+  if (r.kind === 'repeat') {
+    const repeat = (leadSources || []).filter((l) => normName(l.name) === 'repeat customer');
+    if (repeat.length !== 1) {
+      return { mode: 'uncertain', original, reasons: ['AroFlo history shows a returning customer, but there is no single "Repeat customer" Lead Source in Settings.'] };
+    }
+    return {
+      mode: 'repeat',
+      original,
+      earlierJob: r.earlierJob || null,
+      suggestion: { leadSourceId: repeat[0].id, label: repeat[0].name },
+      alreadySet: same(form.leadSourceId, repeat[0].id),
+    };
+  }
+  return { mode: 'uncertain', original, reasons: r.reasons || [] };
+}
