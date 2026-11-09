@@ -350,11 +350,23 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
   return (
     <div className="lookup-box" style={{ border: '1px solid var(--border)', color: 'var(--ink)' }} data-testid="aroflo-call-lookup">
       <div>Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}. Nothing is changed until you click “Use this” and save.</div>
-      {row(
-        'Task type',
-        summary.jobType,
-        () => patch({ tradeId: summary.jobType.suggestion.tradeId, jobTypeId: summary.jobType.suggestion.jobTypeId }),
-        'no single matching Trade / Job type here, so please choose it above.'
+      {summary.jobType.kind === 'callback' ? (
+        <div style={{ marginTop: 4 }}>
+          Task type: <strong>{summary.jobType.arofloValue}</strong> — AroFlo records this job as a callback, which doesn&apos;t say the
+          trade, so please choose the Trade / Job type above. The call type isn&apos;t changed.
+        </div>
+      ) : (
+        row(
+          'Task type',
+          summary.jobType,
+          () => patch({ tradeId: summary.jobType.suggestion.tradeId, jobTypeId: summary.jobType.suggestion.jobTypeId }),
+          'no single matching Trade / Job type here, so please choose it above.'
+        )
+      )}
+      {summary.jobType.kind === 'tradeOnly' && (
+        <div style={{ fontSize: 12, marginTop: 2 }} data-testid="aroflo-jobtype-choices">
+          AroFlo task type: {summary.jobType.arofloValue} — choose {summary.jobType.choices.map((c) => c.name).join(' or ')}.
+        </div>
       )}
       {showLeadSource &&
         row(

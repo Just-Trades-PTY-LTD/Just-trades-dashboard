@@ -538,7 +538,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       ? arofloResult.suburb
       : null);
   const arofloView = (() => {
-    const view = { confirmation: null, nothingAdded: false, matchesEntry: false, notes: [], suggestions: [], invoices: [], invoiceHeading: null, schedule: false, callBackTechnician: null };
+    const view = { confirmation: null, nothingAdded: false, matchesEntry: false, notes: [], suggestions: [], invoices: [], invoiceHeading: null, schedule: false, callBackTechnician: null, callbackConfirmed: false };
     if (!arofloResult?.found) return view;
     const newJobPlan = isNewJob && !editing ? arofloPlan : null;
     if (!editing) view.confirmation = prefillConfirmation(newJobPlan ? newJobPlan.filled : arofloAutoFilled);
@@ -560,6 +560,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           view.invoices.length > 1 ? "Choose one of AroFlo's invoices, or enter it manually:" : editing || form.invoiceNumber ? "AroFlo's invoice for this job (not the one in this entry):" : "AroFlo's invoice for this job:";
       }
     }
+    // A Call Back entry whose AroFlo task type is also Call Back: a simple
+    // confirmation. The entry type is never changed either way.
+    view.callbackConfirmed = isCallBack && arofloResult.taskTypeMatch?.kind === 'callback';
     view.schedule = isSaleMade && !!arofloResult.scheduled && !scheduleApplied(arofloResult.scheduled, form, DIFFERENT_DAY);
     if (isCallBack && arofloResult.scheduled) {
       if (!arofloResult.scheduled.matchedTechnicianId) view.callBackTechnician = 'unmatched';
@@ -1088,7 +1091,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                   ✓ {arofloView.confirmation}
                 </div>
               )}
-              {arofloView.nothingAdded && <div>AroFlo found this job, but nothing could be added automatically.</div>}
+              {arofloView.callbackConfirmed && (
+                <div className="lookup-box lookup-found" style={{ marginTop: 0 }} data-testid="aroflo-callback-confirmed">
+                  ✓ AroFlo also identifies this job as a Call Back.
+                </div>
+              )}
+              {arofloView.nothingAdded && !arofloView.callbackConfirmed && <div>AroFlo found this job, but nothing could be added automatically.</div>}
               {arofloView.matchesEntry && <div>AroFlo matches this entry — nothing to change.</div>}
               {arofloView.notes.length > 0 && (
                 <ul style={{ margin: '6px 0 0', paddingLeft: 18 }} data-testid="aroflo-notes">

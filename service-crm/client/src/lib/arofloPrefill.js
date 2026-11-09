@@ -127,13 +127,28 @@ export function planNewJobPrefill({ result, form, now, trades, technicians }) {
 
   if (result.description && !form.comments) wanted.comments = result.description;
 
-  const jt = matchJobType(result.taskType, trades);
-  if (jt) {
-    const values = { tradeId: String(jt.tradeId), jobTypeId: String(jt.jobTypeId) };
+  // Trade / Job type: the server's resolved task type (admin mapping first,
+  // then the exact-name fallback); an older server without it falls back to
+  // the exact-name rule here. Blank fields only, as everywhere else.
+  const m = result.taskTypeMatch || (() => {
+    const jt = matchJobType(result.taskType, trades);
+    return jt ? { kind: 'full', tradeId: jt.tradeId, jobTypeId: jt.jobTypeId, label: jt.label } : { kind: 'none' };
+  })();
+  if (m.kind === 'full') {
+    const values = { tradeId: String(m.tradeId), jobTypeId: String(m.jobTypeId) };
     if (!form.tradeId && !form.jobTypeId) Object.assign(wanted, values);
     else if (String(form.tradeId) !== values.tradeId || String(form.jobTypeId) !== values.jobTypeId) {
-      suggestions.push({ label: `Trade / Job type: ${jt.label}`, values });
+      suggestions.push({ label: `Trade / Job type: ${m.label}`, values });
     }
+  } else if (m.kind === 'tradeOnly') {
+    // One Trade, the Job type left for staff — never picked between choices.
+    const values = { tradeId: String(m.tradeId) };
+    if (!form.tradeId && !form.jobTypeId) wanted.tradeId = values.tradeId;
+    else if (String(form.tradeId) !== values.tradeId) suggestions.push({ label: `Trade: ${m.label}`, values: { ...values, jobTypeId: '' } });
+    const choices = (m.choices || []).map((c) => c.name);
+    notes.push(`AroFlo task type: ${result.taskType} — choose ${choices.join(' or ')}.`);
+  } else if (m.kind === 'callback') {
+    notes.push(`AroFlo records this job as a Call Back, which doesn't say the trade — please choose the Trade / Job type. The entry type isn't changed.`);
   } else if (result.taskType) {
     notes.push(`AroFlo task type "${result.taskType}" doesn't match exactly one Trade / Job type here — please choose them.`);
   }
