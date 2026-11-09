@@ -545,6 +545,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     if (newJobPlan) {
       view.notes = newJobPlan.notes;
       view.suggestions = newJobPlan.suggestions;
+    } else if ((isNewJob || isExistingJob || isUpsell) && !arofloResult.suburb && arofloResult.addressForReference) {
+      // No confident suburb: AroFlo's job address, read-only, so staff can
+      // check the Suburb themselves (a new New Job entry gets this in its
+      // prefill note instead).
+      view.notes = [`No single confident suburb match from AroFlo's job address (${arofloResult.addressForReference}) — please check the suburb.`];
     }
     if (isSaleMade || isExistingJob) {
       view.invoices = invoiceChoices(arofloResult, form);

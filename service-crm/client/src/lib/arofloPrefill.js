@@ -118,7 +118,11 @@ export function planNewJobPrefill({ result, form, now, trades, technicians }) {
     if (!form.suburb) wanted.suburb = result.suburb;
     else if (form.suburb !== result.suburb) suggestions.push({ label: `Suburb: ${result.suburb}`, values: { suburb: result.suburb } });
   } else {
-    notes.push("No single confident suburb match from AroFlo's job address — please choose the suburb.");
+    notes.push(
+      result.addressForReference
+        ? `No single confident suburb match from AroFlo's job address (${result.addressForReference}) — please choose the suburb.`
+        : "No single confident suburb match from AroFlo's job address — please choose the suburb."
+    );
   }
 
   if (result.description && !form.comments) wanted.comments = result.description;

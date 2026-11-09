@@ -61,8 +61,13 @@ test('suburb: offered only when the server found one confident match; already-se
     arofloValue: 'Woodcroft (5162)',
     suggestion: { suburb: 'Woodcroft (5162)', label: 'Woodcroft (5162)' },
     alreadySet: false,
+    addressForReference: null,
   });
   assert.equal(callLookupSummary(found, { suburb: 'Woodcroft (5162)' }, { trades, leadSources }).suburb.alreadySet, true);
   assert.equal(callLookupSummary(found, { suburb: 'Reynella (5161)' }, { trades, leadSources }).suburb.alreadySet, false, 'a different suburb is never treated as matching');
-  assert.deepEqual(callLookupSummary({ ...found, suburb: null }, { suburb: '' }, { trades, leadSources }).suburb, { arofloValue: '', suggestion: null, alreadySet: false });
+  assert.deepEqual(callLookupSummary({ ...found, suburb: null }, { suburb: '' }, { trades, leadSources }).suburb, { arofloValue: '', suggestion: null, alreadySet: false, addressForReference: null });
+  // No confident suburb: the job address is passed through for staff to read — and only then.
+  const unmatched = { ...found, suburb: null, addressForReference: '7 Smart Road Modbery North SA 5092' };
+  assert.equal(callLookupSummary(unmatched, { suburb: '' }, { trades, leadSources }).suburb.addressForReference, '7 Smart Road Modbery North SA 5092');
+  assert.equal(callLookupSummary({ ...found, addressForReference: 'ignored' }, { suburb: '' }, { trades, leadSources }).suburb.addressForReference, null, 'never shown when a suburb matched');
 });

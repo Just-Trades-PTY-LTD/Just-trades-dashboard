@@ -4,97 +4,105 @@
 // be reliable. Investigation output only: nothing here is used by any form,
 // stored, or allowed to change a Lead Source.
 //
-// The `assessment` is deliberately conservative, matching the agreed rule
-// that an uncertain history must never be guessed:
-// - "repeat"    only when AroFlo's client filter is proven to work, the
-//               whole history was read, the customer is a single individual
-//               at one site, and at least one EARLIER job was completed.
-// - "new"       only under the same conditions with no earlier job at all.
-// - "uncertain" otherwise, with the reasons listed.
+// The `assessment` is deliberately conservative — an uncertain history is
+// never guessed:
+// - "repeat": AroFlo's customer filter is proven to have been applied, the
+//   whole history was read (active and archived), the customer is one
+//   individual at one site, and at least one EARLIER job was completed.
+// - "no-earlier-completed-job": the same conditions, and no earlier job was
+//   completed. This is NOT "definitely new" — a duplicate customer record,
+//   or work done before AroFlo was used, can't be ruled out.
+// - "uncertain": otherwise, with every reason listed.
+//
+// Privacy: only job numbers, statuses, types, dates, site ids and suburbs
+// are passed on — never phone numbers, email addresses, street addresses or
+// contact names, even if AroFlo returns them.
 
-const COMPLETED = new Set(['COMPLETED', 'ARCHIVED']);
-
-function itemsOf(probe) {
-  return probe?.available ? probe.data?.items || [] : [];
+// What an earlier job actually was. Cancelled and quote-only jobs never count
+// as completed work; an archived job only counts when AroFlo recorded a
+// completion date (archiving alone doesn't prove the work was done).
+export function jobOutcome(t) {
+  const marker = `${t.substatus || ''} ${t.taskType || ''}`.toLowerCase();
+  if (/cancel/.test(marker)) return 'cancelled';
+  if (/quote/.test(marker)) return 'quote';
+  const status = String(t.status || '').toUpperCase();
+  if (status === 'COMPLETED' || t.completed) return 'completed';
+  if (status === 'ARCHIVED') return 'archived (no completion date)';
+  return 'unfinished';
 }
 
-function totalOf(probe) {
-  if (!probe?.available) return null;
-  const n = Number(probe.data?.count);
-  return Number.isFinite(n) ? n : null;
-}
+const itemsOf = (probe) => (probe?.available ? probe.data?.items || [] : []);
 
-// Only what the investigation needs to show — never site contacts, phone
-// numbers or rates, even when AroFlo returns them.
 function slimTask(t) {
-  return {
+  const slim = {
     id: t.id,
     jobNumber: t.jobNumber ?? null,
     status: t.status || '',
+    substatus: t.substatus?.name || '',
     taskType: t.taskType?.name || '',
-    requested: t.requestedDateTime || null,
     created: t.timestampCreated || null,
+    requested: t.requestedDateTime || null,
     completed: t.completionDate || null,
-    locationId: t.location?.id || null,
+    siteId: t.location?.id || null,
     suburb: t.location?.suburb || null,
     clientId: t.client?.id || null,
   };
+  return { ...slim, outcome: jobOutcome(slim) };
 }
 
 const earlierDate = (a, b) => (a && b ? String(a) < String(b) : null);
 
-export function analyzeClientHistory({ currentTask, clientDetail, probes }) {
+// Was a filter really applied? An ignored query parameter would return other
+// customers' (or other sites') jobs, or leave the current job out.
+function filterCheck(probe, items, field, value, currentId, what) {
+  if (!probe) return { honoured: null, reason: null };
+  if (!probe.available) return { honoured: null, reason: `AroFlo refused the job list filtered by ${what} (HTTP ${probe.status || '—'}).` };
+  const foreign = items.filter((t) => t[field] && t[field] !== value);
+  if (foreign.length) return { honoured: false, reason: `AroFlo returned ${foreign.length} job(s) for a different ${what} — the ${what} filter was not applied.` };
+  if (!probe.truncated && !items.some((t) => t.id === currentId)) {
+    return { honoured: false, reason: `The current job itself wasn't in the ${what}'s job list, so that list can't be trusted.` };
+  }
+  return { honoured: true, reason: null };
+}
+
+export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNameClients }) {
   const clientId = currentTask?.client?.id || null;
   const client = clientDetail?.available ? clientDetail.data || {} : {};
-  const reasons = [];
   if (!clientId) {
     return { clientId: null, assessment: 'uncertain', reasons: ['This AroFlo job has no customer (client) attached.'] };
   }
-
+  const reasons = [];
+  const current = slimTask(currentTask);
   const defaultItems = itemsOf(probes?.defaultList).map(slimTask);
   const archivedItems = itemsOf(probes?.archivedList).map(slimTask);
-  const locationItems = itemsOf(probes?.locations);
+  const siteItems = itemsOf(probes?.siteList).map(slimTask);
+  const siteCount = itemsOf(probes?.locations).length;
 
-  // Was the clientId filter actually applied? An ignored query parameter
-  // would return other customers' jobs.
-  const all = [...defaultItems, ...archivedItems];
-  const foreign = all.filter((t) => t.clientId && t.clientId !== clientId);
-  const currentListed = all.some((t) => t.id === currentTask.id);
-  let filterHonoured = null;
-  if (!probes?.defaultList?.available) {
-    reasons.push('AroFlo refused the job list filtered by customer (see the raw probe result).');
-  } else if (foreign.length) {
-    filterHonoured = false;
-    reasons.push(`AroFlo returned ${foreign.length} job(s) belonging to other customers — the customer filter was not applied.`);
-  } else if (!currentListed && defaultItems.length < 100) {
-    filterHonoured = false;
-    reasons.push("The current job itself wasn't in the customer's job list, so the list can't be trusted.");
-  } else {
-    filterHonoured = true;
+  // 1. Were the customer and site filters actually applied?
+  const customerFilter = filterCheck(probes?.defaultList, defaultItems, 'clientId', clientId, current.id, 'customer');
+  if (customerFilter.reason) reasons.push(customerFilter.reason);
+  const siteFilter = current.siteId ? filterCheck(probes?.siteList, siteItems, 'siteId', current.siteId, current.id, 'site') : { honoured: null, reason: null };
+  if (siteFilter.reason) reasons.push(siteFilter.reason);
+  // No linked site on the job: only safe when the customer has exactly one
+  // site/property on record (then every job is at that property).
+  if (!current.siteId && siteCount !== 1) {
+    reasons.push("This job has no linked AroFlo site record and the customer doesn't have exactly one site on record, so it can't be confirmed earlier jobs were at the same property.");
   }
 
-  // Are archived jobs included without asking for them?
+  // 2. Active and archived history, every page.
+  if (probes?.archivedList && !probes.archivedList.available) reasons.push("Archived jobs couldn't be checked.");
   const defaultIds = new Set(defaultItems.map((t) => t.id));
-  let archivedIncludedByDefault = null;
-  if (probes?.archivedList?.available && archivedItems.length) {
-    archivedIncludedByDefault = archivedItems.every((t) => defaultIds.has(t.id));
-  }
-
-  const defaultTotal = totalOf(probes?.defaultList);
-  const archivedTotal = totalOf(probes?.archivedList);
-  const truncated =
-    (defaultTotal !== null && defaultTotal > defaultItems.length) || (archivedTotal !== null && archivedTotal > archivedItems.length);
-  if (truncated) reasons.push('This customer has more than 100 jobs in one list — only the first page was read.');
-  if (probes?.archivedList && !probes.archivedList.available) reasons.push("Archived jobs couldn't be checked separately.");
+  const archivedIncludedByDefault = probes?.archivedList?.available && archivedItems.length ? archivedItems.every((t) => defaultIds.has(t.id)) : null;
+  const truncated = [probes?.defaultList, probes?.archivedList, probes?.siteList].some((p) => p?.truncated);
+  if (truncated) reasons.push('More jobs exist than were read (over the page limit) — the history is incomplete.');
 
   // Every job of this customer, once, oldest job number first.
   const byId = new Map();
   [...defaultItems, ...archivedItems].forEach((t) => byId.set(t.id, t));
   const jobs = [...byId.values()].sort((a, b) => Number(a.jobNumber) - Number(b.jobNumber));
-
-  const current = slimTask(currentTask);
   const others = jobs.filter((t) => t.id !== current.id);
-  // "Earlier" by job number (AroFlo numbers jobs in sequence) — the dates
+
+  // 3. Earlier = a lower job number (AroFlo numbers jobs in sequence); dates
   // are compared too, and any disagreement is reported rather than resolved.
   const earlier = others.filter((t) => Number(t.jobNumber) < Number(current.jobNumber));
   const dateDisagreements = others.filter((t) => {
@@ -102,38 +110,81 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes }) {
     return byDate !== null && byDate !== Number(t.jobNumber) < Number(current.jobNumber);
   });
   if (dateDisagreements.length) reasons.push(`${dateDisagreements.length} job(s) are ordered differently by job number and by created date.`);
-  const earlierCompleted = earlier.filter((t) => t.completed || COMPLETED.has(t.status.toUpperCase()));
-  const earlierNotCompleted = earlier.filter((t) => !earlierCompleted.includes(t));
+  const earlierCompleted = earlier.filter((t) => t.outcome === 'completed');
+  const earlierCompletedSameSite = current.siteId ? earlierCompleted.filter((t) => t.siteId === current.siteId) : [];
 
-  // Things that make "same customer record" a weak sign of "same person
-  // who has used us before".
-  const siteIds = new Set(jobs.map((t) => t.locationId).filter(Boolean));
-  const multipleSites = siteIds.size > 1 || locationItems.length > 1;
-  if (client.individual === false) reasons.push('The AroFlo customer is an organisation (e.g. an agency, builder or business), not an individual — its jobs may be for different people or properties.');
-  if (multipleSites) reasons.push(`The customer has ${Math.max(siteIds.size, locationItems.length)} sites/locations — earlier jobs may be at a different property.`);
-  if (client.parent?.id) reasons.push(`The customer sits under a parent customer (${client.parent.name || client.parent.id}).`);
-  if (earlierNotCompleted.length && !earlierCompleted.length) reasons.push('Earlier jobs exist but none was completed (e.g. quotes or cancellations) — not proof they used us before.');
+  // 4. When "same customer record" is a weak sign of "same person, same property".
+  if (client.individual === false) reasons.push('The AroFlo customer is an organisation (e.g. an agency, builder, landlord or business), not an individual — its jobs may be for different people or properties.');
+  if (client.individual === undefined || client.individual === null) reasons.push("AroFlo didn't say whether this customer is an individual or an organisation.");
+  if (client.parent?.id) reasons.push('The customer sits under a parent customer account.');
+  const siteIds = new Set(jobs.map((t) => t.siteId).filter(Boolean));
+  const sites = Math.max(siteIds.size, siteCount);
+  if (sites > 1) reasons.push(`The customer has ${sites} sites/properties — earlier jobs may be at a different property.`);
+  const sameName = sameNameClients?.available ? (sameNameClients.data?.items || []).filter((c) => c.id !== clientId).length : null;
+  if (sameName) reasons.push(`${sameName} other AroFlo customer record(s) have exactly the same name — possible duplicate records, so earlier jobs may sit under another record.`);
+  if (sameNameClients && !sameNameClients.available) reasons.push("Couldn't check AroFlo for other customer records with the same name.");
 
-  const reliable = filterHonoured === true && !truncated && probes?.archivedList?.available !== false && reasons.length === 0;
+  const reliable = customerFilter.honoured === true && siteFilter.honoured !== false && !truncated && probes?.archivedList?.available !== false && reasons.length === 0;
   let assessment = 'uncertain';
   if (reliable && earlierCompleted.length) assessment = 'repeat';
-  else if (reliable && !earlier.length) assessment = 'new';
+  else if (reliable) assessment = 'no-earlier-completed-job';
 
   return {
     clientId,
     clientName: client.name || currentTask.client?.name || null,
     individual: client.individual ?? null,
-    parent: client.parent ? { id: client.parent.id, name: client.parent.name || null } : null,
-    linkedBusinessUnits: Array.isArray(client.linkedBusinessUnits) ? client.linkedBusinessUnits.length : null,
-    filterHonoured,
+    hasParent: !!client.parent?.id,
+    sites,
+    sameNameCustomerRecords: sameName,
+    customerFilterHonoured: customerFilter.honoured,
+    siteFilterHonoured: siteFilter.honoured,
     archivedIncludedByDefault,
-    totals: { defaultList: defaultTotal, archivedOnly: archivedTotal, locations: locationItems.length },
-    statusesSeen: [...new Set(jobs.map((t) => t.status))],
+    pagesRead: {
+      customer: probes?.defaultList?.pagesFetched ?? null,
+      archived: probes?.archivedList?.pagesFetched ?? null,
+      site: probes?.siteList?.pagesFetched ?? null,
+    },
+    totals: {
+      customerJobs: probes?.defaultList?.available ? probes.defaultList.data?.count ?? defaultItems.length : null,
+      archivedJobs: probes?.archivedList?.available ? probes.archivedList.data?.count ?? archivedItems.length : null,
+      siteJobs: probes?.siteList?.available ? probes.siteList.data?.count ?? siteItems.length : null,
+    },
+    truncated,
     currentJob: current,
     earlierJobs: earlier,
     earlierCompletedCount: earlierCompleted.length,
+    earlierCompletedAtThisSite: earlierCompletedSameSite.length,
     laterJobs: others.filter((t) => !earlier.includes(t)),
     assessment,
+    assessmentLabel: {
+      repeat: 'Repeat customer — an earlier completed job was found',
+      'no-earlier-completed-job': 'No earlier completed job found (this does not prove the customer is new)',
+      uncertain: 'Uncertain — leave Lead Source for staff',
+    }[assessment],
     reasons,
   };
+}
+
+// Custom fields for a zone, as { zone, available, fields: [{ name, value }] }
+// — any email address or phone number inside a value is masked.
+const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
+const PHONE = /(?:\+?61|0)[\s-]?\d(?:[\s-]?\d){7,9}/g;
+export function maskContactDetails(value) {
+  if (value === null || value === undefined) return value;
+  return String(value).replace(EMAIL, '[email hidden]').replace(PHONE, '[phone hidden]');
+}
+
+export function summarizeCustomFields(probe, zone) {
+  if (!probe) return null;
+  if (!probe.available) return { zone, available: false, status: probe.status || null, fields: [] };
+  const fields = [];
+  for (const item of probe.data?.items || []) {
+    const entries = Array.isArray(item.fields) ? item.fields : [item];
+    for (const e of entries) {
+      const name = e.customField?.name ?? e.name;
+      if (!name) continue;
+      fields.push({ name, value: maskContactDetails(e.customField?.value ?? e.value ?? null) });
+    }
+  }
+  return { zone, available: true, fields, leadSource: fields.find((f) => /lead\s*source/i.test(f.name))?.value ?? null };
 }

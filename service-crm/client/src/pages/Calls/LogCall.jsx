@@ -367,6 +367,11 @@ function ArofloCallSuggestions({ summary, showLeadSource, patch }) {
         showArrow: false,
         emptyText: 'no single confident match from the AroFlo job address, so please choose it in the Suburb field',
       })}
+      {summary.suburb.addressForReference && (
+        <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }} data-testid="aroflo-job-address">
+          AroFlo job address (for reference only): {summary.suburb.addressForReference}
+        </div>
+      )}
       {showLeadSource && summary.leadSource.arofloValue && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
           AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this

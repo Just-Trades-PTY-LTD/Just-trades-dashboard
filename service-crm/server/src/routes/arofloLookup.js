@@ -13,7 +13,7 @@ import {
   listTaskSchedules,
 } from '../aroflo/client.js';
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
-import { matchSuburbFromLocationText } from '../aroflo/suburbMatch.js';
+import { analyzeTaskSuburb } from '../aroflo/suburbMatch.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
 // form, never the raw AroFlo shapes the admin-only /aroflo-test page shows.
@@ -64,6 +64,17 @@ function buildScheduled(task) {
   };
 }
 
+// The job's own site address as one line, for staff to read when no suburb
+// could be matched: AroFlo's address text, or its structured site record.
+function jobAddressText(task) {
+  const text = String(task.locationText || '').replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  const l = task.location;
+  if (!l) return null;
+  const line = [l.address1, l.address2, l.suburb, l.state, l.postCode].filter((v) => v && String(v).trim()).join(' ');
+  return line || null;
+}
+
 export function createArofloLookupRouter() {
   const router = Router();
   router.use(requireAuth);
@@ -100,6 +111,7 @@ export function createArofloLookupRouter() {
         activity = { labour: summarizeLabour(labours), visits: summarizeVisits(schedules) };
       }
 
+      const suburbAnswer = analyzeTaskSuburb({ location: detail.location, locationText: detail.locationText });
       res.json({
         found: true,
         status: detail.status || '',
@@ -108,7 +120,12 @@ export function createArofloLookupRouter() {
         // null when no single confident match exists — the caller must
         // never fall back to guessing, same contract as every other
         // suburb auto-fill already in this app.
-        suburb: matchSuburbFromLocationText(detail.locationText),
+        suburb: suburbAnswer.suburb,
+        // Only when no confident suburb was found: the job's own AroFlo
+        // address, shown read-only on the form so staff can choose the
+        // suburb themselves. Never stored, never the customer's postal
+        // address, and never sent when a suburb was matched.
+        addressForReference: suburbAnswer.suburb ? null : jobAddressText(detail),
         leadSource,
         invoices: invoices.map((inv) => ({
           invoiceNumber: inv.invoiceNumber || '',
