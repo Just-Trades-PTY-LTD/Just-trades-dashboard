@@ -14,6 +14,7 @@ import {
 } from '../aroflo/client.js';
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { analyzeTaskSuburb } from '../aroflo/suburbMatch.js';
+import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
 
 // Production New Job lookup — a clean, already-decided summary for the real
 // form, never the raw AroFlo shapes the admin-only /aroflo-test page shows.
@@ -116,6 +117,9 @@ export function createArofloLookupRouter() {
         found: true,
         status: detail.status || '',
         taskType: detail.taskType?.name || '',
+        // What that task type means for the forms: an admin mapping first,
+        // then the exact-name fallback, else nothing (never guessed).
+        taskTypeMatch: resolveTaskType(detail.taskType?.name),
         description: stripHtml(detail.description),
         // null when no single confident match exists — the caller must
         // never fall back to guessing, same contract as every other

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, prepare, run } from '../db/index.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
+import { listMappingsForSettings, validateMappings, saveMappings } from '../aroflo/taskTypeMapping.js';
 import { getFollowUpDefaultDueDays } from './followUps.js';
 
 const LIST_CATEGORIES = [
@@ -75,6 +76,20 @@ export function createSettingsRouter() {
       [String(days)]
     );
     res.json({ followUpDefaultDueDays: getFollowUpDefaultDueDays() });
+  });
+
+  // ---- AroFlo task type -> Trade / Job type mappings (admin only) ----
+  // Stored in app_settings (included in backup/restore). Only shapes future
+  // AroFlo lookups — never changes any saved call or job.
+  router.get('/aroflo-task-type-mappings', adminOnly, (req, res) => {
+    res.json({ mappings: listMappingsForSettings() });
+  });
+
+  router.put('/aroflo-task-type-mappings', adminOnly, (req, res) => {
+    const { mappings, error } = validateMappings(req.body?.mappings);
+    if (error) return res.status(400).json({ error });
+    saveMappings(mappings);
+    res.json({ mappings: listMappingsForSettings() });
   });
 
   // ---- Trades & job types ----

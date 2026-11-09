@@ -29,7 +29,10 @@ const FIELD_GROUPS = [
  * ['Suburb', 'Invoice', 'Comments'] — names only, never the values. */
 export function filledFieldNames(filledKeys) {
   const keys = new Set(filledKeys || []);
-  return FIELD_GROUPS.filter(([, fields]) => fields.some((f) => keys.has(f))).map(([name]) => name);
+  return FIELD_GROUPS.filter(([, fields]) => fields.some((f) => keys.has(f))).map(([name]) =>
+    // A Trade-only mapping fills the Trade and leaves the Job type for staff.
+    name === 'Trade / Job type' && !keys.has('jobTypeId') ? 'Trade' : name
+  );
 }
 
 /** The one confirmation line for an automatic fill, or null when nothing

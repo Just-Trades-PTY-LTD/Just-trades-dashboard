@@ -47,6 +47,30 @@ export function matchLeadSource(arofloLeadSource, leadSources) {
 
 const same = (a, b) => String(a ?? '') === String(b ?? '');
 
+// Trade / Job type from AroFlo's task type. The server resolves it once for
+// both forms (taskTypeMatch: an admin mapping first, then the exact-name
+// fallback); an older server without it falls back to the exact-name rule
+// here. kind 'tradeOnly' suggests the Trade only and lists the Job type
+// choices for staff; kind 'callback' suggests nothing (it says nothing about
+// the trade) and never changes the call type.
+function jobTypeSummary(result, form, trades) {
+  const arofloValue = result.taskType || '';
+  const m = result.taskTypeMatch;
+  if (!m) {
+    const jt = matchJobType(result.taskType, trades);
+    return { arofloValue, suggestion: jt, alreadySet: !!jt && same(form.tradeId, jt.tradeId) && same(form.jobTypeId, jt.jobTypeId) };
+  }
+  if (m.kind === 'full') {
+    const suggestion = { tradeId: m.tradeId, jobTypeId: m.jobTypeId, label: m.label };
+    return { arofloValue, suggestion, alreadySet: same(form.tradeId, m.tradeId) && same(form.jobTypeId, m.jobTypeId), kind: 'full', source: m.source };
+  }
+  if (m.kind === 'tradeOnly') {
+    const suggestion = { tradeId: m.tradeId, jobTypeId: '', label: m.label };
+    return { arofloValue, suggestion, alreadySet: same(form.tradeId, m.tradeId), kind: 'tradeOnly', source: m.source, choices: m.choices || [] };
+  }
+  return { arofloValue, suggestion: null, alreadySet: false, kind: m.kind, source: m.source };
+}
+
 /**
  * Everything the call form shows after a lookup. `result` is the
  * /aroflo/lookup response (or { found: false, message } on failure).
@@ -59,16 +83,11 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
   if (!result?.found) {
     return { found: false, message: result?.message || 'No matching AroFlo job found.' };
   }
-  const jt = matchJobType(result.taskType, trades);
   const ls = matchLeadSource(result.leadSource, leadSources);
   return {
     found: true,
     status: result.status || '',
-    jobType: {
-      arofloValue: result.taskType || '',
-      suggestion: jt,
-      alreadySet: !!jt && same(form.tradeId, jt.tradeId) && same(form.jobTypeId, jt.jobTypeId),
-    },
+    jobType: jobTypeSummary(result, form, trades),
     leadSource: {
       arofloValue: result.leadSource || '',
       suggestion: ls,

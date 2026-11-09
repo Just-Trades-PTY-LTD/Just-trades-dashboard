@@ -50,6 +50,8 @@ export const api = {
   },
   settings: {
     bundle: () => request('GET', '/settings/bundle'),
+    arofloTaskTypeMappings: () => request('GET', '/settings/aroflo-task-type-mappings'),
+    saveArofloTaskTypeMappings: (mappings) => request('PUT', '/settings/aroflo-task-type-mappings', { mappings }),
     addTrade: (name) => request('POST', '/settings/trades', { name }),
     updateTrade: (id, name) => request('PATCH', `/settings/trades/${id}`, { name }),
     removeTrade: (id) => request('DELETE', `/settings/trades/${id}`),
