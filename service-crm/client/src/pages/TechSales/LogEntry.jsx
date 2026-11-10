@@ -8,7 +8,7 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
-import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
+import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, planOriginalLeadSourceFill, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
 import { prefillConfirmation, invoiceChoices, scheduleApplied, attendingTechnicianApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
@@ -65,6 +65,10 @@ function emptyForm(kind) {
     // text reference to a job/invoice that predates the CRM, not expected to
     // match an existing record — see validate()/handleSubmit() below.
     predatesCrm: false,
+    // Existing Job — Upsell predating the CRM only: the original job's /
+    // customer's Lead Source, used by reports when the Job Number has no
+    // booked Lead call.
+    originalLeadSourceId: '',
     // Quote Follow-up trial — never part of the job itself (no jobs.* column
     // for either of these); on save, a brand-new genuine knock-back fires a
     // second, independent POST /follow-ups call — see handleSubmit() below.
@@ -104,6 +108,7 @@ function fromEntry(entry) {
     // reflects what it actually is rather than a separately-saved flag that
     // could drift from it.
     predatesCrm: entry.kind === 'existing_job_upsell' && !entry.jobId,
+    originalLeadSourceId: entry.originalLeadSourceId ? String(entry.originalLeadSourceId) : '',
     // The "Follow-up required" checkbox is creation-only (see below) —
     // editing an existing knock-back uses Job History's own "Add/View
     // follow-up" affordance instead.
@@ -203,6 +208,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // immediately before it was applied — purely so a conflicting call-based
   // suburb can still be shown for reference, never to revert the field.
   const [arofloResult, setArofloResult] = useState(null);
+  const [originalLsPlan, setOriginalLsPlan] = useState(null);
+  const originalLsFilled = useRef('');
+  const upsellBookedLeadCallRef = useRef(null);
   const [arofloLoading, setArofloLoading] = useState(false);
   const [priorSuburb, setPriorSuburb] = useState('');
   // True while a save is in flight. The ref blocks a second submit straight
@@ -309,6 +317,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // the server is the authority on whether the typed Invoice Number actually
   // matches (see findSaleForInvoice in routes/techSales.js).
   const upsellInvoiceLookup = useJobLookup(isUpsell ? form.jobNumber : '', 'sale');
+  // Pre-CRM Upsell: the Original job's Lead Source applies only when the
+  // original Job Number has no booked Lead call (that call always wins).
+  const showOriginalLeadSource = isUpsell && form.predatesCrm && !(editing && editing.jobId);
+  const upsellLeadCallLookup = useJobLookup(showOriginalLeadSource ? form.jobNumber : '', 'call');
+  const upsellBookedLeadCall = upsellLeadCallLookup?.leadCall || null;
+  upsellBookedLeadCallRef.current = upsellBookedLeadCall;
   // A brand-new job entered under a Job Number that already belongs to
   // another active job — surfaced as a warning as soon as it's typed, and
   // blocked at submit (see validate() below) rather than silently creating a
@@ -473,6 +487,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       // Re-checked inside the update against the very latest form, so text
       // typed into Comments while the lookup was running is never replaced.
       setForm((f) => ({ ...f, ...arofloAutoFill({ result, form: f, applySuburb, editing: !!editing }) }));
+      // Pre-CRM Upsell: the original Job Number's AroFlo customer card Lead
+      // Source (mapped) fills a blank Original job's Lead Source.
+      if (kindAtStart === 'existing_job_upsell' && formRef.current.predatesCrm) {
+        applyOriginalLeadSourcePlan(jn, result);
+      }
       // Quote Approved Later (new entry): the new Job Number's single invoice
       // fills the blank invoice fields together; differing Trade / Job type
       // from the new AroFlo job is only offered.
@@ -488,12 +507,25 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       if (!stillApplies()) return;
       setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
       if (!editing && (kindAtStart === 'new_job_no_sale' || kindAtStart === 'new_job_sale_made')) applyNewJobPrefill(jn, { found: false });
+      if (kindAtStart === 'existing_job_upsell' && formRef.current.predatesCrm) applyOriginalLeadSourcePlan(jn, { found: false });
     } finally {
       if (seq === arofloSeq.current) {
         setArofloLoading(false);
         arofloInFlight.current = '';
       }
     }
+  }
+
+  function applyOriginalLeadSourcePlan(jn, result) {
+    const plan = planOriginalLeadSourceFill({
+      result,
+      form: formRef.current,
+      previousFilled: originalLsFilled.current,
+      bookedLeadCall: upsellBookedLeadCallRef.current,
+    });
+    if (plan.filledId) originalLsFilled.current = plan.filledId;
+    setOriginalLsPlan({ jn, ...plan });
+    if (plan.wanted.originalLeadSourceId) setForm((f) => ({ ...f, originalLeadSourceId: plan.wanted.originalLeadSourceId }));
   }
 
   // New, unsaved New Job entry: fill blank fields from one reliable AroFlo
@@ -855,6 +887,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           suburb: form.suburb,
           comments: form.comments,
           predatesCrm: form.predatesCrm,
+          originalLeadSourceId: showOriginalLeadSource ? form.originalLeadSourceId || null : null,
         };
         res = editing ? { entry: await api.tech.updateUpsell(editing.id, body) } : await api.tech.createUpsell(body);
       } else if (isCallBack) {
@@ -993,17 +1026,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Job Number *</label>
             <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
-            {!form.predatesCrm && (
-              <button
-                className="btn"
-                type="button"
-                disabled={!form.jobNumber.trim() || arofloLoading}
-                onClick={() => runArofloLookup(form.jobNumber, { applySuburb: true })}
-                style={{ marginTop: 6, width: '100%' }}
-              >
-                {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
-              </button>
-            )}
+            <button
+              className="btn"
+              type="button"
+              disabled={!form.jobNumber.trim() || arofloLoading}
+              onClick={() => runArofloLookup(form.jobNumber, { applySuburb: true })}
+              style={{ marginTop: 6, width: '100%' }}
+            >
+              {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
+            </button>
             {!form.predatesCrm && <JobLookupBox jobNumber={form.jobNumber} mode="job" result={lookupResult} />}
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
               {form.predatesCrm
@@ -1035,6 +1066,44 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               </div>
             )}
           </div>
+          {showOriginalLeadSource && (
+            <div className="field" style={{ gridColumn: '1 / -1' }} data-testid="original-lead-source">
+              {upsellBookedLeadCall ? (
+                <div style={{ fontSize: 12.5 }} data-testid="original-lead-source-booked-call">
+                  Original job's Lead Source: reports use the booked Lead call for JN {form.jobNumber.trim()}
+                  {upsellBookedLeadCall.leadSource ? ` (${upsellBookedLeadCall.leadSource})` : ' (no Lead Source on that call)'}, so it isn't
+                  needed here.
+                </div>
+              ) : (
+                <>
+                  <SelectField
+                    label="Original job's Lead Source"
+                    value={form.originalLeadSourceId}
+                    onChange={(v) => patch({ originalLeadSourceId: v })}
+                    options={settings.lists.lead_source}
+                  />
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                    Where the original customer/job came from — reports group this Upsell under it, because the original job has no booked
+                    Lead call in the CRM. "Look up in AroFlo" reads the original job's customer card. Leave blank if unknown (reported as
+                    Unassigned).
+                  </div>
+                  {originalLsPlan && originalLsPlan.jn === form.jobNumber.trim() && originalLsPlan.note && (
+                    <div style={{ fontSize: 12, marginTop: 4 }} data-testid="original-lead-source-note">
+                      {originalLsPlan.note}
+                      {originalLsPlan.suggestion && String(form.originalLeadSourceId) !== originalLsPlan.suggestion.leadSourceId && (
+                        <>
+                          {' '}
+                          <button className="btn btn-sm" type="button" onClick={() => patch({ originalLeadSourceId: originalLsPlan.suggestion.leadSourceId })}>
+                            Use {originalLsPlan.suggestion.label}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       ) : isCallBack ? (
         <div className="grid-form" style={{ marginTop: 14 }}>

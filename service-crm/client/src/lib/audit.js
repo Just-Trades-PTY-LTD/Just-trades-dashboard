@@ -21,6 +21,7 @@ const LINK_LABELS = {
   conversion_linked_to_job: (ch) => `linked to its original knock-back job #${ch.to}`,
   stored_knockback_flag: (ch) => `stored knock-back flag corrected (${ch.from} → ${ch.to})`,
   conversion_reapplied_for_job: (ch) => `"Converted later" re-applied to job #${ch.to}`,
+  original_lead_source: (ch) => `Original job's Lead Source (${displayValue(ch.from)} → ${displayValue(ch.to)})`,
   converted_by_sale: (ch) =>
     ch.to ? `converted by Quote Approved Later sale #${ch.to}` : `no longer converted by Quote Approved Later sale #${ch.from}`,
 };

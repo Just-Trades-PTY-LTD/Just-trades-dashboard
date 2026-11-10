@@ -1166,6 +1166,7 @@ function repeatCustomerItem() {
 // 3. a proven callback-call Job Number (see callbackSaleCheck) -> Repeat
 //    customer;
 // 4. otherwise "Unassigned (no booked Lead call)".
+// An Upsell follows its original job instead — see resolveUpsell() below.
 // `resolve(row)` returns { category, leadSourceId } — leadSourceId is what
 // the Lead Source filter compares (null = "Unassigned"). Works for a job,
 // sale, upsell, call back or pending cancellation row. Read-only.
@@ -1180,15 +1181,38 @@ function marketingAttribution() {
   const callback = callbackSaleCheck();
   const repeat = repeatCustomerItem();
   const repeatResult = { category: repeat.name, leadSourceId: repeat.id };
-  function resolve(row) {
+  const jobsById = new Map(all('SELECT id, job_number, visit_date FROM jobs').map((j) => [j.id, j]));
+  const leadSourceNames = new Map(all("SELECT id, name FROM list_items WHERE category = 'lead_source'").map((l) => [l.id, l.name]));
+  const bookedLeadCall = (key) => {
+    const call = leadCalls.get(key);
+    return { category: marketingCategoryLabel(call.lead_source_name), leadSourceId: call.lead_source_id || null };
+  };
+  function resolveRecord(row) {
     const key = normKey(row.job_number);
     if (key && callback.byNewCallbackJn(key)) return repeatResult;
-    if (key && leadCalls.has(key)) {
-      const call = leadCalls.get(key);
-      return { category: marketingCategoryLabel(call.lead_source_name), leadSourceId: call.lead_source_id || null };
-    }
+    if (key && leadCalls.has(key)) return bookedLeadCall(key);
     if (key && callback.byCallbackCall(key, row)) return repeatResult;
     return { category: NO_BOOKED_LEAD_CALL, leadSourceId: null };
+  }
+  // An Upsell never has a Marketing Category of its own — it always follows
+  // its original job/customer. Its own invoice (and any separate reference
+  // Job Number) only identify and value it; neither is ever read here.
+  // 1. linked to a CRM job -> exactly that original job's category;
+  // 2. original job predates the CRM -> the original Job Number's booked
+  //    Lead call; otherwise its "Original job's Lead Source"; otherwise
+  //    Unassigned.
+  function resolveUpsell(row) {
+    const job = row.job_id ? jobsById.get(row.job_id) : null;
+    if (job) return resolveRecord(job);
+    const key = normKey(row.job_number);
+    if (key && leadCalls.has(key)) return bookedLeadCall(key);
+    if (!row.job_id && row.original_lead_source_id && leadSourceNames.has(row.original_lead_source_id)) {
+      return { category: marketingCategoryLabel(leadSourceNames.get(row.original_lead_source_id)), leadSourceId: row.original_lead_source_id };
+    }
+    return { category: NO_BOOKED_LEAD_CALL, leadSourceId: null };
+  }
+  function resolve(row) {
+    return row.is_upsell ? resolveUpsell(row) : resolveRecord(row);
   }
   return { resolve, categoryOf: (row) => resolve(row).category };
 }

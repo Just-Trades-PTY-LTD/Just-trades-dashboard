@@ -82,15 +82,29 @@ function jobRow(id) {
   );
 }
 
+// "Original job's Lead Source" on a pre-CRM Upsell: blank, or one of the
+// Lead Sources in Settings. Returns { id, name } or { error }.
+function originalLeadSourceInput(value) {
+  if (value === undefined || value === null || value === '') return { id: null, name: '' };
+  const item = get("SELECT id, name FROM list_items WHERE category = 'lead_source' AND id = ?", [Number(value)]);
+  if (!item) return { error: "That Original job's Lead Source isn't in Settings any more — choose another, or leave it blank." };
+  return { id: item.id, name: item.name };
+}
+function leadSourceName(id) {
+  if (!id) return '';
+  return get('SELECT name FROM list_items WHERE id = ?', [id])?.name || `#${id}`;
+}
+
 function saleRow(id) {
   return get(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name,
-      cu.name AS created_by_name
+      cu.name AS created_by_name, ols.name AS original_lead_source_name
      FROM sales s
      LEFT JOIN technicians t ON t.id = s.credited_technician_id
      LEFT JOIN trades tr ON tr.id = s.trade_id
      LEFT JOIN job_types jt ON jt.id = s.job_type_id
      LEFT JOIN users cu ON cu.id = s.created_by_user_id
+     LEFT JOIN list_items ols ON ols.id = s.original_lead_source_id
      WHERE s.id = ?`,
     [id]
   );
@@ -232,6 +246,11 @@ function saleToEntry(s) {
     // /existing-job-upsell's own predatesCrm handling. Always set for a
     // Quote Approved Later entry (creation requires a match).
     jobId: s.job_id || null,
+    // Pre-CRM Upsell only (jobId null): the original job's/customer's Lead
+    // Source, used by reports only when the Job Number has no booked Lead
+    // call. Always null otherwise.
+    originalLeadSourceId: s.is_upsell && !s.job_id ? s.original_lead_source_id || null : null,
+    originalLeadSourceName: s.is_upsell && !s.job_id ? s.original_lead_source_name || '' : '',
     tradeId: s.trade_id,
     tradeName: s.trade_name,
     jobTypeId: s.job_type_id,
@@ -376,8 +395,9 @@ export function listTechEntries({
               LEFT JOIN list_items kr ON kr.id = j.knockback_reason_id
               LEFT JOIN users cu ON cu.id = j.created_by_user_id`).map(jobToEntry),
       ...all(`SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name,
-                cu.name AS created_by_name
+                cu.name AS created_by_name, ols.name AS original_lead_source_name
               FROM sales s
+              LEFT JOIN list_items ols ON ols.id = s.original_lead_source_id
               LEFT JOIN technicians t ON t.id = s.credited_technician_id
               LEFT JOIN trades tr ON tr.id = s.trade_id
               LEFT JOIN job_types jt ON jt.id = s.job_type_id
@@ -1272,6 +1292,11 @@ export function createTechSalesRouter() {
       });
     }
 
+    // Only an Upsell whose original job predates the CRM keeps an Original
+    // job's Lead Source; a CRM-linked Upsell always follows its original job.
+    const originalLeadSource = matchedJob ? { id: null, name: '' } : originalLeadSourceInput(b.originalLeadSourceId);
+    if (originalLeadSource.error) return res.status(400).json({ error: originalLeadSource.error });
+
     const saleValues = {
       job_number: b.jobNumber || '',
       credited_technician_id: b.creditedTechnicianId || null,
@@ -1300,8 +1325,8 @@ export function createTechSalesRouter() {
     const saleId = transaction(() => {
       const { lastInsertRowid } = run(
         `INSERT INTO sales (job_id, job_number, source, is_upsell, date_logged, credited_technician_id, trade_id, job_type_id,
-          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id)
-         VALUES (?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, original_lead_source_id, created_by_user_id)
+         VALUES (?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           // NULL when this Upsell references a job/invoice that predates the
           // CRM — a plain text reference only (job_number/invoice_number
@@ -1319,10 +1344,18 @@ export function createTechSalesRouter() {
           saleValues.sale_value_ex_gst,
           saleValues.comments,
           saleValues.suburb,
+          originalLeadSource.id,
           req.user.id,
         ]
       );
-      recordAudit({ entityType: 'sale', entityId: lastInsertRowid, before: null, after: saleValues, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
+      recordAudit({
+        entityType: 'sale',
+        entityId: lastInsertRowid,
+        before: null,
+        after: { ...saleValues, original_lead_source: originalLeadSource.name },
+        fields: [...SALE_TRACKED_FIELDS, 'original_lead_source'],
+        userId: req.user.id,
+      });
       // Deliberately never calls findConvertibleKnockback/flips converted_later
       // here — an Upsell must never count as Converted Later or touch the
       // original job's own knock-back/conversion state in any way.
@@ -1378,10 +1411,22 @@ export function createTechSalesRouter() {
       comments: b.comments ?? existing.comments,
       suburb: b.suburb ?? existing.suburb,
     };
+    // Original job's Lead Source: only on an Upsell whose original job
+    // predates the CRM (job_id NULL — PATCH never changes job_id). Always
+    // cleared on a CRM-linked Upsell, which follows its original job.
+    let originalLeadSource = { id: null, name: '' };
+    if (existing.job_id === null) {
+      originalLeadSource =
+        b.originalLeadSourceId !== undefined
+          ? originalLeadSourceInput(b.originalLeadSourceId)
+          : { id: existing.original_lead_source_id || null, name: leadSourceName(existing.original_lead_source_id) };
+      if (originalLeadSource.error) return res.status(400).json({ error: originalLeadSource.error });
+    }
+    next.original_lead_source_id = originalLeadSource.id;
     const dateLogged = b.dateLogged ?? existing.date_logged;
     run(
       `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
-        sale_value_ex_gst=?, comments=?, suburb=?, updated_at=datetime('now') WHERE id=?`,
+        sale_value_ex_gst=?, comments=?, suburb=?, original_lead_source_id=?, updated_at=datetime('now') WHERE id=?`,
       [
         next.job_number,
         dateLogged,
@@ -1393,10 +1438,20 @@ export function createTechSalesRouter() {
         next.sale_value_ex_gst,
         next.comments,
         next.suburb,
+        next.original_lead_source_id,
         req.params.id,
       ]
     );
-    recordAudit({ entityType: 'sale', entityId: Number(req.params.id), before: existing, after: next, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
+    recordAudit({
+      entityType: 'sale',
+      entityId: Number(req.params.id),
+      before: { ...existing, original_lead_source: leadSourceName(existing.original_lead_source_id) },
+      // date_logged isn't part of `next` here, so it's added for the
+      // comparison — otherwise every edit logged "Date logged → (blank)".
+      after: { ...next, date_logged: dateLogged, original_lead_source: originalLeadSource.name },
+      fields: [...SALE_TRACKED_FIELDS, 'original_lead_source'],
+      userId: req.user.id,
+    });
     res.json(saleToEntry(saleRow(req.params.id)));
   });
 
