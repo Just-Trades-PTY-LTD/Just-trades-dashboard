@@ -1,4 +1,4 @@
-import { get } from '../db/index.js';
+import { get, all } from '../db/index.js';
 
 export function normKey(v) {
   return (v || '').toString().trim().toLowerCase();
@@ -210,4 +210,19 @@ export function findJobConvertedBySale(saleId) {
 export function findActiveFollowUpForJob(jobId) {
   if (!jobId) return null;
   return get("SELECT * FROM follow_ups WHERE job_id = ? AND status = 'active' LIMIT 1", [jobId]);
+}
+
+// Invoice numbers compared loosely: case, spaces and a trailing ".0" (e.g.
+// "2181.0" saved from a spreadsheet vs AroFlo's "2181") are ignored.
+export function invoiceKey(invoiceNumber) {
+  return String(invoiceNumber ?? '').trim().toLowerCase().replace(/\.0+$/, '');
+}
+
+/** The CRM sale (not an Upsell) already recording this invoice number, if
+ * any — so an AroFlo invoice is never filled into a second sale. */
+export function findRecordedSaleForInvoice(invoiceNumber) {
+  const key = invoiceKey(invoiceNumber);
+  if (!key) return null;
+  const rows = all("SELECT id, job_number, source, invoice_number FROM sales WHERE archived = 0 AND is_upsell = 0 AND invoice_number != ''");
+  return rows.find((r) => invoiceKey(r.invoice_number) === key) || null;
 }

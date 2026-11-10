@@ -8,7 +8,7 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
-import { prefillStep, revertPrefill, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
+import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
 import { prefillConfirmation, invoiceChoices, scheduleApplied, attendingTechnicianApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
@@ -232,6 +232,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // Other entry types (and every new entry's lookup): which blank fields
   // arofloAutoFill() put into the form, so the confirmation can name them.
   const [arofloAutoFilled, setArofloAutoFilled] = useState([]);
+  // Quote Approved Later only: what the new AroFlo Job Number's lookup filled
+  // ({ field: { value, prior } }) and for which number, so changing the new
+  // Job Number takes back exactly that — plus its notes and suggestions.
+  const qalFilled = useRef({ jn: '', fields: {} });
+  const [qalPlan, setQalPlan] = useState(null);
   function applyLookupFill(source, wanted) {
     const { patch: changes, filled } = nextLookupFill(formRef.current, lookupFills.current[source], wanted);
     lookupFills.current[source] = filled;
@@ -250,6 +255,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     arofloInFlight.current = '';
     setArofloPlan(null);
     setArofloAutoFilled([]);
+    setQalPlan(null);
+    qalFilled.current = { jn: '', fields: {} };
   }, [editing]);
 
   function patch(p) {
@@ -410,6 +417,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     arofloInFlight.current = '';
     setArofloPlan(null);
     setArofloAutoFilled([]);
+    setQalPlan(null);
+    qalFilled.current = { jn: '', fields: {} };
   }
 
   // New Job, Existing Job — Upsell, and Call Back — a deliberate, optional
@@ -437,6 +446,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     setArofloLoading(true);
     setArofloResult(null);
     setArofloAutoFilled([]);
+    setQalPlan(null);
+    qalFilled.current = { jn: '', fields: {} };
     // Still the latest lookup, for the same entry type and a Job Number
     // field that still holds this number? Otherwise its answer is dropped.
     const stillApplies = () => {
@@ -462,6 +473,17 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       // Re-checked inside the update against the very latest form, so text
       // typed into Comments while the lookup was running is never replaced.
       setForm((f) => ({ ...f, ...arofloAutoFill({ result, form: f, applySuburb, editing: !!editing }) }));
+      // Quote Approved Later (new entry): the new Job Number's single invoice
+      // fills the blank invoice fields together; differing Trade / Job type
+      // from the new AroFlo job is only offered.
+      if (!editing && kindAtStart === 'quote_approved_later') {
+        const plan = planQuoteApprovedLaterFill({ result, form: formRef.current });
+        const { patch: changes, filled } = applyPrefill(formRef.current, qalFilled.current.fields, plan.wanted, { invoiceDate: emptyForm().invoiceDate });
+        qalFilled.current = { jn, fields: filled };
+        setQalPlan(plan);
+        setArofloAutoFilled([...Object.keys(fill), ...Object.keys(filled)]);
+        if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+      }
     } catch (err) {
       if (!stillApplies()) return;
       setArofloResult({ found: false, message: err.message || 'AroFlo lookup failed — you can still enter this job manually.' });
@@ -508,6 +530,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       setArofloResult(null);
       setArofloPlan(null);
       setArofloAutoFilled([]);
+      setQalPlan(null);
+      qalFilled.current = { jn: '', fields: {} };
       patch({ ...undo, jobNumber: value });
       return;
     }
@@ -523,6 +547,35 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     runArofloLookup(jn);
   }
 
+  // Quote Approved Later: a different new Job Number takes back what the
+  // previous lookup filled (only where still showing) and drops its result.
+  function changeQalNewJobNumber(value) {
+    const prev = qalFilled.current;
+    const inFlight = arofloInFlight.current;
+    if (!editing && (prev.jn || arofloResult || inFlight) && value.trim() !== (prev.jn || inFlight)) {
+      arofloSeq.current += 1;
+      arofloInFlight.current = '';
+      setArofloLoading(false);
+      const undo = revertPrefill(formRef.current, prev.fields);
+      qalFilled.current = { jn: '', fields: {} };
+      setArofloResult(null);
+      setQalPlan(null);
+      setArofloAutoFilled([]);
+      patch({ ...undo, newJobNumber: value });
+      return;
+    }
+    patch({ newJobNumber: value });
+  }
+
+  // Leaving the new Job Number field on a new Quote Approved Later entry runs
+  // the lookup once for that number (the button stays for a retry).
+  function autoLookupQal() {
+    const jn = (formRef.current.newJobNumber || '').trim();
+    if (editing || !jn || arofloInFlight.current === jn) return;
+    if (qalFilled.current.jn === jn && arofloResult) return;
+    runArofloLookup(jn, { applySuburb: false });
+  }
+
   function applyArofloSuggestion(values) {
     patch(values);
   }
@@ -534,7 +587,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   // something different from AroFlo's job address: offered, never applied.
   const suburbChoice =
     suburbSuggestion ||
-    (!editing && !isNewJob && arofloResult?.found && arofloResult.suburb && form.suburb && form.suburb !== arofloResult.suburb
+    (!editing && !isNewJob && arofloResult?.found && arofloResult.suburb && (form.suburb || isExistingJob) && form.suburb !== arofloResult.suburb
       ? arofloResult.suburb
       : null);
   const arofloView = (() => {
@@ -550,6 +603,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       // check the Suburb themselves (a new New Job entry gets this in its
       // prefill note instead).
       view.notes = [`No single confident suburb match from AroFlo's job address (${arofloResult.addressForReference}) — please check the suburb.`];
+    }
+    if (isExistingJob && !editing && qalPlan) {
+      view.notes = [...view.notes, ...qalPlan.notes];
+      view.suggestions = [...view.suggestions, ...qalPlan.suggestions];
     }
     if (isSaleMade || isExistingJob) {
       view.invoices = invoiceChoices(arofloResult, form);
@@ -913,13 +970,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               className="mono"
               placeholder="e.g. 20458"
               value={form.newJobNumber}
-              onChange={(e) => patch({ newJobNumber: e.target.value })}
+              onChange={(e) => changeQalNewJobNumber(e.target.value)}
+              onBlur={autoLookupQal}
             />
             <button
               className="btn"
               type="button"
               disabled={!form.newJobNumber.trim() || arofloLoading}
-              onClick={() => runArofloLookup(form.newJobNumber, { applySuburb: true })}
+              onClick={() => runArofloLookup(form.newJobNumber, { applySuburb: false })}
               style={{ marginTop: 6, width: '100%' }}
             >
               {arofloLoading ? 'Looking up…' : 'Look up in AroFlo'}
@@ -1124,13 +1182,26 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               {arofloView.invoices.length > 0 && (
                 <div style={{ marginTop: 8 }} data-testid="aroflo-invoices">
                   {arofloView.invoiceHeading && <div style={{ fontWeight: 600 }}>{arofloView.invoiceHeading}</div>}
-                  {arofloView.invoices.map((inv) => (
-                    <ArofloChoice key={inv.invoiceNumber} onUse={() => applyArofloInvoice(inv)}>
-                      <span className="mono">{inv.invoiceNumber}</span>
-                      {inv.invoiceDate ? <> · <span className="mono">{inv.invoiceDate}</span></> : null}
-                      {inv.saleValueExGst !== null && inv.saleValueExGst !== undefined ? <> · ${Number(inv.saleValueExGst).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ex GST</> : null}
-                    </ArofloChoice>
-                  ))}
+                  {arofloView.invoices.map((inv) => {
+                    const details = (
+                      <>
+                        <span className="mono">{inv.invoiceNumber}</span>
+                        {inv.invoiceDate ? <> · <span className="mono">{inv.invoiceDate}</span></> : null}
+                        {inv.saleValueExGst !== null && inv.saleValueExGst !== undefined ? <> · ${Number(inv.saleValueExGst).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ex GST</> : null}
+                      </>
+                    );
+                    // Duplicate-invoice protection: already on a CRM sale, so
+                    // it can't be chosen for this one.
+                    return inv.alreadyRecorded ? (
+                      <div key={inv.invoiceNumber} style={{ marginTop: 6 }} data-testid="aroflo-invoice-recorded">
+                        {details} — already recorded on JN {inv.alreadyRecorded.jobNumber} ({inv.alreadyRecorded.kind}), so it can&apos;t be used again here.
+                      </div>
+                    ) : (
+                      <ArofloChoice key={inv.invoiceNumber} onUse={() => applyArofloInvoice(inv)}>
+                        {details}
+                      </ArofloChoice>
+                    );
+                  })}
                 </div>
               )}
               {arofloView.schedule && (
