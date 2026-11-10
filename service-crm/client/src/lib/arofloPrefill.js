@@ -155,7 +155,9 @@ export function planNewJobPrefill({ result, form, now, trades, technicians }) {
 
   if (isSaleMade) {
     const invoices = result.invoices || [];
-    if (invoices.length === 1) {
+    if (invoices.length === 1 && invoices[0].alreadyRecorded) {
+      notes.push(alreadyRecordedNote(invoices[0]));
+    } else if (invoices.length === 1) {
       const inv = invoices[0];
       wanted.invoiceNumber = inv.invoiceNumber;
       if (inv.invoiceDate) wanted.invoiceDate = inv.invoiceDate;
@@ -176,6 +178,48 @@ export function planNewJobPrefill({ result, form, now, trades, technicians }) {
         suggestions.push({ label: `Work completion: ${wc.values.workCompletion}${wc.values.installDate ? ` on ${wc.values.installDate}` : ''}`, values: wc.values });
       }
     }
+  }
+  return { wanted, notes, suggestions };
+}
+
+// An AroFlo invoice already recorded on a CRM sale is never filled into
+// another one (duplicate-invoice protection).
+export function alreadyRecordedNote(inv) {
+  return `AroFlo's invoice ${inv.invoiceNumber} is already recorded on JN ${inv.alreadyRecorded.jobNumber} (${inv.alreadyRecorded.kind}), so it wasn't filled in — if this is the same sale, edit that entry instead.`;
+}
+
+/**
+ * Existing Job — Quote Approved Later: what the NEW AroFlo Job Number may put
+ * into a new entry. The original Job Number keeps supplying the credited
+ * technician, Trade, Job type and Suburb (from the CRM's knock-back job);
+ * the new AroFlo job only supplies the new sale's invoice (exactly one, not
+ * already recorded on a CRM sale: number, date and value ex GST together)
+ * and, elsewhere, blank Comments. Where the new AroFlo job's Trade / Job type
+ * differs from the form, it's offered as a suggestion only.
+ * Returns { wanted, notes, suggestions } like planNewJobPrefill.
+ */
+export function planQuoteApprovedLaterFill({ result, form }) {
+  const wanted = {};
+  const notes = [];
+  const suggestions = [];
+  if (!result?.found) return { wanted, notes, suggestions };
+  const invoices = result.invoices || [];
+  if (invoices.length === 1 && invoices[0].alreadyRecorded) notes.push(alreadyRecordedNote(invoices[0]));
+  else if (invoices.length === 1) {
+    const inv = invoices[0];
+    wanted.invoiceNumber = inv.invoiceNumber;
+    if (inv.invoiceDate) wanted.invoiceDate = inv.invoiceDate;
+    wanted.saleValueExGst = inv.saleValueExGst;
+  } else if (invoices.length > 1) {
+    notes.push(`AroFlo has ${invoices.length} invoices on the new Job Number — select the right one below, or none.`);
+  } else {
+    notes.push('No invoice on the new Job Number in AroFlo yet — enter it manually, or look it up again later.');
+  }
+  const m = result.taskTypeMatch;
+  if (m?.kind === 'full' && (String(form.tradeId) !== String(m.tradeId) || String(form.jobTypeId) !== String(m.jobTypeId))) {
+    suggestions.push({ label: `Trade / Job type: ${m.label} (the new AroFlo job — the original job's is kept unless you choose this)`, values: { tradeId: String(m.tradeId), jobTypeId: String(m.jobTypeId) } });
+  } else if (m?.kind === 'tradeOnly' && String(form.tradeId) !== String(m.tradeId)) {
+    suggestions.push({ label: `Trade: ${m.label} (the new AroFlo job — the original job's is kept unless you choose this)`, values: { tradeId: String(m.tradeId), jobTypeId: '' } });
   }
   return { wanted, notes, suggestions };
 }

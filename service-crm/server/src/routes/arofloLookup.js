@@ -16,6 +16,7 @@ import {
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
+import { findRecordedSaleForInvoice } from '../services/lookup.js';
 import { resolveLeadSourceValues } from '../aroflo/leadSourceMapping.js';
 import { gatherCustomerHistory, callbackEvidence, repeatDecision } from '../aroflo/repeatCheck.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
@@ -67,6 +68,12 @@ function buildScheduled(task) {
     matchedTechnicianId: matchTechnicianByName(named.name),
     date,
   };
+}
+
+function recordedSaleLabel(invoiceNumber) {
+  const sale = findRecordedSaleForInvoice(invoiceNumber);
+  if (!sale) return null;
+  return { jobNumber: sale.job_number, kind: sale.source === 'quote_approved_later' ? 'Quote Approved Later' : 'Sale Made' };
 }
 
 export function createArofloLookupRouter() {
@@ -175,6 +182,9 @@ export function createArofloLookupRouter() {
           // This invoice's own total ex GST — never the task's sell total.
           saleValueExGst: inv.totalAmountEx ?? 0,
           status: inv.status || '',
+          // Already recorded on a CRM sale (any job)? Then the forms never
+          // fill it into another sale — it's listed with this label instead.
+          alreadyRecorded: recordedSaleLabel(inv.invoiceNumber),
         })),
         scheduled: buildScheduled(detail),
         activity,
