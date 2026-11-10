@@ -138,22 +138,24 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
   if (history.status === 'checking') return { mode: 'checking', original };
   const r = history.result;
   if (!r || !r.found || r.kind === 'unavailable') return { mode: 'normal', original };
+  const occupant = r.occupant || null; // reference only, for every Occupant value
   // No genuine possibility of earlier work: the mapped AroFlo customer-card
-  // source applies; eligibility warnings (e.g. Occupant) are information only.
-  if (r.kind === 'no-earlier') return { mode: 'normal', original, warnings: r.warnings || [] };
+  // source applies; eligibility warnings (organisation, several sites) are information only.
+  if (r.kind === 'no-earlier') return { mode: 'normal', original, occupant, warnings: r.warnings || [] };
   if (r.kind === 'callback') return { mode: 'callback', original, reasons: r.reasons || [] };
   if (r.kind === 'repeat') {
     const repeat = (leadSources || []).filter((l) => normName(l.name) === 'repeat customer');
     if (repeat.length !== 1) {
-      return { mode: 'uncertain', original, reasons: ['AroFlo history shows a returning customer, but there is no single "Repeat customer" Lead Source in Settings.'] };
+      return { mode: 'uncertain', original, occupant, reasons: ['AroFlo history shows a returning customer, but there is no single "Repeat customer" Lead Source in Settings.'] };
     }
     return {
       mode: 'repeat',
       original,
+      occupant,
       earlierJob: r.earlierJob || null,
       suggestion: { leadSourceId: repeat[0].id, label: repeat[0].name },
       alreadySet: same(form.leadSourceId, repeat[0].id),
     };
   }
-  return { mode: 'uncertain', original, reasons: [...(r.reasons || []), ...(r.warnings || [])] };
+  return { mode: 'uncertain', original, occupant, reasons: [...(r.reasons || []), ...(r.warnings || [])] };
 }

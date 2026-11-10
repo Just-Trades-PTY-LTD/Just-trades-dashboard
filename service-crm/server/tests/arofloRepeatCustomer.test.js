@@ -112,7 +112,7 @@ test('lead-history route: repeat, no earlier job, duplicate/landlord, business, 
     d = await check(9003);
     assert.equal(d.kind, 'uncertain');
     assert.match(d.reasons.join(' '), /same name/);
-    assert.match(d.warnings.join(' '), /Occupant: Landlord — not eligible for automatic Repeat customer classification/);
+    assert.deepEqual([d.warnings, d.occupant], [[], 'Landlord'], 'Occupant is reference only');
     d = await check(9004);
     assert.equal(d.kind, 'uncertain');
     assert.match(d.reasons.join(' '), /1 earlier completed job/);

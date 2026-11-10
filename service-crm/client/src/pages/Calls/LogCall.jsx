@@ -436,6 +436,11 @@ function ArofloCallSuggestions({ summary, decision, showLeadSource, patch }) {
           ))}
         </ul>
       )}
+      {showLeadSource && decision?.occupant && decision.mode !== 'checking' && decision.mode !== 'callback' && (
+        <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }} data-testid="aroflo-occupant">
+          Occupant (AroFlo): {decision.occupant} — for reference only.
+        </div>
+      )}
       {showLeadSource && decision?.mode === 'normal' && summary.leadSource.arofloValue && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
           AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this

@@ -62,9 +62,6 @@ test('assessment with the address comparison: repeat only when an earlier comple
     ['different address', { addressChecks: new Map([['T1', ADDRESS_SAME], ['T2', ADDRESS_DIFFERENT]]) }, /different address — possibly another property/],
     ['unable to compare', { addressChecks: new Map([['T1', ADDRESS_UNABLE], ['T2', ADDRESS_SAME]]) }, /couldn't be compared/],
     ['not checked (missing)', { addressChecks: new Map([['T2', ADDRESS_SAME]]) }, /couldn't be compared/],
-    ['tenant', { occupant: 'Tenant' }, /occupant as "Tenant", not the homeowner/],
-    ['landlord', { occupant: 'Landlord' }, /not the homeowner/],
-    ['property manager', { occupant: 'Property Manager' }, /not the homeowner/],
     ['duplicate refused', { sameNameClients: { available: false, status: 400, errorText: 'Invalid filter' } }, /same name \(AroFlo HTTP 400: Invalid filter\)/],
     ['possible duplicate', { sameNameClients: probe([{ id: 'C1' }, { id: 'C2' }]) }, /possible duplicate/],
     ['organisation', { clientDetail: { available: true, data: { id: 'C1', individual: false } } }, /organisation/],
@@ -75,8 +72,11 @@ test('assessment with the address comparison: repeat only when an earlier comple
     assert.equal(r.assessment, 'uncertain', name);
     assert.match(r.reasons.join(' '), re, name);
   }
-  for (const ok of ['Homeowner', 'home owner', 'Owner', 'Owner-occupier', null]) {
-    assert.equal(analyzeClientHistory(history({ occupant: ok })).assessment, 'repeat', `occupant ${ok}`);
+  // Occupant never changes the assessment — every value, reference only.
+  for (const occ of ['Homeowner', 'home owner', 'Owner', 'Owner-occupier', 'Tenant', 'Tennant', 'Landlord', 'Property Manager', 'Commercial', 'Something Else', null]) {
+    const r = analyzeClientHistory(history({ occupant: occ }));
+    assert.equal(r.assessment, 'repeat', `occupant ${occ}`);
+    assert.doesNotMatch(r.reasons.join(' '), /occupant/i, `occupant ${occ}`);
   }
   // The strongest "no earlier job" wording.
   const none = analyzeClientHistory(history({ probes: { ...history().probes, defaultList: probe([CURRENT]) }, addressChecks: new Map() }));

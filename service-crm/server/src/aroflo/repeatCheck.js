@@ -110,14 +110,13 @@ function repeatPossibilities(a) {
   return out;
 }
 
-// Facts that only make the customer ineligible for an AUTOMATIC Repeat
-// customer classification — shown as information, never blocking the mapped
-// Lead Source when there's no possibility of earlier work.
+// Facts that make the customer ineligible for an AUTOMATIC Repeat customer
+// classification (organisation, unknown individual, several sites) — shown as
+// information, never blocking the mapped Lead Source when there's no
+// possibility of earlier work. Occupant is NOT one of them: every Occupant
+// value is treated the same and only shown for reference.
 function eligibilityWarnings(a) {
   const out = [];
-  if (a.occupant && !/^(home\s*owner|owner|owner[\s-]*occupier|owner[\s-]*occupied)$/i.test(String(a.occupant).trim())) {
-    out.push(`Occupant: ${a.occupant} — not eligible for automatic Repeat customer classification.`);
-  }
   if (a.individual === false) out.push('The AroFlo customer is an organisation — not eligible for automatic Repeat customer classification.');
   if (a.individual === null || a.individual === undefined) out.push("AroFlo didn't say whether the customer is an individual — not eligible for automatic Repeat customer classification.");
   if (a.sites > 1) out.push(`The customer has ${a.sites} sites/properties — not eligible for automatic Repeat customer classification.`);
@@ -135,8 +134,9 @@ function eligibilityWarnings(a) {
  *    a parent account, an incomplete or unverifiable history) ->
  *    'uncertain': left for staff, with the reasons;
  * 4. otherwise -> 'no-earlier': the mapped AroFlo customer-card Lead Source,
- *    with any eligibility warnings (Occupant, organisation, several sites)
+ *    with any eligibility warnings (organisation, several sites)
  *    shown as information only — they never block it on their own.
+ * Occupant is reference information only (`occupant`), for every value.
  * `history` is gatherCustomerHistory()'s result; `crmReasons` from
  * callbackEvidence(). Privacy-safe output only.
  */
@@ -146,16 +146,16 @@ export function repeatDecision({ crmReasons = [], detail, history }) {
   if (reasons.length) return { kind: 'callback', reasons };
   if (!history) return null; // not a callback; the history check comes next
   const a = history.analysis;
-  if (!a.clientId) return { kind: 'uncertain', reasons: a.reasons || ['This AroFlo job has no customer attached.'], warnings: [] };
+  if (!a.clientId) return { kind: 'uncertain', reasons: a.reasons || ['This AroFlo job has no customer attached.'], warnings: [], occupant: a.occupant || null };
   const warnings = eligibilityWarnings(a);
   if (a.assessment === 'repeat') {
     const sameAddress = (a.earlierJobs || []).filter((t) => t.outcome === 'completed' && t.address === ADDRESS_SAME);
     const latest = sameAddress.sort((x, y) => Number(y.jobNumber) - Number(x.jobNumber))[0];
     if (latest) {
-      return { kind: 'repeat', reasons: [], warnings: [], earlierJob: { jobNumber: latest.jobNumber, completed: latest.completed ? String(latest.completed).slice(0, 10) : null } };
+      return { kind: 'repeat', reasons: [], warnings: [], occupant: a.occupant || null, earlierJob: { jobNumber: latest.jobNumber, completed: latest.completed ? String(latest.completed).slice(0, 10) : null } };
     }
   }
   const possibilities = repeatPossibilities(a);
-  if (possibilities.length) return { kind: 'uncertain', reasons: possibilities, warnings };
-  return { kind: 'no-earlier', reasons: [], warnings };
+  if (possibilities.length) return { kind: 'uncertain', reasons: possibilities, warnings, occupant: a.occupant || null };
+  return { kind: 'no-earlier', reasons: [], warnings, occupant: a.occupant || null };
 }

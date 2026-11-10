@@ -34,7 +34,6 @@ export function jobOutcome(t) {
 export const ADDRESS_SAME = 'same address';
 export const ADDRESS_DIFFERENT = 'different address';
 export const ADDRESS_UNABLE = 'unable to compare';
-const HOMEOWNER = /^(home\s*owner|owner|owner[\s-]*occupier|owner[\s-]*occupied)$/i;
 
 // The names AroFlo uses for the customer's Lead Source field on this account
 // (older records: "Lead/Referral Source").
@@ -181,9 +180,8 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
   if (sameNameClients && !sameNameClients.available) {
     reasons.push(`Couldn't check AroFlo for other customer records with the same name (AroFlo ${sameNameClients.status ? `HTTP ${sameNameClients.status}` : 'no response'}${sameNameClients.errorText ? `: ${sameNameClients.errorText}` : ''}).`);
   }
-  if (occupant && !HOMEOWNER.test(String(occupant).trim())) {
-    reasons.push(`AroFlo records the occupant as "${occupant}", not the homeowner (e.g. a tenant, landlord or property manager) — earlier jobs may relate to someone else.`);
-  }
+  // Occupant (Homeowner, Tenant, Landlord, Property Manager, Commercial, …) is
+  // reference information only: it never affects the assessment.
 
   const reliable = customerFilter.honoured === true && siteFilter.honoured !== false && !truncated && probes?.archivedList?.available !== false && reasons.length === 0;
   let assessment = 'uncertain';
