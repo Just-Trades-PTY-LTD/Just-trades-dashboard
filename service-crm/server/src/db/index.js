@@ -152,6 +152,21 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    // Purely additive: one new nullable column. Only ever set on an Existing
+    // Job — Upsell whose original job predates the CRM (job_id NULL): the
+    // original job's/customer's Lead Source, used by reports only when that
+    // Job Number has no booked Lead call. Every existing sale and Upsell
+    // simply ends up with NULL ("not recorded") — no other column is read or
+    // written, so every report figure is unchanged until staff save a value.
+    id: 'sales_original_lead_source_id',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(sales)').all().some((c) => c.name === 'original_lead_source_id');
+      if (!hasColumn) {
+        database.exec('ALTER TABLE sales ADD COLUMN original_lead_source_id INTEGER REFERENCES list_items(id)');
+      }
+    },
+  },
 ];
 
 // One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;

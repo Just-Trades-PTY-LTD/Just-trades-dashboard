@@ -271,3 +271,33 @@ export function prefillStep({ result, form, previous, now, trades, technicians, 
   const { patch, filled } = applyPrefill(form, previous, plan.wanted, defaults);
   return { plan, patch, filled };
 }
+
+/**
+ * Existing Job — Upsell whose original job predates the CRM: the "Original
+ * job's Lead Source" from the AroFlo customer card of the ORIGINAL Job
+ * Number's job (the server's lookup already applies the approved Lead Source
+ * mappings — leadSourceMatch). No Repeat customer logic: this identifies
+ * where the original customer/job came from. Fills only a blank field (or
+ * one this lookup itself filled earlier, `previousFilled`), and only when
+ * there's one clear mapped result; otherwise a note. Never saved here.
+ * Returns { wanted: { originalLeadSourceId } | {}, note, suggestion }.
+ */
+export function planOriginalLeadSourceFill({ result, form, previousFilled = '', bookedLeadCall = null }) {
+  if (bookedLeadCall) return { wanted: {}, note: null, suggestion: null };
+  if (!result?.found) return { wanted: {}, note: "AroFlo didn't return this Job Number's customer — choose the Original job's Lead Source yourself.", suggestion: null };
+  const m = result.leadSourceMatch || { kind: 'none', values: [] };
+  const raw = [...new Set((m.values || []).map((v) => v.value))].join(' / ');
+  if (m.kind === 'none') return { wanted: {}, note: "The AroFlo customer card has no Lead Source — choose the Original job's Lead Source yourself.", suggestion: null };
+  if (m.kind === 'unmapped') {
+    return { wanted: {}, note: `The AroFlo customer card says "${raw}", which isn't mapped to a CRM Lead Source — choose one yourself (mappings are in Settings).`, suggestion: null };
+  }
+  if (m.kind === 'conflict') return { wanted: {}, note: `The AroFlo customer card's Lead Source fields disagree (${raw}) — choose one yourself.`, suggestion: null };
+  const id = String(m.leadSourceId);
+  const current = String(form.originalLeadSourceId || '');
+  const from = `AroFlo customer card: "${raw}" → ${m.label}`;
+  if (!current || (previousFilled && current === String(previousFilled))) {
+    return { wanted: current === id ? {} : { originalLeadSourceId: id }, filledId: id, note: `${from}. Filled in — check it before saving.`, suggestion: null };
+  }
+  if (current === id) return { wanted: {}, note: `${from} — matches the current choice.`, suggestion: null };
+  return { wanted: {}, note: `${from}. The current choice was kept.`, suggestion: { leadSourceId: id, label: m.label } };
+}

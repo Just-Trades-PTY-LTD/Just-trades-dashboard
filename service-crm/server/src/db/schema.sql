@@ -187,6 +187,11 @@ CREATE TABLE IF NOT EXISTS sales (
   -- corrected independently without ever touching the original job's own
   -- suburb.
   suburb TEXT NOT NULL DEFAULT '',
+  -- Existing Job — Upsell whose original job predates the CRM (job_id NULL)
+  -- only: the original job's/customer's Lead Source ("Original job's Lead
+  -- Source"), used for Marketing Category only when the Job Number has no
+  -- booked Lead call. NULL for every other sale.
+  original_lead_source_id INTEGER REFERENCES list_items(id),
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
