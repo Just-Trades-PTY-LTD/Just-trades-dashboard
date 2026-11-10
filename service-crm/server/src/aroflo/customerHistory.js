@@ -217,6 +217,10 @@ export function analyzeClientHistory({ currentTask, clientDetail, probes, sameNa
     earlierCompletedAtThisSite: earlierCompletedSameSite.length,
     earlierCompletedAtSameAddress: addressChecks ? earlierCompletedSameAddress.length : null,
     occupant: occupant || null,
+    // Structured flags for the call form's Lead Source decision.
+    sameNameCheckFailed: !!(sameNameClients && !sameNameClients.available),
+    archivedChecked: probes?.archivedList?.available !== false,
+    completedOrderingConflicts: dateDisagreements.filter((t) => t.outcome === 'completed').length,
     laterJobs: others.filter((t) => !earlier.includes(t)),
     assessment,
     assessmentLabel: {

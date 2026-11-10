@@ -429,6 +429,13 @@ function ArofloCallSuggestions({ summary, decision, showLeadSource, patch }) {
           AroFlo job address (suburb part, for reference only): {summary.suburb.addressForReference}
         </div>
       )}
+      {showLeadSource && decision?.mode === 'normal' && decision.warnings?.length > 0 && (
+        <ul style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--ink-muted)' }} data-testid="aroflo-repeat-warnings">
+          {decision.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
       {showLeadSource && decision?.mode === 'normal' && summary.leadSource.arofloValue && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
           AroFlo keeps Lead Source on the customer, so for a repeat customer it may show how they first found you rather than this

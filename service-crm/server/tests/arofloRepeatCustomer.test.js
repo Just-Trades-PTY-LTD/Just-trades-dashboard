@@ -112,10 +112,13 @@ test('lead-history route: repeat, no earlier job, duplicate/landlord, business, 
     d = await check(9003);
     assert.equal(d.kind, 'uncertain');
     assert.match(d.reasons.join(' '), /same name/);
-    assert.match(d.reasons.join(' '), /Landlord/);
-    assert.match((await check(9004)).reasons.join(' '), /organisation/);
+    assert.match(d.warnings.join(' '), /Occupant: Landlord — not eligible for automatic Repeat customer classification/);
+    d = await check(9004);
+    assert.equal(d.kind, 'uncertain');
+    assert.match(d.reasons.join(' '), /1 earlier completed job/);
+    assert.match(d.warnings.join(' '), /organisation/);
     d = await check(9005);
-    assert.deepEqual([d.kind, /different address/.test(d.reasons.join(' '))], ['uncertain', true]);
+    assert.deepEqual([d.kind, /at a different address/.test(d.reasons.join(' '))], ['uncertain', true]);
     assert.equal((await check(9007)).kind, 'no-earlier', 'an earlier quote is not completed work');
 
     const before6 = stub.requests.length;

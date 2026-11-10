@@ -137,7 +137,10 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
   if (!history) return { mode: 'normal', original };
   if (history.status === 'checking') return { mode: 'checking', original };
   const r = history.result;
-  if (!r || !r.found || r.kind === 'unavailable' || r.kind === 'no-earlier') return { mode: 'normal', original };
+  if (!r || !r.found || r.kind === 'unavailable') return { mode: 'normal', original };
+  // No genuine possibility of earlier work: the mapped AroFlo customer-card
+  // source applies; eligibility warnings (e.g. Occupant) are information only.
+  if (r.kind === 'no-earlier') return { mode: 'normal', original, warnings: r.warnings || [] };
   if (r.kind === 'callback') return { mode: 'callback', original, reasons: r.reasons || [] };
   if (r.kind === 'repeat') {
     const repeat = (leadSources || []).filter((l) => normName(l.name) === 'repeat customer');
@@ -152,5 +155,5 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
       alreadySet: same(form.leadSourceId, repeat[0].id),
     };
   }
-  return { mode: 'uncertain', original, reasons: r.reasons || [] };
+  return { mode: 'uncertain', original, reasons: [...(r.reasons || []), ...(r.warnings || [])] };
 }
