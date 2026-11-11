@@ -180,7 +180,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   const isCancellation = form.callType === 'Cancellation';
   const isPendingCancellation = isCancellation && form.cancellationType === 'Pending Cancellation';
-  const showTrade = form.callType === 'Lead' || form.callType === 'Not lead' || isCancellation;
+  const isCallBackCall = form.callType === 'Call back';
+  // Call back: Trade / Job type record what kind of callback work it relates
+  // to (the call type stays Call back).
+  const showTrade = form.callType === 'Lead' || form.callType === 'Not lead' || isCancellation || isCallBackCall;
   const showLeadSource = form.callType === 'Lead';
   const showBooked = form.callType === 'Lead';
   const showNotBookedReason = showBooked && form.booked === 'No';
@@ -206,6 +209,22 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     if (Object.keys(changes).length) patch(changes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookupResult, isCancellation]);
+
+  // Call back: prefill Trade / Job type from the original CRM job (a Call
+  // Back entry linking this new callback Job Number to its original job, or
+  // a CRM job with this Job Number). Blank fields only, follows the Job
+  // Number, always editable; never from AroFlo's generic "Call Back" type.
+  const callbackOrigin = useJobLookup(isCallBackCall ? form.jobNumber : '', 'callbackOrigin');
+  const callbackFill = useRef({});
+  useEffect(() => {
+    const r = isCallBackCall && callbackOrigin?.found && callbackOrigin.tradeId ? callbackOrigin : null;
+    const same = (x, y) => String(x ?? '') === String(y ?? '');
+    const usable = r && (!form.tradeId || same(form.tradeId, callbackFill.current.tradeId) || same(form.tradeId, r.tradeId));
+    const { patch: changes, filled } = nextLookupFill(form, callbackFill.current, usable ? { tradeId: r.tradeId, jobTypeId: r.jobTypeId } : {});
+    callbackFill.current = filled;
+    if (Object.keys(changes).length) patch(changes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callbackOrigin, isCallBackCall]);
 
   const cancellationReasonList =
     form.cancellationType === 'New Job Cancellation'
@@ -302,6 +321,11 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
           />
           {showLeadSource && (
             <SelectField label="Where did the lead come from?" value={form.leadSourceId} onChange={(v) => patch({ leadSourceId: v })} options={settings.lists.lead_source} />
+          )}
+          {isCallBackCall && (
+            <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--ink-muted)' }} data-testid="callback-trade-note">
+              {callbackOriginNote(form, callbackOrigin, callbackFill.current)}
+            </div>
           )}
         </div>
       )}
@@ -499,4 +523,21 @@ function LeadSourceFromHistory({ decision, patch }) {
       {decision.mode !== 'checking' && original}
     </div>
   );
+}
+
+// What the Call back call's Trade / Job type note says about where they came from.
+function callbackOriginNote(form, origin, filled) {
+  const jn = (form.jobNumber || '').trim();
+  const base = 'The type of work this callback relates to — the call type stays Call back.';
+  if (!jn) return `${base} Enter the Job Number to prefill it from the original job, or choose it here.`;
+  if (!origin) return base;
+  if (origin.found) {
+    const via = origin.source === 'callBackEntry' ? `the Call Back entry's original job JN ${origin.originalJobNumber}` : `the original job JN ${origin.originalJobNumber}`;
+    const label = [origin.trade, origin.jobType].filter(Boolean).join(' — ') || 'no Trade recorded';
+    if (filled.tradeId) return `${base} Prefilled from ${via} (${label}) — change it if the callback work is different.`;
+    return `${base} The original job (${via}) is ${label}.`;
+  }
+  if (origin.source === 'callBackEntryNoJob') return `${base} The Call Back entry's original job JN ${origin.originalJobNumber} isn't in the CRM — please choose it.`;
+  if (origin.source === 'conflict') return `${base} Call Back entries link this Job Number to different original jobs — please choose it.`;
+  return `${base} No original CRM job found for JN ${jn} — please choose it.`;
 }

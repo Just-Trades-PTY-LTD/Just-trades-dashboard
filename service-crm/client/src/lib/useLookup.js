@@ -21,7 +21,8 @@ export function useJobLookup(jobNumber, mode) {
     // slow lookup for the old number must never land after the new one.
     let current = true;
     debounceRef.current = setTimeout(() => {
-      const fn = mode === 'sale' ? api.lookup.sale : mode === 'call' ? api.lookup.call : api.lookup.job;
+      const fn =
+        mode === 'sale' ? api.lookup.sale : mode === 'call' ? api.lookup.call : mode === 'callbackOrigin' ? api.lookup.callbackOrigin : api.lookup.job;
       fn(jobNumber)
         .then((r) => current && setResult(r))
         .catch(() => current && setResult(null));

@@ -148,7 +148,13 @@ export function planNewJobPrefill({ result, form, now, trades, technicians }) {
     const choices = (m.choices || []).map((c) => c.name);
     notes.push(`AroFlo task type: ${result.taskType} — choose ${choices.join(' or ')}.`);
   } else if (m.kind === 'callback') {
-    notes.push(`AroFlo records this job as a Call Back, which doesn't say the trade — please choose the Trade / Job type. The entry type isn't changed.`);
+    // Never guessed from the generic "Call Back" task type; a Trade / Job
+    // type already in the form (e.g. from the Call back call) is kept.
+    notes.push(
+      form.tradeId
+        ? `AroFlo records this job as a Call Back, which doesn't say the trade — the Trade / Job type already in the form were kept. The entry type isn't changed.`
+        : `AroFlo records this job as a Call Back, which doesn't say the trade — please choose the Trade / Job type. The entry type isn't changed.`
+    );
   } else if (result.taskType) {
     notes.push(`AroFlo task type "${result.taskType}" doesn't match exactly one Trade / Job type here — please choose them.`);
   }

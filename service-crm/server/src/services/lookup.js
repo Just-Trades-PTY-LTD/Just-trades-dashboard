@@ -69,6 +69,34 @@ export function findLatestSale(jobNumber, { excludeUpsells = false } = {}) {
  *   visited on or after that call (`callAt` = the earliest such call).
  * null otherwise. Read-only.
  */
+/**
+ * The original CRM job a Calls & Contacts "Call back" call's Job Number
+ * relates to, for prefilling the call's Trade / Job type:
+ * 1. a Technician & Sales Call Back entry whose NEW callback Job Number is
+ *    this one -> that entry's original job (only when every such entry
+ *    points at the same original job, and it's on record in the CRM);
+ * 2. otherwise a CRM job with this Job Number itself (the callback recorded
+ *    against the original job).
+ * null when there's no reliable original CRM job (pre-CRM, no match, or
+ * conflicting Call Back entries) — staff choose manually. Never uses
+ * AroFlo's generic "Call Back" task type. Read-only.
+ */
+export function findCallbackOriginalJob(jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  const entries = all('SELECT job_number, new_job_number FROM call_backs WHERE archived = 0').filter(
+    (cb) => normKey(cb.new_job_number) === key && normKey(cb.job_number) && normKey(cb.job_number) !== key
+  );
+  if (entries.length) {
+    const originals = [...new Set(entries.map((cb) => normKey(cb.job_number)))];
+    if (originals.length !== 1) return { source: 'conflict', originalJobNumbers: originals };
+    const job = findOriginalJob(originals[0]);
+    return job ? { source: 'callBackEntry', job } : { source: 'callBackEntryNoJob', originalJobNumber: entries[0].job_number.trim() };
+  }
+  const job = findOriginalJob(jobNumber);
+  return job ? { source: 'crmJob', job } : null;
+}
+
 export function findCallbackEvidence(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return null;

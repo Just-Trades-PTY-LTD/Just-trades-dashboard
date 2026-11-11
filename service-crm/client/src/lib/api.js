@@ -128,6 +128,7 @@ export const api = {
     job: (jn) => request('GET', `/lookup/job${qs({ jn })}`),
     sale: (jn) => request('GET', `/lookup/sale${qs({ jn })}`),
     call: (jn) => request('GET', `/lookup/call${qs({ jn })}`),
+    callbackOrigin: (jn) => request('GET', `/lookup/callback-origin${qs({ jn })}`),
   },
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),

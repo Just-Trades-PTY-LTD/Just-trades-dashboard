@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { findCallbackEvidence, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
+import { findCallbackEvidence, findCallbackOriginalJob, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
   const router = Router();
@@ -49,6 +49,24 @@ export function createLookupRouter() {
       trade: sale.trade_name,
       jobTypeId: sale.job_type_id,
       jobType: sale.job_type_name,
+    });
+  });
+
+  // Calls & Contacts "Call back" call: the original CRM job its Job Number
+  // relates to (see findCallbackOriginalJob), so the call's Trade / Job type
+  // can be prefilled. Read-only.
+  router.get('/callback-origin', (req, res) => {
+    const r = findCallbackOriginalJob(req.query.jn || '');
+    if (!r) return res.json({ found: false, source: null });
+    if (!r.job) return res.json({ found: false, source: r.source, originalJobNumber: r.originalJobNumber || null, originalJobNumbers: r.originalJobNumbers || null });
+    res.json({
+      found: true,
+      source: r.source,
+      originalJobNumber: String(r.job.job_number || '').trim(),
+      tradeId: r.job.trade_id || null,
+      trade: r.job.trade_name || '',
+      jobTypeId: r.job.job_type_id || null,
+      jobType: r.job.job_type_name || '',
     });
   });
 
