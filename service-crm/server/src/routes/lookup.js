@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
+import { findCallbackEvidence, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
   const router = Router();
@@ -60,7 +60,10 @@ export function createLookupRouter() {
   // call, and never guess).
   router.get('/call', (req, res) => {
     const call = findOriginalBookingCall(req.query.jn || '');
-    if (!call) return res.json({ found: false, leadCall: null });
+    // Whether the report will credit this Job Number to Repeat customer as a
+    // callback (see findCallbackEvidence) — so the form's note matches it.
+    const callback = findCallbackEvidence(req.query.jn || '');
+    if (!call) return res.json({ found: false, leadCall: null, callback });
     // The booked Lead call the reports take this Job Number's Lead Source
     // from (null = the job would report as "Unassigned"). Can differ from
     // `call` above: that's the earliest call of ANY type for this JN, which
@@ -74,6 +77,7 @@ export function createLookupRouter() {
       callType: call.call_type || '',
       booked: call.booked || '',
       leadCall: leadCall ? { leadSource: leadCall.lead_source_name || '', callAt: leadCall.call_at } : null,
+      callback,
       // Staff already select these when logging the call — an exact
       // reference to this CRM's own Trade/Job Type lists, never a guess or
       // text match, same convention as job.trade_id/job.job_type_id above.

@@ -59,6 +59,31 @@ export function findLatestSale(jobNumber, { excludeUpsells = false } = {}) {
  * Used to auto-populate a new job's Suburb; see db/index.js's
  * 'backfill_job_suburb_from_calls' one-time migration for the same rule
  * applied to jobs that already existed when this shipped. */
+/**
+ * The report's callback evidence for a Job Number (mirrors reports.js
+ * callbackSaleCheck(), so the New Job form says what the report will do):
+ * - 'callbackEntry': it's a Technician & Sales Call Back entry's NEW callback
+ *   Job Number -> Repeat customer;
+ * - 'callbackCall': it's on a Calls & Contacts "Call back" call and isn't any
+ *   Call Back entry's ORIGINAL Job Number -> Repeat customer when the job is
+ *   visited on or after that call (`callAt` = the earliest such call).
+ * null otherwise. Read-only.
+ */
+export function findCallbackEvidence(jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  const callBacks = all('SELECT job_number, new_job_number FROM call_backs WHERE archived = 0');
+  if (callBacks.some((cb) => normKey(cb.new_job_number) === key && normKey(cb.new_job_number) !== normKey(cb.job_number))) {
+    return { kind: 'callbackEntry' };
+  }
+  if (callBacks.some((cb) => normKey(cb.job_number) === key)) return null;
+  const first = all("SELECT job_number, call_at FROM calls WHERE archived = 0 AND call_type = 'Call back'")
+    .filter((c) => normKey(c.job_number) === key && String(c.call_at || '').slice(0, 10))
+    .map((c) => String(c.call_at).slice(0, 10))
+    .sort()[0];
+  return first ? { kind: 'callbackCall', callDate: first } : null;
+}
+
 export function findOriginalBookingCall(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return null;

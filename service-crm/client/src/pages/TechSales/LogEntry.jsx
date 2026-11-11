@@ -1189,7 +1189,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
             {(() => {
               // Where this job's Lead Source will come from in the reports —
               // a heads-up only, never blocks saving.
-              const status = leadCallStatus(form.jobNumber, callLookup);
+              const status = leadCallStatus(form.jobNumber, callLookup, form.visitDate);
               return status && <div className={`lookup-box lookup-${status.tone}`}>{status.text}</div>;
             })()}
           </div>

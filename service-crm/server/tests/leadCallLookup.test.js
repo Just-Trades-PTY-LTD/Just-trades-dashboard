@@ -86,7 +86,7 @@ test('calls the reports ignore for Lead Source leave leadCall empty, and the job
     assert.equal(otherType.leadCall, null);
 
     const noCall = await lookupCall(server, 'JN-LC4');
-    assert.deepEqual(noCall, { found: false, leadCall: null });
+    assert.deepEqual(noCall, { found: false, leadCall: null, callback: null });
 
     const unassigned = (await server.request('GET', '/reports/tech?from=2026-05-01&to=2026-05-31&leadSourceId=unassigned')).data;
     assert.equal(unassigned.company.jobsAttended, 3, 'all three jobs the lookup warns about are exactly the Unassigned ones');
@@ -144,6 +144,17 @@ test('New Job form message for each case', () => {
 
   const otherType = leadCallStatus('2572', { found: true, callType: 'Call back', booked: '', leadCall: null });
   assert.match(otherType.text, /is a "Call back" call\. Lead Source reports only use booked Lead calls/);
+
+  // Callback evidence (same order as the report): Repeat customer.
+  const cbCall = leadCallStatus('2727', { found: true, callType: 'Call back', booked: '', leadCall: null, callback: { kind: 'callbackCall', callDate: '2026-11-05' } }, '2026-11-07');
+  assert.deepEqual(cbCall, { tone: 'found', text: 'Callback — JN 2727 is on a "Call back" call (5 Nov 2026), so this job and any sale on it will report as Repeat customer.' });
+  assert.equal(leadCallStatus('2727', { found: true, callType: 'Call back', leadCall: null, callback: { kind: 'callbackCall', callDate: '2026-11-05' } }, '').tone, 'found', 'no visit date yet');
+  const early = leadCallStatus('2727', { found: true, callType: 'Call back', leadCall: null, callback: { kind: 'callbackCall', callDate: '2026-11-05' } }, '2026-11-01');
+  assert.match(early.text, /visit date is before that call.*"Unassigned"/);
+  const entry = leadCallStatus('2727', { found: false, leadCall: null, callback: { kind: 'callbackEntry' } });
+  assert.match(entry.text, /new callback Job Number on a Call Back entry.*Repeat customer/);
+  // A booked Lead call outranks a "Call back" call, as in the report.
+  assert.equal(leadCallStatus('2727', { found: true, leadCall: { leadSource: 'Google', callAt: '2026-11-01T09:00' }, callback: { kind: 'callbackCall', callDate: '2026-11-05' } }).text, 'Lead call found — Lead Source: Google (call on 1 Nov 2026).');
 
   const none = leadCallStatus(' 2572 ', { found: false, leadCall: null });
   assert.deepEqual(none, {

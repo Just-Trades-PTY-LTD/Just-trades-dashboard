@@ -5,11 +5,21 @@
 // "Unassigned". Read-only: nothing here changes the form or any record.
 //
 // `callLookup` is the /lookup/call result for the typed Job Number (null
-// while it's still loading or no Job Number is entered).
-export function leadCallStatus(jobNumber, callLookup) {
+// while it's still loading or no Job Number is entered). Same order as the
+// report (reports.js marketingAttribution): a Call Back entry's new callback
+// Job Number -> Repeat customer; then the booked Lead call; then a "Call
+// back" call -> Repeat customer when the job is visited on/after that call.
+export function leadCallStatus(jobNumber, callLookup, visitDate = '') {
   const jn = (jobNumber || '').trim();
   if (!jn || !callLookup) return null;
 
+  const cb = callLookup.callback;
+  if (cb?.kind === 'callbackEntry') {
+    return {
+      tone: 'found',
+      text: `JN ${jn} is the new callback Job Number on a Call Back entry, so this job and any sale on it will report as Repeat customer.`,
+    };
+  }
   const lead = callLookup.leadCall;
   if (lead && lead.leadSource) {
     return {
@@ -21,6 +31,19 @@ export function leadCallStatus(jobNumber, callLookup) {
     return {
       tone: 'missing',
       text: `A booked Lead call exists for JN ${jn} (${formatCallDate(lead.callAt)}) but has no Lead Source selected, so this job will report as "Unassigned" until one is chosen on that call in Calls & Contacts.`,
+    };
+  }
+  if (cb?.kind === 'callbackCall') {
+    const day = formatCallDate(cb.callDate);
+    if (visitDate && visitDate < cb.callDate) {
+      return {
+        tone: 'missing',
+        text: `JN ${jn} is on a "Call back" call from ${day}, but this visit date is before that call, so the report can't treat it as the callback — it will report as "Unassigned". Check the visit date.`,
+      };
+    }
+    return {
+      tone: 'found',
+      text: `Callback — JN ${jn} is on a "Call back" call (${day}), so this job and any sale on it will report as Repeat customer.`,
     };
   }
   if (callLookup.found) {
