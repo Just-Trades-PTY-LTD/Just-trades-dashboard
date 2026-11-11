@@ -141,7 +141,9 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
   const occupant = r.occupant || null; // reference only, for every Occupant value
   // No genuine possibility of earlier work: the mapped AroFlo customer-card
   // source applies; eligibility warnings (organisation, several sites) are information only.
-  if (r.kind === 'no-earlier') return { mode: 'normal', original, occupant, warnings: r.warnings || [] };
+  // `historyConfirmed`: the check ran and found no earlier completed work —
+  // only then may the mapped source be filled automatically (stage 2).
+  if (r.kind === 'no-earlier') return { mode: 'normal', original, occupant, warnings: r.warnings || [], historyConfirmed: true };
   if (r.kind === 'callback') return { mode: 'callback', original, reasons: r.reasons || [] };
   if (r.kind === 'repeat') {
     const repeat = (leadSources || []).filter((l) => normName(l.name) === 'repeat customer');
@@ -158,4 +160,44 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
     };
   }
   return { mode: 'uncertain', original, occupant, reasons: [...(r.reasons || []), ...(r.warnings || [])] };
+}
+
+/**
+ * Stage 2 — what a booked Lead call's automatic lookup fills, BLANK fields
+ * only (the caller tracks and takes back its own fills when the Job Number
+ * changes; a staff choice is never replaced). Nothing is saved here.
+ * - Suburb: AroFlo's single confident suburb match.
+ * - Trade / Job type: a full task-type match fills both; a Trade-only match
+ *   fills the Trade (Job type left for staff); a Call Back task type or no
+ *   single match fills nothing. Only when both fields are blank.
+ * - Lead Source, only once the customer-history check is finished, in the
+ *   agreed order: callback -> nothing; confident repeat -> Repeat customer;
+ *   uncertain (or the check couldn't run) -> nothing, left for staff; no
+ *   earlier completed work -> the mapped AroFlo customer-card source (an
+ *   unmapped or conflicting value -> nothing).
+ * Returns { wanted: { field: value }, labels: { field: 'Suburb' | ... } }.
+ */
+export function planLeadCallFill({ summary, decision, form }) {
+  const wanted = {};
+  if (!summary?.found) return { wanted };
+  if (summary.suburb?.suggestion && !form.suburb) wanted.suburb = summary.suburb.suggestion.suburb;
+  const jt = summary.jobType?.suggestion;
+  if (jt && !form.tradeId && !form.jobTypeId) {
+    wanted.tradeId = jt.tradeId;
+    if (jt.jobTypeId) wanted.jobTypeId = jt.jobTypeId;
+  }
+  if (!form.leadSourceId && decision) {
+    if (decision.mode === 'repeat' && decision.suggestion) wanted.leadSourceId = decision.suggestion.leadSourceId;
+    else if (decision.mode === 'normal' && decision.historyConfirmed && summary.leadSource?.kind === 'mapped' && summary.leadSource.suggestion) {
+      wanted.leadSourceId = summary.leadSource.suggestion.leadSourceId;
+    }
+  }
+  return { wanted };
+}
+
+const FILL_LABELS = { suburb: 'Suburb', tradeId: 'Trade', jobTypeId: 'Job type', leadSourceId: 'Lead Source' };
+/** "Filled from AroFlo: Suburb, Trade, Job type — check before saving." (names only) */
+export function leadCallFillConfirmation(filled) {
+  const names = Object.keys(filled || {}).map((f) => FILL_LABELS[f]).filter(Boolean);
+  return names.length ? `Filled from AroFlo: ${names.join(', ')} — still editable, check before saving.` : null;
 }

@@ -9,7 +9,7 @@ import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../compo
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
-import { callLookupSummary, leadSourceDecision } from '../../lib/arofloCallSuggest.js';
+import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation } from '../../lib/arofloCallSuggest.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -242,6 +242,39 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       ? leadSourceDecision(arofloSummary.leadSource, history && history.jn === form.jobNumber.trim() ? history : null, form, settings.lists.lead_source)
       : null;
 
+  // Stage 2: a booked Lead call's lookup fills BLANK Suburb, Trade / Job type
+  // and (once the customer-history check is done) Lead Source — see
+  // planLeadCallFill. Follows the Job Number: a different Job Number takes
+  // back what this filled, unless staff changed it (lib/lookupFill.js).
+  // Never replaces a staff choice; nothing is saved until Save.
+  const leadFill = useRef({});
+  useEffect(() => {
+    const isLead = form.callType === 'Lead';
+    // Plan against the form with this source's own earlier fills treated as
+    // blank, so they're kept (not taken back) while still wanted.
+    const planForm = { ...form };
+    Object.entries(leadFill.current).forEach(([f, v]) => {
+      if (String(planForm[f] ?? '') === String(v ?? '')) planForm[f] = '';
+    });
+    const wanted = isLead && arofloSummary ? planLeadCallFill({ summary: arofloSummary, decision: leadDecision, form: planForm }).wanted : {};
+    const { patch: changes, filled } = nextLookupFill(form, leadFill.current, wanted);
+    leadFill.current = filled;
+    if (Object.keys(changes).length) patch(changes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arofloResult, history, form.jobNumber, form.callType]);
+
+  // Runs the lookup automatically when staff leave the Job Number field on a
+  // booked Lead call — a new call, or an edit whose Job Number was changed
+  // (opening an old call never changes it on its own). Not repeated for a
+  // Job Number already looked up; "Look up in AroFlo" stays available.
+  function autoLookupLead() {
+    const jn = form.jobNumber.trim();
+    if (form.callType !== 'Lead' || form.booked !== 'Yes' || !jn || arofloLoading) return;
+    if (editing && jn === String(editing.jobNumber || '').trim()) return;
+    if (arofloResult?.jn === jn) return;
+    runArofloLeadSourceLookup(jn);
+  }
+
   return (
     <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -334,7 +367,13 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         {showJobNumber && (
           <div className="field">
             <label>Job number (JN)</label>
-            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <input
+              className="mono"
+              placeholder="e.g. 10432"
+              value={form.jobNumber}
+              onChange={(e) => patch({ jobNumber: e.target.value })}
+              onBlur={autoLookupLead}
+            />
             {showJobLookup && <JobLookupBox jobNumber={form.jobNumber} mode={lookupMode} result={lookupResult} />}
             {form.callType === 'Lead' && (
               <button
@@ -348,7 +387,13 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
               </button>
             )}
             {form.callType === 'Lead' && arofloSummary && (
-              <ArofloCallSuggestions summary={arofloSummary} decision={leadDecision} showLeadSource={showLeadSource} patch={patch} />
+              <ArofloCallSuggestions
+                summary={arofloSummary}
+                decision={leadDecision}
+                showLeadSource={showLeadSource}
+                patch={patch}
+                filledNote={leadCallFillConfirmation(leadFill.current)}
+              />
             )}
           </div>
         )}
@@ -380,9 +425,13 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 // The result of "Look up in AroFlo" on a Lead call: why nothing was found,
 // or AroFlo's task type / Lead Source with "Use this" where one of this
 // CRM's options matches exactly. Clicking only changes the form.
-function ArofloCallSuggestions({ summary, decision, showLeadSource, patch }) {
+function ArofloCallSuggestions({ summary, decision, showLeadSource, patch, filledNote }) {
   if (!summary.found) {
-    return <div className="lookup-box lookup-missing">{summary.message}</div>;
+    return (
+      <div className="lookup-box lookup-missing" data-testid="aroflo-call-not-found">
+        {summary.message} If the job isn&apos;t booked in AroFlo yet, use “Look up in AroFlo” again once it is — nothing was filled in.
+      </div>
+    );
   }
   const row = (label, item, onUse, noMatchHint, { showArrow = true, emptyText = 'not set in AroFlo' } = {}) => (
     <div style={{ marginTop: 4 }}>
@@ -401,7 +450,12 @@ function ArofloCallSuggestions({ summary, decision, showLeadSource, patch }) {
   );
   return (
     <div className="lookup-box" style={{ border: '1px solid var(--border)', color: 'var(--ink)' }} data-testid="aroflo-call-lookup">
-      <div>Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}. Nothing is changed until you click “Use this” and save.</div>
+      <div>Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}. Blank fields are filled where AroFlo is clear; nothing is saved until you save the call.</div>
+      {filledNote && (
+        <div className="lookup-box lookup-found" style={{ marginTop: 4 }} data-testid="aroflo-call-filled">
+          ✓ {filledNote}
+        </div>
+      )}
       {summary.jobType.kind === 'callback' ? (
         <div style={{ marginTop: 4 }}>
           Task type: <strong>{summary.jobType.arofloValue}</strong> — AroFlo records this job as a callback, which doesn&apos;t say the
