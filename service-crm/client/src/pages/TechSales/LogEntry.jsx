@@ -8,8 +8,8 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
-import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, planOriginalLeadSourceFill, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
-import { prefillConfirmation, invoiceChoices, scheduleApplied, attendingTechnicianApplied, hasActivity } from '../../lib/arofloDisplay.js';
+import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, planOriginalLeadSourceFill, planCallBackVisit, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
+import { prefillConfirmation, invoiceChoices, scheduleApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
 import { changeLead, switchNewJobKind, hasEnteredDetails, confirmMessage, NA } from '../../lib/leadTransitions.js';
@@ -601,6 +601,19 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
 
   // Leaving the new Job Number field on a new Quote Approved Later entry runs
   // the lookup once for that number (the button stays for a retry).
+  // Call Back: look up the new callback Job Number automatically when staff
+  // leave the field — a new entry, or an edit whose new callback Job Number
+  // changed. Suggestions only (planCallBackVisit); not repeated for a Job
+  // Number already looked up.
+  const callBackLookedUp = useRef('');
+  function autoLookupCallBack() {
+    const jn = (formRef.current.newJobNumber || '').trim();
+    if (!jn || arofloInFlight.current === jn || callBackLookedUp.current === jn) return;
+    if (editing && jn === String(editing.newJobNumber || '').trim()) return;
+    callBackLookedUp.current = jn;
+    runArofloLookup(jn);
+  }
+
   function autoLookupQal() {
     const jn = (formRef.current.newJobNumber || '').trim();
     if (editing || !jn || arofloInFlight.current === jn) return;
@@ -653,9 +666,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     // confirmation. The entry type is never changed either way.
     view.callbackConfirmed = isCallBack && arofloResult.taskTypeMatch?.kind === 'callback';
     view.schedule = isSaleMade && !!arofloResult.scheduled && !scheduleApplied(arofloResult.scheduled, form, DIFFERENT_DAY);
-    if (isCallBack && arofloResult.scheduled) {
-      if (!arofloResult.scheduled.matchedTechnicianId) view.callBackTechnician = 'unmatched';
-      else if (!attendingTechnicianApplied(arofloResult.scheduled, form)) view.callBackTechnician = 'choice';
+    // Call Back: AroFlo's visit on the new callback Job Number — visit date
+    // and attending technician offered as "Use this" only (planCallBackVisit).
+    if (isCallBack) {
+      const visit = planCallBackVisit({ result: arofloResult, form, technicians: settings.technicians });
+      view.callBackVisit = visit;
+      if (visit && (visit.note || (visit.date && !visit.dateApplied) || !visit.technicianApplied)) view.callBackTechnician = 'visit';
     }
     const anythingToChoose =
       view.notes.length || view.suggestions.length || suburbChoice || commentsSuggestion || view.invoices.length || view.schedule || view.callBackTechnician;
@@ -683,16 +699,6 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
     });
   }
 
-  // Call Back only: suggests its own Attending Technician from AroFlo's
-  // scheduled resource — never Credited Technician, which already carries a
-  // different, deliberate meaning (who actually completed the original
-  // work) and is auto-filled from the original job elsewhere. Only ever
-  // offered (the button only renders) when matchedTechnicianId is a single
-  // confident match — an ambiguous or missing match leaves this manual.
-  function applyArofloAttendingTechnician() {
-    if (!arofloResult?.scheduled?.matchedTechnicianId) return;
-    patch({ technicianId: arofloResult.scheduled.matchedTechnicianId });
-  }
 
   // Returns { missing: string[], fields: Set<string> } — every required
   // field that's still blank for the current entry type, named clearly
@@ -1123,6 +1129,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
               placeholder="e.g. 20458"
               value={form.newJobNumber}
               onChange={(e) => patch({ newJobNumber: e.target.value })}
+              onBlur={autoLookupCallBack}
             />
             <button
               className="btn"
@@ -1286,16 +1293,36 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
                   CRM technician's full name is found within AroFlo's
                   free-text resource name. No match/ambiguous: shown as plain
                   text only, nothing to click, left fully manual. */}
-              {arofloView.callBackTechnician === 'choice' && (
-                <ArofloChoice buttonLabel="Use as attending technician" onUse={applyArofloAttendingTechnician}>
-                  AroFlo shows a scheduled visit: <strong>{arofloResult.scheduled.technicianName}</strong> on{' '}
-                  <strong>{arofloResult.scheduled.date}</strong>.
-                </ArofloChoice>
-              )}
-              {arofloView.callBackTechnician === 'unmatched' && (
-                <div style={{ marginTop: 6 }}>
-                  AroFlo shows a scheduled visit: <strong>{arofloResult.scheduled.technicianName}</strong> on{' '}
-                  <strong>{arofloResult.scheduled.date}</strong> (no confident match to a technician on file — select one manually).
+              {arofloView.callBackVisit && (
+                <div style={{ marginTop: 6 }} data-testid="aroflo-callback-visit">
+                  {arofloView.callBackVisit.date && (
+                    <div>
+                      AroFlo {arofloView.callBackVisit.source === 'time logged' ? 'time logged' : 'visit'} on the new callback Job Number:{' '}
+                      <strong>{arofloView.callBackVisit.date}</strong>
+                      {arofloView.callBackVisit.technicianName ? (
+                        <>
+                          {' '}— <strong>{arofloView.callBackVisit.technicianName}</strong>
+                        </>
+                      ) : null}
+                      .{' '}
+                      {arofloView.callBackVisit.dateApplied ? (
+                        <>Visit date already set.</>
+                      ) : (
+                        <button className="btn btn-sm" type="button" onClick={() => patch({ visitDate: arofloView.callBackVisit.date })}>
+                          Use this visit date
+                        </button>
+                      )}{' '}
+                      {arofloView.callBackVisit.technicianId &&
+                        (arofloView.callBackVisit.technicianApplied ? (
+                          <>Attending technician already set.</>
+                        ) : (
+                          <button className="btn btn-sm" type="button" onClick={() => patch({ technicianId: arofloView.callBackVisit.technicianId })}>
+                            Use as attending technician
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                  {arofloView.callBackVisit.note && <div style={{ fontSize: 12, marginTop: 2 }}>{arofloView.callBackVisit.note}</div>}
                 </div>
               )}
               <ArofloActivity activity={arofloResult.activity} />

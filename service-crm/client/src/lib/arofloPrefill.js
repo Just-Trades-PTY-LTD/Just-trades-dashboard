@@ -307,3 +307,54 @@ export function planOriginalLeadSourceFill({ result, form, previousFilled = '', 
   if (current === id) return { wanted: {}, note: `${from} — matches the current choice.`, suggestion: null };
   return { wanted: {}, note: `${from}. The current choice was kept.`, suggestion: { leadSourceId: id, label: m.label } };
 }
+
+/**
+ * Stage 3 — Call Back entry: AroFlo's visit on the NEW callback Job Number,
+ * offered as "Use this" suggestions only (never filled automatically):
+ * - booked visits first; if none, the days time was logged; if AroFlo's
+ *   activity couldn't be read, its pending schedule;
+ * - exactly one visit date -> suggest that date; exactly one person on it
+ *   who matches exactly one CRM technician -> suggest them as Attending
+ *   technician (never Credited technician, which comes from the original
+ *   job);
+ * - several dates, several people or no match -> a note, left for staff.
+ * Returns { date, technicianId, technicianName, dateApplied, technicianApplied, note }.
+ */
+export function planCallBackVisit({ result, form, technicians }) {
+  if (!result?.found) return null;
+  const visits = result.activity?.visits;
+  const labour = result.activity?.labour;
+  let entries = null;
+  let what = 'visit';
+  if (Array.isArray(visits) && visits.some((v) => v.date)) entries = visits.filter((v) => v.date);
+  else if (Array.isArray(labour) && labour.some((l) => l.date)) {
+    entries = labour.filter((l) => l.date);
+    what = 'time logged';
+  } else if (!Array.isArray(visits) && result.scheduled?.date) {
+    entries = [{ date: result.scheduled.date, technician: result.scheduled.technicianName }];
+  }
+  if (!entries) return { note: 'AroFlo has no visit booked or time logged on the new callback Job Number yet — enter the visit date and attending technician.' };
+  const dates = [...new Set(entries.map((e) => e.date))].sort();
+  if (dates.length > 1) {
+    return { note: `AroFlo has ${what === 'visit' ? 'visits' : 'time logged'} on ${dates.length} different dates (${dates.join(', ')}) — choose the callback visit date and attending technician.` };
+  }
+  const date = dates[0];
+  const names = [...new Set(entries.map((e) => e.technician).filter(Boolean))];
+  let technicianId = null;
+  let note = null;
+  if (names.length === 1) {
+    const tech = matchTechnician(names[0], technicians);
+    if (tech) technicianId = String(tech.id);
+    else note = `"${names[0]}" doesn't match exactly one technician here — choose the attending technician.`;
+  } else if (names.length > 1) note = `${names.length} people are on that ${what} (${names.join(', ')}) — choose the attending technician.`;
+  else note = `No named technician on that ${what} — choose the attending technician.`;
+  return {
+    date,
+    source: what,
+    technicianId,
+    technicianName: names.length === 1 ? names[0] : null,
+    dateApplied: form.visitDate === date,
+    technicianApplied: !technicianId || String(form.technicianId) === technicianId,
+    note,
+  };
+}
