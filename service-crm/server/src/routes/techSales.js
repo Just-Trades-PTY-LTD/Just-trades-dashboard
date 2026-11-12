@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { detailsOf } from '../services/pendingCancellation.js';
+import { upsellInvoiceMode, separateInvoiceProblem } from '../services/upsell.js';
 import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
@@ -245,6 +246,9 @@ function saleToEntry(s) {
     // /existing-job-upsell's own predatesCrm handling. Always set for a
     // Quote Approved Later entry (creation requires a match).
     jobId: s.job_id || null,
+    // Upsell only (Stage 6): on the original job's existing invoice, or on a
+    // separate invoice / AroFlo Job Number (newJobNumber, reference only).
+    invoiceMode: s.is_upsell ? upsellInvoiceMode(s) : null,
     // Pre-CRM Upsell only (jobId null): the original job's/customer's Lead
     // Source, used by reports only when the Job Number has no booked Lead
     // call. Always null otherwise.
@@ -1241,6 +1245,9 @@ export function createTechSalesRouter() {
     // still gets the normal "not found" error instead of silently saving
     // unlinked. See the two "if (!matched... && !predatesCrm)" checks below.
     const predatesCrm = !!b.predatesCrm;
+    // Stage 6: on the original job's existing invoice (default), or on a
+    // separate invoice / AroFlo Job Number.
+    const separate = b.invoiceMode === 'separate';
     const missing = [];
     if (!b.jobNumber || !String(b.jobNumber).trim()) missing.push('Job Number');
     if (!b.invoiceNumber || !String(b.invoiceNumber).trim()) missing.push('Invoice Number');
@@ -1272,8 +1279,12 @@ export function createTechSalesRouter() {
     // genuine original sale, not another upsell that happens to share the
     // same invoice number. Skipped only when predatesCrm is set, for the
     // same reason as above.
-    const matchedSale = findSaleForInvoice(b.jobNumber, b.invoiceNumber);
-    if (!matchedSale && !predatesCrm) {
+    if (separate) {
+      const problem = separateInvoiceProblem(b.invoiceNumber);
+      if (problem) return res.status(400).json({ error: problem });
+    }
+    const matchedSale = separate ? null : findSaleForInvoice(b.jobNumber, b.invoiceNumber);
+    if (!matchedSale && !predatesCrm && !separate) {
       return res.status(400).json({
         error: `No existing invoice ${b.invoiceNumber} found for Job Number ${b.jobNumber}. "Existing Job — Upsell" must reference an invoice that's already on record for that job. If this job predates the CRM, tick "This job predates the CRM" below.`,
       });
@@ -1281,9 +1292,9 @@ export function createTechSalesRouter() {
     // With no matched job to auto-populate Trade from (see saleValues
     // below), and no matched sale to auto-populate Invoice Date from, both
     // become directly-required inputs instead — never silently saved blank.
-    if (!matchedJob) {
+    if (!matchedJob || separate) {
       const missing2 = [];
-      if (!b.tradeId) missing2.push('Trade');
+      if (!matchedJob && !b.tradeId) missing2.push('Trade');
       if (!b.invoiceDate) missing2.push('Invoice Date');
       if (missing2.length) {
         return res.status(400).json({
@@ -1309,6 +1320,9 @@ export function createTechSalesRouter() {
 
     const saleValues = {
       job_number: b.jobNumber || '',
+      // Reference only (never linked, never attribution): the separate AroFlo
+      // Job Number a separate-invoice Upsell was invoiced on.
+      new_job_number: separate ? String(b.newJobNumber || '').trim() : '',
       credited_technician_id: b.creditedTechnicianId || null,
       // The original job's Trade, Job Type and Suburb are auto-populated
       // below where possible, but stay editable — an explicit value in the
@@ -1334,9 +1348,9 @@ export function createTechSalesRouter() {
     };
     const saleId = transaction(() => {
       const { lastInsertRowid } = run(
-        `INSERT INTO sales (job_id, job_number, source, is_upsell, date_logged, credited_technician_id, trade_id, job_type_id,
+        `INSERT INTO sales (job_id, job_number, new_job_number, source, is_upsell, date_logged, credited_technician_id, trade_id, job_type_id,
           invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, original_lead_source_id, created_by_user_id)
-         VALUES (?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 'quote_approved_later', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           // NULL when this Upsell references a job/invoice that predates the
           // CRM — a plain text reference only (job_number/invoice_number
@@ -1345,6 +1359,7 @@ export function createTechSalesRouter() {
           // original job is on record.
           matchedJob ? matchedJob.id : null,
           saleValues.job_number,
+          saleValues.new_job_number,
           b.dateLogged,
           saleValues.credited_technician_id,
           saleValues.trade_id,
@@ -1391,7 +1406,14 @@ export function createTechSalesRouter() {
     // entry already was (a pre-CRM reference has job_id NULL from creation;
     // PATCH never changes job_id) unless the request explicitly overrides it.
     const predatesCrm = b.predatesCrm !== undefined ? !!b.predatesCrm : existing.job_id === null;
-    if ((b.jobNumber !== undefined || b.invoiceNumber !== undefined) && !predatesCrm) {
+    const mode = b.invoiceMode === 'separate' || b.invoiceMode === 'existing' ? b.invoiceMode : upsellInvoiceMode(existing);
+    const separate = mode === 'separate';
+    const modeChanged = mode !== upsellInvoiceMode(existing);
+    if (separate && (b.invoiceNumber !== undefined || modeChanged)) {
+      const problem = separateInvoiceProblem(nextInvoiceNumber);
+      if (problem) return res.status(400).json({ error: problem });
+    }
+    if ((b.jobNumber !== undefined || b.invoiceNumber !== undefined || modeChanged) && !predatesCrm && !separate) {
       const matchedSale = findSaleForInvoice(nextJobNumber, nextInvoiceNumber);
       if (!matchedSale) {
         return res.status(400).json({
@@ -1409,6 +1431,7 @@ export function createTechSalesRouter() {
     }
     const next = {
       job_number: nextJobNumber,
+      new_job_number: separate ? String(b.newJobNumber ?? existing.new_job_number ?? '').trim() : '',
       // Same fallback as Quote Approved Later's own edit route — an edit
       // that clears Credited Technician falls back to the original job's
       // technician, never silently saving null.
@@ -1435,10 +1458,11 @@ export function createTechSalesRouter() {
     next.original_lead_source_id = originalLeadSource.id;
     const dateLogged = b.dateLogged ?? existing.date_logged;
     run(
-      `UPDATE sales SET job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
+      `UPDATE sales SET job_number=?, new_job_number=?, date_logged=?, credited_technician_id=?, trade_id=?, job_type_id=?, invoice_number=?, invoice_date=?,
         sale_value_ex_gst=?, comments=?, suburb=?, original_lead_source_id=?, updated_at=datetime('now') WHERE id=?`,
       [
         next.job_number,
+        next.new_job_number,
         dateLogged,
         next.credited_technician_id,
         next.trade_id,

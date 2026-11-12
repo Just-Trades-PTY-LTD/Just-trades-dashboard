@@ -38,7 +38,7 @@ test('the prefill lookup only reads from AroFlo, writes nothing to the CRM, uses
     const res = await server.request('GET', '/aroflo/lookup?jn=2600&activity=1');
     assert.equal(res.status, 200);
     assert.equal(res.data.found, true);
-    assert.deepEqual(res.data.invoices, [{ invoiceNumber: '9001', invoiceDate: '2026-11-04', saleValueExGst: 1234.5, status: 'APPROVED', alreadyRecorded: null }], 'the invoice\'s own totalAmountEx, Adelaide date');
+    assert.deepEqual(res.data.invoices, [{ invoiceNumber: '9001', invoiceDate: '2026-11-04', saleValueExGst: 1234.5, status: 'APPROVED', type: '', alreadyRecorded: null }], 'the invoice\'s own totalAmountEx, Adelaide date');
     assert.deepEqual(res.data.activity.visits.map((v) => [v.date, v.start]), [['2026-11-10', '08:30']], 'visit in Adelaide time');
     assert.equal(requests.length, 7, `AroFlo requests: ${requests.map((r) => r.path).join(', ')}`);
     assert.ok(requests.every((r) => r.method === 'GET'), 'GET only — nothing is ever written to AroFlo');

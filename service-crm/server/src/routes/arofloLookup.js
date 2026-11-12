@@ -18,6 +18,7 @@ import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
 import { findRecordedSaleForInvoice, invoiceKey } from '../services/lookup.js';
 import { crmInvoicesForJob, cancellationsOnInvoice } from '../services/pendingCancellation.js';
+import { findSeparateUpsellForInvoice } from '../services/upsell.js';
 import { resolveLeadSourceValues } from '../aroflo/leadSourceMapping.js';
 import { gatherCustomerHistory, callbackEvidence, repeatDecision } from '../aroflo/repeatCheck.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
@@ -73,7 +74,11 @@ function buildScheduled(task) {
 
 function recordedSaleLabel(invoiceNumber) {
   const sale = findRecordedSaleForInvoice(invoiceNumber);
-  if (!sale) return null;
+  if (!sale) {
+    // Stage 6: also an invoice already used by a separate-invoice Upsell.
+    const upsell = findSeparateUpsellForInvoice(invoiceNumber);
+    return upsell ? { jobNumber: String(upsell.job_number).trim(), kind: 'Upsell' } : null;
+  }
   return { jobNumber: sale.job_number, kind: sale.source === 'quote_approved_later' ? 'Quote Approved Later' : 'Sale Made' };
 }
 
@@ -240,6 +245,10 @@ export function createArofloLookupRouter() {
           // This invoice's own total ex GST — never the task's sell total.
           saleValueExGst: inv.totalAmountEx ?? 0,
           status: inv.status || '',
+          // AroFlo's invoice type (e.g. FINAL_INVOICE, SALES_INVOICE,
+          // PART_INVOICE) — Stage 6 fills a separate Upsell invoice only from
+          // a single final or sales invoice.
+          type: inv.type || '',
           // Already recorded on a CRM sale (any job)? Then the forms never
           // fill it into another sale — it's listed with this label instead.
           alreadyRecorded: recordedSaleLabel(inv.invoiceNumber),

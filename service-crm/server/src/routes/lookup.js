@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import { crmRecordedOnInvoice } from '../services/upsell.js';
 import { findCallbackEvidence, findCallbackOriginalJob, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
@@ -50,6 +51,14 @@ export function createLookupRouter() {
       jobTypeId: sale.job_type_id,
       jobType: sale.job_type_name,
     });
+  });
+
+  // Stage 6 — Upsell on the existing invoice: what the CRM has recorded on
+  // that invoice (original sale + earlier Upsells, ex GST), for the "Use
+  // this" suggestion against AroFlo's current invoice total. Read-only.
+  router.get('/upsell-invoice', (req, res) => {
+    const r = crmRecordedOnInvoice(req.query.jn || '', req.query.invoice || '', req.query.excludeSaleId || null);
+    res.json(r ? { found: true, ...r } : { found: false });
   });
 
   // Calls & Contacts "Call back" call: the original CRM job its Job Number

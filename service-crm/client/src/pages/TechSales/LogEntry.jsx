@@ -8,6 +8,7 @@ import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { arofloAutoFill, arofloSuburbSuggestion, arofloCommentsSuggestion } from '../../lib/arofloFill.js';
+import { INVOICE_MODES, existingInvoiceSuggestion, planSeparateInvoiceFill, money as upsellMoney } from '../../lib/upsellForm.js';
 import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, planOriginalLeadSourceFill, planCallBackVisit, DIFFERENT_DAY } from '../../lib/arofloPrefill.js';
 import { prefillConfirmation, invoiceChoices, scheduleApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
@@ -69,6 +70,9 @@ function emptyForm(kind) {
     // customer's Lead Source, used by reports when the Job Number has no
     // booked Lead call.
     originalLeadSourceId: '',
+    // Existing Job — Upsell (Stage 6): on the original job's existing invoice,
+    // or on a separate invoice / AroFlo Job Number (newJobNumber).
+    invoiceMode: 'existing',
     // Quote Follow-up trial — never part of the job itself (no jobs.* column
     // for either of these); on save, a brand-new genuine knock-back fires a
     // second, independent POST /follow-ups call — see handleSubmit() below.
@@ -109,6 +113,7 @@ function fromEntry(entry) {
     // could drift from it.
     predatesCrm: entry.kind === 'existing_job_upsell' && !entry.jobId,
     originalLeadSourceId: entry.originalLeadSourceId ? String(entry.originalLeadSourceId) : '',
+    invoiceMode: entry.invoiceMode || 'existing',
     // The "Follow-up required" checkbox is creation-only (see below) —
     // editing an existing knock-back uses Job History's own "Add/View
     // follow-up" affordance instead.
@@ -208,6 +213,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   // immediately before it was applied — purely so a conflicting call-based
   // suburb can still be shown for reference, never to revert the field.
   const [arofloResult, setArofloResult] = useState(null);
+  const arofloLastJn = useRef('');
   const [originalLsPlan, setOriginalLsPlan] = useState(null);
   const originalLsFilled = useRef('');
   const upsellBookedLeadCallRef = useRef(null);
@@ -316,7 +322,34 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   // already on file for this job), never used to block submission itself —
   // the server is the authority on whether the typed Invoice Number actually
   // matches (see findSaleForInvoice in routes/techSales.js).
-  const upsellInvoiceLookup = useJobLookup(isUpsell ? form.jobNumber : '', 'sale');
+  const upsellInvoiceLookup = useJobLookup(isUpsell && form.invoiceMode !== 'separate' ? form.jobNumber : '', 'sale');
+  const isSeparateUpsell = isUpsell && form.invoiceMode === 'separate';
+  // (A) Existing invoice: what the CRM has recorded on it, for the "Use this"
+  // suggestion against AroFlo's current total.
+  const [upsellCrm, setUpsellCrm] = useState(null);
+  useEffect(() => {
+    const jn = form.jobNumber.trim();
+    const inv = form.invoiceNumber.trim();
+    if (!isUpsell || isSeparateUpsell || form.predatesCrm || !jn || !inv) {
+      setUpsellCrm(null);
+      return undefined;
+    }
+    let current = true;
+    const t = setTimeout(() => {
+      api.lookup
+        .upsellInvoice(jn, inv, editing?.kind === 'existing_job_upsell' ? editing.id : undefined)
+        .then((r) => current && setUpsellCrm({ jn, inv, ...r }))
+        .catch(() => current && setUpsellCrm(null));
+    }, 250);
+    return () => {
+      current = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUpsell, isSeparateUpsell, form.predatesCrm, form.jobNumber, form.invoiceNumber]);
+  // (B) Separate invoice: the separate AroFlo Job Number's own lookup.
+  const [sepLookup, setSepLookup] = useState(null); // { jn, loading, result }
+  const sepFilled = useRef({ jn: '', fields: {} });
   // Pre-CRM Upsell: the Original job's Lead Source applies only when the
   // original Job Number has no booked Lead call (that call always wins).
   const showOriginalLeadSource = isUpsell && form.predatesCrm && !(editing && editing.jobId);
@@ -433,6 +466,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     setArofloAutoFilled([]);
     setQalPlan(null);
     qalFilled.current = { jn: '', fields: {} };
+    setSepLookup(null);
+    sepFilled.current = { jn: '', fields: {} };
   }
 
   // New Job, Existing Job — Upsell, and Call Back — a deliberate, optional
@@ -614,6 +649,50 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     runArofloLookup(jn);
   }
 
+  // Stage 6 — Upsell: look up the original Job Number automatically when
+  // staff leave it on a new Upsell (fills only blank Suburb / comments, as
+  // the button does; its invoices feed the existing-invoice suggestion).
+  function autoLookupUpsellOriginal() {
+    const jn = (formRef.current.jobNumber || '').trim();
+    if (editing || !jn || arofloInFlight.current === jn) return;
+    if (arofloResult && arofloLastJn.current === jn) return;
+    arofloLastJn.current = jn;
+    runArofloLookup(jn, { applySuburb: true });
+  }
+  // (B) Separate invoice: look up the separate AroFlo Job Number when staff
+  // leave it, and fill the invoice only when it's clear (planSeparateInvoiceFill).
+  async function runSeparateLookup() {
+    const jn = (formRef.current.newJobNumber || '').trim();
+    if (!jn || sepLookup?.jn === jn) return;
+    setSepLookup({ jn, loading: true });
+    let result;
+    try {
+      result = await api.aroflo.lookup(jn);
+    } catch (err) {
+      result = { found: false, message: err.message || 'AroFlo could not be reached — enter the invoice details yourself.' };
+    }
+    if ((formRef.current.newJobNumber || '').trim() !== jn || formRef.current.invoiceMode !== 'separate') return;
+    const plan = planSeparateInvoiceFill({ result, jobNumber: jn });
+    const { patch: changes, filled } = applyPrefill(formRef.current, sepFilled.current.fields, plan.wanted, { invoiceDate: emptyForm().invoiceDate });
+    sepFilled.current = { jn, fields: filled };
+    setSepLookup({ jn, result, plan, filledNames: Object.keys(filled) });
+    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+  }
+  // A different separate Job Number (or switching back to the existing
+  // invoice) takes back what the previous lookup filled, unless changed.
+  function changeSeparateJobNumber(value) {
+    const undo = revertPrefill(formRef.current, sepFilled.current.fields);
+    sepFilled.current = { jn: '', fields: {} };
+    setSepLookup(null);
+    patch({ ...undo, newJobNumber: value });
+  }
+  function changeInvoiceMode(mode) {
+    const undo = revertPrefill(formRef.current, sepFilled.current.fields);
+    sepFilled.current = { jn: '', fields: {} };
+    setSepLookup(null);
+    patch({ ...undo, invoiceMode: mode, ...(mode === 'existing' ? { newJobNumber: '' } : {}) });
+  }
+
   function autoLookupQal() {
     const jn = (formRef.current.newJobNumber || '').trim();
     if (editing || !jn || arofloInFlight.current === jn) return;
@@ -787,8 +866,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
       }
       // No matched job/invoice to auto-fill these from — the server backs
       // this same rule up (see /existing-job-upsell's own "missing2" check).
-      if (form.predatesCrm) {
-        if (!form.tradeId) {
+      if (form.predatesCrm || form.invoiceMode === 'separate') {
+        if (form.predatesCrm && !form.tradeId) {
           missing.push('Trade');
           fields.add('tradeId');
         }
@@ -893,6 +972,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
           suburb: form.suburb,
           comments: form.comments,
           predatesCrm: form.predatesCrm,
+          invoiceMode: form.invoiceMode,
+          newJobNumber: form.invoiceMode === 'separate' ? form.newJobNumber : '',
           originalLeadSourceId: showOriginalLeadSource ? form.originalLeadSourceId || null : null,
         };
         res = editing ? { entry: await api.tech.updateUpsell(editing.id, body) } : await api.tech.createUpsell(body);
@@ -1030,7 +1111,13 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         <div className="grid-form" style={{ marginTop: 14 }}>
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Job Number *</label>
-            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+            <input
+              className="mono"
+              placeholder="e.g. 10432"
+              value={form.jobNumber}
+              onChange={(e) => patch({ jobNumber: e.target.value })}
+              onBlur={autoLookupUpsellOriginal}
+            />
             <button
               className="btn"
               type="button"
@@ -1047,12 +1134,44 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
                 : "The existing job the upsell was made on — used to locate the original job and auto-fill Trade/Job Type/Suburb below."}
             </div>
           </div>
-          <div className={`field${invalidFields.has('invoiceNumber') ? ' invalid' : ''}`}>
-            <label>Invoice Number *</label>
-            <input className="mono" value={form.invoiceNumber} onChange={(e) => patch({ invoiceNumber: e.target.value })} />
-            {!form.predatesCrm && <JobLookupBox jobNumber={form.jobNumber} mode="sale" result={upsellInvoiceLookup} />}
+          <div className="field" style={{ gridColumn: '1 / -1' }} data-testid="upsell-invoice-mode">
+            <label>Which invoice is this Upsell on? *</label>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
+              {INVOICE_MODES.map((m) => (
+                <label key={m.value} style={{ fontWeight: 400 }}>
+                  <input type="radio" name="upsell-invoice-mode" checked={form.invoiceMode === m.value} onChange={() => changeInvoiceMode(m.value)} /> {m.label}
+                </label>
+              ))}
+            </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-              {form.predatesCrm
+              Either way the Upsell reports under the original job and its Lead Source — the invoice only identifies and values it.
+            </div>
+          </div>
+          {isSeparateUpsell && (
+            <div className="field">
+              <label>Separate AroFlo Job Number</label>
+              <input
+                className="mono"
+                placeholder="e.g. 20458"
+                value={form.newJobNumber}
+                onChange={(e) => changeSeparateJobNumber(e.target.value)}
+                onBlur={runSeparateLookup}
+                data-testid="upsell-separate-jn"
+              />
+              <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                If the Upsell was invoiced on its own AroFlo job — reference only, never a new job. Leave blank if it's a separate invoice on the
+                original job.
+              </div>
+            </div>
+          )}
+          <div className={`field${invalidFields.has('invoiceNumber') ? ' invalid' : ''}`}>
+            <label>{isSeparateUpsell ? 'Separate invoice number *' : 'Invoice Number *'}</label>
+            <input className="mono" value={form.invoiceNumber} onChange={(e) => patch({ invoiceNumber: e.target.value })} />
+            {!form.predatesCrm && !isSeparateUpsell && <JobLookupBox jobNumber={form.jobNumber} mode="sale" result={upsellInvoiceLookup} />}
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+              {isSeparateUpsell
+                ? "The Upsell's own invoice — it can't be an invoice already recorded on a CRM sale."
+                : form.predatesCrm
                 ? 'A reference only — no matching invoice is required.'
                 : 'The existing invoice the upsell has been added to — must already be on record for this Job Number.'}
             </div>
@@ -1579,10 +1698,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
 
       {isUpsell && (
         <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Upsell — added to the existing invoice above</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+            {isSeparateUpsell ? 'Upsell — on its own separate invoice' : 'Upsell — added to the existing invoice above'}
+          </div>
           <div className="grid-form">
             <DateField
-              label={form.predatesCrm ? 'Relevant invoice date *' : 'Relevant invoice date'}
+              label={form.predatesCrm || isSeparateUpsell ? 'Relevant invoice date *' : 'Relevant invoice date'}
               value={form.invoiceDate}
               onChange={(v) => patch({ invoiceDate: v })}
               invalid={invalidFields.has('invoiceDate')}
@@ -1593,6 +1714,18 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
               onChange={(v) => patch({ saleValueExGst: v })}
             />
           </div>
+          <UpsellAroflo
+            separate={isSeparateUpsell}
+            sepLookup={sepLookup && sepLookup.jn === form.newJobNumber.trim() ? sepLookup : null}
+            originalInvoices={!form.newJobNumber.trim() && arofloResult?.found ? arofloResult.invoices : null}
+            suggestion={
+              !isSeparateUpsell && upsellCrm && upsellCrm.jn === form.jobNumber.trim() && upsellCrm.inv === form.invoiceNumber.trim()
+                ? existingInvoiceSuggestion({ arofloInvoices: arofloResult?.found ? arofloResult.invoices : null, invoiceNumber: form.invoiceNumber.trim(), crm: upsellCrm })
+                : null
+            }
+            form={form}
+            patch={patch}
+          />
           <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 8 }}>
             Record only the ADDITIONAL upsell value ex GST — never the full invoice value again. This is included in the technician's
             overall credited Value (ex GST), but is never counted as a Sale (invoice) or in their Average Sale.
@@ -1679,6 +1812,93 @@ function PendingCancellationReadOnly({ entry, onClose, jumpToJN }) {
           Close
         </button>
       </div>
+    </div>
+  );
+}
+
+// Stage 6 — what AroFlo suggests for an Upsell's value / invoice. Nothing is
+// overwritten: (A) offers the difference with its calculation; (B) shows what
+// the separate Job Number's lookup filled or offers its invoices.
+function UpsellAroflo({ separate, sepLookup, originalInvoices, suggestion, form, patch }) {
+  if (separate && !sepLookup && originalInvoices) {
+    // A separate invoice on the ORIGINAL AroFlo job: its invoices not yet in
+    // the CRM are offered only — never filled automatically.
+    const usable = originalInvoices.filter((i) => !i.alreadyRecorded);
+    if (!usable.length) return null;
+    return (
+      <div style={{ fontSize: 12.5, marginTop: 8 }} data-testid="upsell-original-job-invoices">
+        Invoices on the original AroFlo job that aren&apos;t in the CRM yet:
+        {usable.map((c) => (
+          <div key={c.invoiceNumber} style={{ marginTop: 4 }}>
+            Invoice <strong>{c.invoiceNumber}</strong>
+            {c.invoiceDate ? ` · ${c.invoiceDate}` : ''} · {upsellMoney(c.saleValueExGst)} ex GST{c.status ? ` · ${c.status}` : ''}{' '}
+            {String(form.invoiceNumber).trim() === String(c.invoiceNumber).trim() ? (
+              '— already used'
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => patch({ invoiceNumber: c.invoiceNumber, ...(c.invoiceDate ? { invoiceDate: c.invoiceDate } : {}), saleValueExGst: c.saleValueExGst })}
+              >
+                Use this
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (separate) {
+    if (!sepLookup) return null;
+    if (sepLookup.loading) return <div style={{ fontSize: 12, marginTop: 8 }}>Looking up JN {sepLookup.jn} in AroFlo…</div>;
+    const { plan, filledNames } = sepLookup;
+    return (
+      <div style={{ fontSize: 12.5, marginTop: 8 }} data-testid="upsell-separate-aroflo">
+        {filledNames?.length > 0 && (
+          <div className="lookup-box lookup-found" style={{ marginTop: 0 }}>
+            ✓ Filled from AroFlo JN {sepLookup.jn}'s only final invoice: invoice number, date and value — still editable, check before saving.
+          </div>
+        )}
+        {plan.notes.map((n) => (
+          <div key={n} style={{ marginTop: 4 }}>
+            {n}
+          </div>
+        ))}
+        {plan.choices.map((c) => {
+          const applied = String(form.invoiceNumber).trim() === String(c.invoiceNumber).trim() && Number(form.saleValueExGst) === Number(c.saleValueExGst);
+          return (
+            <div key={c.invoiceNumber} style={{ marginTop: 4 }}>
+              Invoice <strong>{c.invoiceNumber}</strong>
+              {c.invoiceDate ? ` · ${c.invoiceDate}` : ''} · {upsellMoney(c.saleValueExGst)} ex GST{c.status ? ` · ${c.status}` : ''}{' '}
+              {applied ? (
+                '— already used'
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => patch({ invoiceNumber: c.invoiceNumber, ...(c.invoiceDate ? { invoiceDate: c.invoiceDate } : {}), saleValueExGst: c.saleValueExGst })}
+                >
+                  Use this
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  if (!suggestion) return null;
+  return (
+    <div style={{ fontSize: 12.5, marginTop: 8 }} data-testid="upsell-existing-suggestion">
+      {suggestion.text}
+      {suggestion.offer !== null && Number(form.saleValueExGst) !== suggestion.offer && (
+        <>
+          {' '}
+          <button type="button" className="btn btn-sm" onClick={() => patch({ saleValueExGst: suggestion.offer })}>
+            Use {upsellMoney(suggestion.offer)}
+          </button>
+        </>
+      )}
     </div>
   );
 }
