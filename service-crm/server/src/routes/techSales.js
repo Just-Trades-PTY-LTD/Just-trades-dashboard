@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { detailsOf } from '../services/pendingCancellation.js';
 import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
@@ -338,6 +339,13 @@ function pendingCancellationToEntry(pc) {
     reasonId: pc.reason_id,
     reasonName: pc.reason_name,
     comments: pc.comments,
+    // Stage 5: the affected invoice and lost value — read-only here; they're
+    // recorded and edited only on the linked Calls & Contacts call.
+    pendingCancellation: detailsOf(pc),
+    linkedCall: (() => {
+      const c = get('SELECT id, call_at FROM calls WHERE pending_cancellation_id = ? ORDER BY id LIMIT 1', [pc.id]);
+      return c ? { id: c.id, callAt: c.call_at } : null;
+    })(),
     createdByUserId: pc.created_by_user_id,
     createdByName: pc.created_by_name || '',
     createdAt: pc.created_at,

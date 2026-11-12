@@ -1537,6 +1537,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           />
         </div>
       )}
+      {isPendingCancellation && editing && (
+        <PendingCancellationReadOnly details={editing.pendingCancellation} linkedCall={editing.linkedCall} />
+      )}
 
       {isSaleMade && (
         <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
@@ -1621,5 +1624,38 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         )}
       </div>
     </form>
+  );
+}
+
+// Stage 5: the Pending Cancellation's invoice and lost value, read-only —
+// they're recorded only on its Calls & Contacts call, never here, so the
+// same cancellation can't be maintained from two forms.
+function PendingCancellationReadOnly({ details, linkedCall }) {
+  const fmt = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ex GST`);
+  const basis = { whole_sale: 'Entire invoice cancelled', part_of_work: 'Part of the work cancelled' }[details?.lostValueBasis] || 'not recorded';
+  return (
+    <div className="panel" style={{ padding: 14, marginTop: 14, background: 'var(--surface-2)', fontSize: 12.5 }} data-testid="pc-readonly">
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Affected invoice and lost value (read-only)</div>
+      {details?.recorded ? (
+        <>
+          <div>
+            Invoice {details.invoiceNumber || '—'}
+            {details.invoiceDate ? ` · ${details.invoiceDate}` : ''} · CRM recorded {fmt(details.originalSaleValueExGst)} · AroFlo {fmt(details.arofloInvoiceValueExGst)}
+            {details.arofloInvoiceStatus ? ` · ${details.arofloInvoiceStatus}` : ''}
+          </div>
+          <div>
+            {basis} · Lost value {fmt(details.lostValueExGst)}
+          </div>
+          {details.supersededById && <div>Superseded for reporting by a later entire-invoice cancellation — kept in history.</div>}
+        </>
+      ) : (
+        <div>Invoice and lost value: not recorded.</div>
+      )}
+      <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>
+        {linkedCall
+          ? `Recorded on its Calls & Contacts call (Cancellation → Pending Cancellation, ${String(linkedCall.callAt || '').replace('T', ' ')}) — open that call in Calls & Contacts to change the invoice or lost value.`
+          : "This cancellation has no Calls & Contacts call, so its invoice and lost value can't be recorded."}
+      </div>
+    </div>
   );
 }

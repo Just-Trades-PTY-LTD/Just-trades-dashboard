@@ -16,7 +16,8 @@ import {
 import { summarizeLabour, summarizeVisits, toLocalDateTime } from '../aroflo/activity.js';
 import { analyzeTaskSuburb, addressSummary } from '../aroflo/suburbMatch.js';
 import { resolveTaskType } from '../aroflo/taskTypeMapping.js';
-import { findRecordedSaleForInvoice } from '../services/lookup.js';
+import { findRecordedSaleForInvoice, invoiceKey } from '../services/lookup.js';
+import { crmInvoicesForJob, cancellationsOnInvoice } from '../services/pendingCancellation.js';
 import { resolveLeadSourceValues } from '../aroflo/leadSourceMapping.js';
 import { gatherCustomerHistory, callbackEvidence, repeatDecision } from '../aroflo/repeatCheck.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
@@ -114,6 +115,53 @@ export function createArofloLookupRouter() {
       if (err instanceof ArofloRequestError) return done({ found: false, kind: 'unavailable', message: 'AroFlo could not be reached for the customer history check.' });
       throw err;
     }
+  });
+
+  // Stage 5 — Calls & Contacts Pending Cancellation: the Job Number's
+  // invoices, one entry per invoice (never combined): the CRM's recorded
+  // value ex GST (original sale + Upsells on that invoice) and AroFlo's
+  // current value ex GST and status, plus any other cancellation already on
+  // that invoice. Read-only: GET requests to AroFlo, SELECTs on the CRM.
+  // AroFlo unavailable -> the CRM invoices alone, with a note.
+  router.get('/pending-cancellation-invoices', async (req, res) => {
+    const jn = (req.query.jn || '').trim();
+    if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
+    const pcId = Number(req.query.pendingCancellationId) || null;
+    const crm = crmInvoicesForJob(jn);
+    let aroflo = [];
+    let arofloNote = null;
+    try {
+      const businessUnit = (await listBusinessUnits())[0];
+      const task = businessUnit ? await findTaskByJobNumber(businessUnit.id, jn) : null;
+      if (!task) arofloNote = `No AroFlo job found for "${jn}" — only the CRM's invoices are shown.`;
+      else {
+        aroflo = (await getInvoicesForTask(businessUnit.id, task.id)).map((inv) => ({
+          id: inv.id || inv.invoiceId || '',
+          invoiceNumber: String(inv.invoiceNumber || '').trim(),
+          invoiceDate: toLocalDateTime(inv.invoicedDateTime).date,
+          valueExGst: inv.totalAmountEx ?? null,
+          status: inv.status || '',
+        }));
+      }
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) arofloNote = 'AroFlo lookup is not configured — only the CRM\'s invoices are shown.';
+      else if (err instanceof ArofloRequestError) arofloNote = 'AroFlo could not be reached — only the CRM\'s invoices are shown.';
+      else throw err;
+    }
+    const keys = [...new Set([...crm.map((c) => c.key), ...aroflo.filter((a) => a.invoiceNumber).map((a) => invoiceKey(a.invoiceNumber))])];
+    const invoices = keys.map((key) => {
+      const c = crm.find((x) => x.key === key) || null;
+      const a = aroflo.find((x) => invoiceKey(x.invoiceNumber) === key) || null;
+      return {
+        key,
+        invoiceNumber: a?.invoiceNumber || c?.invoiceNumber || '',
+        invoiceDate: a?.invoiceDate || c?.invoiceDate || '',
+        crm: c ? { saleId: c.saleId, valueExGst: c.crmValueExGst, saleValueExGst: c.saleValueExGst, upsellValueExGst: c.upsellValueExGst, upsellCount: c.upsellCount } : null,
+        aroflo: a ? { id: a.id, valueExGst: a.valueExGst, status: a.status } : null,
+        otherCancellations: cancellationsOnInvoice(c?.invoiceNumber || a?.invoiceNumber, pcId),
+      };
+    });
+    res.json({ jobNumber: jn, invoices, arofloNote, capturedAt: new Date().toISOString() });
   });
 
   router.get('/lookup', async (req, res) => {

@@ -9,7 +9,10 @@ async function request(method, path, body) {
   const data = contentType.includes('application/json') ? await res.json() : await res.text();
   if (!res.ok) {
     const message = (data && data.error) || `Request failed (${res.status})`;
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
 }
@@ -168,6 +171,8 @@ export const api = {
     lookup: (jn, { activity } = {}) => request('GET', `/aroflo/lookup${qs({ jn, activity: activity ? 1 : undefined })}`),
     // Calls & Contacts: the automatic Repeat customer check (read-only).
     leadHistory: (jn, excludeCallId) => request('GET', `/aroflo/lead-history${qs({ jn, excludeCallId })}`),
+    // Calls & Contacts Pending Cancellation: the Job Number's invoices (read-only).
+    pendingCancellationInvoices: (jn, pendingCancellationId) => request('GET', `/aroflo/pending-cancellation-invoices${qs({ jn, pendingCancellationId })}`),
   },
   export: {
     callsCsvUrl: () => '/api/export/calls.csv',

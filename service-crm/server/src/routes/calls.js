@@ -5,6 +5,7 @@ import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '..
 import { mergeId } from '../lib/merge.js';
 import { findLatestSale, findOriginalJob, isUserActive } from '../services/lookup.js';
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
+import { checkDetails, confirmationNeeded, applyDetails, detailsOf } from '../services/pendingCancellation.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['sale_id', 'job_number', 'date_logged', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
@@ -34,6 +35,12 @@ function syncPendingCancellation({ previous, existingPendingCancellationId, call
   if (!shouldHaveLink) {
     if (existingPendingCancellationId) {
       const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
+      // Any earlier cancellation it superseded is released (and recorded) —
+      // the earlier record itself is kept.
+      for (const r of all('SELECT * FROM pending_cancellations WHERE superseded_by_id = ?', [existingPendingCancellationId])) {
+        run('UPDATE pending_cancellations SET superseded_by_id = NULL WHERE id = ?', [r.id]);
+        recordAudit({ entityType: 'pending_cancellation', entityId: r.id, before: r, after: { ...r, superseded_by_id: null }, fields: ['superseded_by_id'], userId });
+      }
       run('DELETE FROM pending_cancellations WHERE id = ?', [existingPendingCancellationId]);
       if (before) {
         run('INSERT INTO audit_log (entity_type, entity_id, changes_json, changed_by_user_id) VALUES (?, ?, ?, ?)', [
@@ -169,6 +176,9 @@ function toRow(c) {
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     historyCount: c.historyCount || 0,
+    // Stage 5: the linked Pending Cancellation's invoice and lost value
+    // (edited only through this call), or null for any other call.
+    pendingCancellation: c.pending_cancellation_id ? detailsOf(get('SELECT * FROM pending_cancellations WHERE id = ?', [c.pending_cancellation_id])) : null,
     // Derived separately, post-toRow(), from audit_log (see
     // getLastEditedInfo in listCalls() below) — never a direct column, since
     // there's no updated_by_user_id anywhere. Blank for a record with no
@@ -176,6 +186,20 @@ function toRow(c) {
     lastEditedByName: '',
     lastEditedAt: '',
   };
+}
+
+// Stage 5: validates the Pending Cancellation invoice / lost value sent with
+// a Pending Cancellation call and works out whether staff must confirm
+// first (superseding, or another cancellation already on that invoice).
+// Returns { error } | { needsConfirmation } | { checked, confirm } | null.
+function pendingCancellationDetailsStep(body, { callType, cancellationType, jobNumber, callAt, pc }) {
+  const d = body.pendingCancellationDetails;
+  if (!d || callType !== 'Cancellation' || cancellationType !== 'Pending Cancellation' || !jobNumber) return null;
+  const checked = checkDetails(d, jobNumber);
+  if (checked.error) return { error: checked.error };
+  const confirm = confirmationNeeded(checked.values, pc?.id || null, String(callAt || '').slice(0, 10), pc || null);
+  if (confirm && !d.confirmed) return { needsConfirmation: confirm };
+  return { checked, confirm };
 }
 
 const SELECT_SQL = `
@@ -339,6 +363,9 @@ export function createCallsRouter() {
     if (b.handledByUserId && !isUserActive(b.handledByUserId)) {
       return res.status(400).json({ error: 'This account has been deactivated and cannot be assigned to a new contact record.' });
     }
+    const pcStep = pendingCancellationDetailsStep(b, { callType: b.callType, cancellationType: b.cancellationType, jobNumber: b.jobNumber, callAt: b.callAt, pc: null });
+    if (pcStep?.error) return res.status(400).json({ error: pcStep.error });
+    if (pcStep?.needsConfirmation) return res.status(409).json({ error: pcStep.needsConfirmation.message, needsConfirmation: pcStep.needsConfirmation });
     const lastInsertRowid = transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
         existingPendingCancellationId: null,
@@ -351,6 +378,9 @@ export function createCallsRouter() {
         callAt: b.callAt,
         userId: req.user.id,
       });
+      if (pendingCancellationId && pcStep?.checked) {
+        applyDetails(pendingCancellationId, pcStep.checked, { supersedeIds: pcStep.confirm?.kind === 'supersede' ? pcStep.confirm.ids : [] }, req.user.id);
+      }
       const values = {
         call_at: b.callAt,
         direction: b.direction,
@@ -430,6 +460,10 @@ export function createCallsRouter() {
     if (next.call_type === 'Lead' && !next.booked) {
       return res.status(400).json({ error: 'Please select whether this Lead was Booked before saving.' });
     }
+    const existingPc = existing.pending_cancellation_id ? get('SELECT * FROM pending_cancellations WHERE id = ?', [existing.pending_cancellation_id]) : null;
+    const pcStep = pendingCancellationDetailsStep(b, { callType: next.call_type, cancellationType: next.cancellation_type, jobNumber: next.job_number, callAt: next.call_at, pc: existingPc });
+    if (pcStep?.error) return res.status(400).json({ error: pcStep.error });
+    if (pcStep?.needsConfirmation) return res.status(409).json({ error: pcStep.needsConfirmation.message, needsConfirmation: pcStep.needsConfirmation });
     transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
         previous: existing,
@@ -443,6 +477,9 @@ export function createCallsRouter() {
         callAt: next.call_at,
         userId: req.user.id,
       });
+      if (pendingCancellationId && pcStep?.checked) {
+        applyDetails(pendingCancellationId, pcStep.checked, { supersedeIds: pcStep.confirm?.kind === 'supersede' ? pcStep.confirm.ids : [] }, req.user.id);
+      }
       run(
         `UPDATE calls SET call_at=?, direction=?, handled_by_user_id=?, call_type=?, trade_id=?, job_type_id=?,
           lead_source_id=?, booked=?, not_booked_reason_id=?, cancellation_type=?, cancellation_reason_id=?,

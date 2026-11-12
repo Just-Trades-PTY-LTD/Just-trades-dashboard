@@ -10,6 +10,7 @@ import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
 import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation } from '../../lib/arofloCallSuggest.js';
+import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money } from '../../lib/pendingCancellationForm.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -59,12 +60,22 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   // lookup's results show first. { jn, status: 'checking'|'done', result }.
   const [history, setHistory] = useState(null);
   const historySeq = useRef(0);
+  // Stage 5 — Pending Cancellation call: the affected invoice and lost value
+  // (ex GST). Edited only here; sent only when staff change this section.
+  const [pc, setPc] = useState(detailsToState(null));
+  const [pcTouched, setPcTouched] = useState(false);
+  const [pcInvoices, setPcInvoices] = useState(null); // { jn, loading, data, error }
+  const pcAutoFilled = useRef(null);
 
   useEffect(() => {
     setInvalidFields(new Set());
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
+    setPc(detailsToState(editing?.pendingCancellation || null));
+    setPcTouched(false);
+    setPcInvoices(null);
+    pcAutoFilled.current = null;
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -97,6 +108,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   function resetForm() {
     setForm(emptyForm(user?.id));
+    setPc(detailsToState(null));
+    setPcTouched(false);
+    setPcInvoices(null);
+    pcAutoFilled.current = null;
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
@@ -160,14 +175,25 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
+    const save = (confirmed) => {
+      const body = { ...form };
+      if (isPendingCancellation && pcTouched) body.pendingCancellationDetails = detailsPayload(pc, confirmed);
+      return editing ? api.calls.update(editing.id, body) : api.calls.create(body);
+    };
     try {
-      if (editing) {
-        await api.calls.update(editing.id, form);
-        setNotice('Call updated.');
-      } else {
-        await api.calls.create(form);
-        setNotice('Call logged.');
+      try {
+        await save(false);
+      } catch (err) {
+        // Superseding, or another cancellation already on this invoice:
+        // staff confirm first; nothing was saved yet.
+        if (err.status !== 409 || !err.data?.needsConfirmation) throw err;
+        if (!window.confirm(err.data.needsConfirmation.message)) {
+          setNotice('Not saved — nothing was changed.', true);
+          return;
+        }
+        await save(true);
       }
+      setNotice(editing ? 'Call updated.' : 'Call logged.');
       onSaved();
       if (!editing) resetForm();
     } catch (err) {
@@ -226,6 +252,30 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callbackOrigin, isCallBackCall]);
 
+  // Pending Cancellation: a different Job Number drops an invoice chosen for
+  // the previous one (staff choose again from the new list).
+  useEffect(() => {
+    const jn = form.jobNumber.trim();
+    if (pcTouched && pc.invoiceNumber && pcInvoices?.jn && pcInvoices.jn !== jn) setPc((cur) => selectInvoice(cur, null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.jobNumber]);
+  // Entire invoice cancelled: fill the lost value only when it's clear (CRM
+  // and AroFlo agree) and the field is blank or still holds this fill.
+  const pcGuidance = lostValueGuidance(pc);
+  useEffect(() => {
+    if (!pcTouched) return;
+    const mine = pcAutoFilled.current !== null && pc.lostValueExGst === pcAutoFilled.current;
+    if (pcGuidance.fill !== null && (pc.lostValueExGst === '' || mine)) {
+      const v = String(pcGuidance.fill);
+      pcAutoFilled.current = v;
+      if (pc.lostValueExGst !== v) setPc((cur) => ({ ...cur, lostValueExGst: v }));
+    } else if (pcGuidance.fill === null && mine) {
+      pcAutoFilled.current = null;
+      setPc((cur) => ({ ...cur, lostValueExGst: '' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pcTouched, pc.invoiceKey, pc.lostValueBasis, pcGuidance.fill]);
+
   const cancellationReasonList =
     form.cancellationType === 'New Job Cancellation'
       ? settings.lists.new_job_cancellation_reason
@@ -267,6 +317,31 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   // booked Lead call — a new call, or an edit whose Job Number was changed
   // (opening an old call never changes it on its own). Not repeated for a
   // Job Number already looked up; "Look up in AroFlo" stays available.
+  // Pending Cancellation: list the Job Number's invoices (CRM + AroFlo,
+  // read-only) when staff leave the Job Number field on a new call, or after
+  // changing it; "Look up invoices" is always there too.
+  async function loadPcInvoices(jobNumber) {
+    const jn = (jobNumber || '').trim();
+    if (!jn) return;
+    setPcInvoices({ jn, loading: true });
+    try {
+      const data = await api.aroflo.pendingCancellationInvoices(jn, editing?.pendingCancellation?.id);
+      setPcInvoices((cur) => (cur?.jn === jn ? { jn, data } : cur));
+    } catch (err) {
+      setPcInvoices((cur) => (cur?.jn === jn ? { jn, error: err.message } : cur));
+    }
+  }
+  function autoLoadPcInvoices() {
+    const jn = form.jobNumber.trim();
+    if (!isPendingCancellation || !jn || pcInvoices?.jn === jn) return;
+    if (editing && jn === String(editing.jobNumber || '').trim()) return;
+    loadPcInvoices(jn);
+  }
+  function patchPc(changes) {
+    setPcTouched(true);
+    setPc((cur) => ({ ...cur, ...changes }));
+  }
+
   function autoLookupLead() {
     const jn = form.jobNumber.trim();
     if (form.callType !== 'Lead' || form.booked !== 'Yes' || !jn || arofloLoading) return;
@@ -372,7 +447,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
               placeholder="e.g. 10432"
               value={form.jobNumber}
               onChange={(e) => patch({ jobNumber: e.target.value })}
-              onBlur={autoLookupLead}
+              onBlur={() => {
+                autoLookupLead();
+                autoLoadPcInvoices();
+              }}
             />
             {showJobLookup && <JobLookupBox jobNumber={form.jobNumber} mode={lookupMode} result={lookupResult} />}
             {form.callType === 'Lead' && (
@@ -399,6 +477,20 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
         )}
         <SuburbPicker value={form.suburb} onChange={(v) => patch({ suburb: v })} />
       </div>
+
+      {isPendingCancellation && (
+        <PendingCancellationInvoice
+          jobNumber={form.jobNumber.trim()}
+          saved={editing?.pendingCancellation || null}
+          pc={pc}
+          touched={pcTouched}
+          invoices={pcInvoices}
+          guidance={pcGuidance}
+          autoFilled={pcAutoFilled.current !== null && pc.lostValueExGst === pcAutoFilled.current}
+          onLoad={() => loadPcInvoices(form.jobNumber)}
+          onChange={patchPc}
+        />
+      )}
 
       <div style={{ marginTop: 14 }}>
         <TextAreaField label="Additional context" value={form.notes} onChange={(v) => patch({ notes: v })} placeholder="Anything relevant that isn't captured above" />
@@ -594,4 +686,112 @@ function callbackOriginNote(form, origin, filled) {
   if (origin.source === 'callBackEntryNoJob') return `${base} The Call Back entry's original job JN ${origin.originalJobNumber} isn't in the CRM — please choose it.`;
   if (origin.source === 'conflict') return `${base} Call Back entries link this Job Number to different original jobs — please choose it.`;
   return `${base} No original CRM job found for JN ${jn} — please choose it.`;
+}
+
+// Stage 5 — the affected invoice and lost value on a Pending Cancellation
+// call. One invoice at a time (never combined); the lost value is always ex
+// GST and always editable. Recorded only here, on the call.
+function PendingCancellationInvoice({ jobNumber, saved, pc, touched, invoices, guidance, autoFilled, onLoad, onChange }) {
+  const list = invoices && invoices.jn === jobNumber ? invoices : null;
+  const notRecorded = !touched && !(saved && saved.recorded);
+  const describeOthers = (others) =>
+    others
+      .map((o) => `${o.lostValueExGst === null ? 'amount not recorded' : `${money(o.lostValueExGst)} ex GST`} (${basisLabel(o.basis) || 'basis not recorded'}, ${o.dateLogged})${o.supersededById ? ' — superseded' : ''}`)
+      .join('; ');
+  return (
+    <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }} data-testid="pc-invoice">
+      <div style={{ fontSize: 13, fontWeight: 600 }}>Affected invoice and lost value (ex GST)</div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 2 }}>
+        Information on this cancellation only — it never changes the sale, its revenue or any report figure.
+      </div>
+      {saved?.supersededById && (
+        <div className="lookup-box lookup-missing" style={{ marginTop: 8 }} data-testid="pc-superseded">
+          Superseded for reporting by a later entire-invoice cancellation on the same invoice. This record stays in history and won&apos;t be counted twice.
+        </div>
+      )}
+      {saved?.supersedes?.length > 0 && (
+        <div style={{ fontSize: 12, marginTop: 6 }} data-testid="pc-supersedes">
+          Supersedes {saved.supersedes.length === 1 ? 'an earlier cancellation' : `${saved.supersedes.length} earlier cancellations`} on this invoice (
+          {saved.supersedes.map((x) => `${money(x.lostValueExGst)} ex GST, ${x.dateLogged}`).join('; ')}) — kept in history.
+        </div>
+      )}
+      {notRecorded && (
+        <div style={{ fontSize: 12.5, marginTop: 8 }} data-testid="pc-not-recorded">
+          Invoice and lost value: <strong>not recorded</strong>. You can select the invoice and enter the lost value below — nothing is filled in on its own.
+        </div>
+      )}
+      {(touched || saved?.recorded) && pc.invoiceNumber && (
+        <div style={{ fontSize: 12.5, marginTop: 8 }} data-testid="pc-selected">
+          Invoice <strong>{pc.invoiceNumber}</strong>
+          {pc.invoiceDate ? ` · ${pc.invoiceDate}` : ''} · CRM recorded {pc.crmValueExGst === null ? 'not on a CRM sale' : `${money(pc.crmValueExGst)} ex GST`} · AroFlo{' '}
+          {pc.arofloInvoiceValueExGst === null ? 'value not available' : `${money(pc.arofloInvoiceValueExGst)} ex GST`}
+          {pc.arofloInvoiceStatus ? ` · ${pc.arofloInvoiceStatus}` : ''}
+        </div>
+      )}
+      <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} disabled={!jobNumber || list?.loading} onClick={onLoad}>
+        {list?.loading ? 'Looking up invoices…' : `Look up invoices for JN ${jobNumber || '—'}`}
+      </button>
+      {list?.error && <div className="lookup-box lookup-missing" style={{ marginTop: 6 }}>{list.error}</div>}
+      {list?.data && (
+        <div style={{ marginTop: 8, fontSize: 12.5 }} data-testid="pc-invoice-list">
+          {list.data.arofloNote && <div style={{ color: 'var(--ink-muted)', marginBottom: 4 }}>{list.data.arofloNote}</div>}
+          {list.data.invoices.length === 0 && <div>No invoice found for this Job Number — the lost value can still be entered yourself.</div>}
+          {list.data.invoices.map((inv) => (
+            <label key={inv.key} style={{ display: 'block', marginTop: 4 }}>
+              <input
+                type="radio"
+                name="pc-invoice"
+                checked={pc.invoiceKey === inv.key}
+                onChange={() => onChange(selectInvoice(pc, inv, list.data.capturedAt))}
+              />{' '}
+              Invoice <strong>{inv.invoiceNumber}</strong>
+              {inv.invoiceDate ? ` · ${inv.invoiceDate}` : ''} · CRM recorded{' '}
+              {inv.crm ? `${money(inv.crm.valueExGst)} ex GST${inv.crm.upsellCount ? ` (incl. ${money(inv.crm.upsellValueExGst)} Upsell${inv.crm.upsellCount > 1 ? 's' : ''})` : ''}` : 'not on a CRM sale'} · AroFlo{' '}
+              {inv.aroflo ? `${inv.aroflo.valueExGst === null ? 'value not shown' : `${money(inv.aroflo.valueExGst)} ex GST`}${inv.aroflo.status ? ` · ${inv.aroflo.status}` : ''}` : 'not found'}
+              {inv.otherCancellations.length > 0 && (
+                <span style={{ color: 'var(--warning, #a15c00)' }}> · already has a cancellation: {describeOthers(inv.otherCancellations)}</span>
+              )}
+            </label>
+          ))}
+          {list.data.invoices.length > 0 && (
+            <label style={{ display: 'block', marginTop: 4 }}>
+              <input type="radio" name="pc-invoice" checked={!pc.invoiceKey} onChange={() => onChange(selectInvoice(pc, null))} /> None of these / not sure
+            </label>
+          )}
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: 12.5 }} data-testid="pc-basis">
+        {BASIS_OPTIONS.map((o) => (
+          <label key={o.value} style={{ marginRight: 16 }}>
+            <input type="radio" name="pc-basis" checked={pc.lostValueBasis === o.value} onChange={() => onChange({ lostValueBasis: o.value })} /> {o.label}
+          </label>
+        ))}
+      </div>
+      <div className="field" style={{ marginTop: 8, maxWidth: 320 }}>
+        <label>Lost value (ex GST)</label>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={pc.lostValueExGst}
+          onChange={(e) => onChange({ lostValueExGst: e.target.value })}
+          data-testid="pc-lost-value"
+        />
+      </div>
+      {(touched || saved?.recorded) && (
+        <div style={{ fontSize: 12, marginTop: 4 }} data-testid="pc-guidance">
+          {guidance.text}
+          {autoFilled && ' Filled in from the invoice — still editable.'}
+          {guidance.offer !== null && String(guidance.offer) !== String(pc.lostValueExGst) && (
+            <>
+              {' '}
+              <button type="button" className="btn btn-sm" onClick={() => onChange({ lostValueExGst: String(guidance.offer) })}>
+                Use {money(guidance.offer)}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
