@@ -14,6 +14,27 @@ let db;
 // the column, so these no-op) or an existing one (adds just what's missing).
 // Never rewrite or remove an existing migration once it has shipped; add a
 // new one instead, so a redeploy never loses data.
+// Stage 4 Pending Cancellation columns — kept identical to schema.sql.
+export const PENDING_CANCELLATION_STAGE4_COLUMNS = [
+  ['aroflo_invoice_id', "TEXT NOT NULL DEFAULT ''"],
+  ['invoice_number', "TEXT NOT NULL DEFAULT ''"],
+  ['invoice_date', "TEXT NOT NULL DEFAULT ''"],
+  ['original_sale_value_ex_gst', 'REAL'],
+  ['aroflo_invoice_value_ex_gst', 'REAL'],
+  ['aroflo_invoice_status', "TEXT NOT NULL DEFAULT ''"],
+  ['aroflo_captured_at', "TEXT NOT NULL DEFAULT ''"],
+  ['lost_value_ex_gst', 'REAL'],
+  ['lost_value_basis', "TEXT NOT NULL DEFAULT '' CHECK (lost_value_basis IN ('', 'whole_sale', 'part_of_work'))"],
+  ['superseded_by_id', 'INTEGER REFERENCES pending_cancellations(id) ON DELETE SET NULL CHECK (superseded_by_id IS NULL OR superseded_by_id <> id)'],
+];
+
+export function addPendingCancellationStage4Columns(database) {
+  const have = new Set(database.prepare('PRAGMA table_info(pending_cancellations)').all().map((c) => c.name));
+  for (const [name, definition] of PENDING_CANCELLATION_STAGE4_COLUMNS) {
+    if (!have.has(name)) database.exec(`ALTER TABLE pending_cancellations ADD COLUMN ${name} ${definition}`);
+  }
+}
+
 const MIGRATIONS = [
   {
     id: 'calls_pending_cancellation_id',
@@ -166,6 +187,20 @@ const MIGRATIONS = [
         database.exec('ALTER TABLE sales ADD COLUMN original_lead_source_id INTEGER REFERENCES list_items(id)');
       }
     },
+  },
+  {
+    // Stage 4 — purely additive Pending Cancellation fields (no form, report
+    // or calculation uses them yet). Every column is optional and starts
+    // blank ('') or NULL — never 0 — so existing Pending Cancellations read
+    // as "not recorded". Money follows the CRM's existing ex-GST format
+    // (REAL, like sales.sale_value_ex_gst) but nullable. No existing row's
+    // other columns are read or written; each column is added only if
+    // missing, so this is safe to run on every boot.
+    // superseded_by_id: only ever another Pending Cancellation (foreign key,
+    // never itself); cleared — never blocking — if that later record is
+    // deleted. Superseding only sets this link; the earlier record is kept.
+    id: 'pending_cancellations_stage4_fields',
+    run: addPendingCancellationStage4Columns,
   },
 ];
 

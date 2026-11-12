@@ -244,7 +244,23 @@ CREATE TABLE IF NOT EXISTS pending_cancellations (
   comments TEXT NOT NULL DEFAULT '',
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Stage 4 (db/index.js pending_cancellations_stage4_fields — keep in
+  -- sync): the selected AroFlo invoice and the lost value, captured when a
+  -- confirmed cancellation is recorded. All optional; blank/NULL = not
+  -- recorded (never 0). Not yet used by any form, calculation or report.
+  aroflo_invoice_id TEXT NOT NULL DEFAULT '',
+  invoice_number TEXT NOT NULL DEFAULT '',
+  invoice_date TEXT NOT NULL DEFAULT '',
+  original_sale_value_ex_gst REAL,
+  aroflo_invoice_value_ex_gst REAL,
+  aroflo_invoice_status TEXT NOT NULL DEFAULT '',
+  aroflo_captured_at TEXT NOT NULL DEFAULT '',
+  lost_value_ex_gst REAL,
+  lost_value_basis TEXT NOT NULL DEFAULT '' CHECK (lost_value_basis IN ('', 'whole_sale', 'part_of_work')),
+  -- A later whole-invoice cancellation that supersedes this one for
+  -- reporting; this record itself is kept.
+  superseded_by_id INTEGER REFERENCES pending_cancellations(id) ON DELETE SET NULL CHECK (superseded_by_id IS NULL OR superseded_by_id <> id)
 );
 
 -- Field-level change history, replacing the prototype's per-record _history
