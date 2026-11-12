@@ -343,7 +343,9 @@ export default function JobHistory({
   function entryKey(e) {
     return `${e.kind}:${e.id}`;
   }
-  const selectableRows = filtered.filter((e) => !e.archived);
+  // A Pending Cancellation with a linked call is archived / deleted only
+  // through that call in Calls & Contacts, so it's never selectable here.
+  const selectableRows = filtered.filter((e) => !e.archived && !e.managedByCall);
   const allSelected = selectableRows.length > 0 && selectableRows.every((e) => selectedKeys.has(entryKey(e)));
 
   function toggleSelectAll() {
@@ -632,7 +634,7 @@ export default function JobHistory({
                   <Fragment key={key}>
                     <tr style={e.archived ? { opacity: 0.55 } : undefined}>
                       <td>
-                        {isAdmin && !e.archived && (
+                        {isAdmin && !e.archived && !e.managedByCall && (
                           <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleSelected(key)} />
                         )}
                       </td>
@@ -731,9 +733,15 @@ export default function JobHistory({
                       <td>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button className="btn btn-sm" onClick={() => onEdit(e)} type="button">
-                            Edit
+                            {e.managedByCall ? 'View' : 'Edit'}
                           </button>
+                          {e.managedByCall && (
+                            <span style={{ fontSize: 11.5, color: 'var(--ink-muted)' }} data-testid="pc-managed-by-call">
+                              Managed on its call in Calls &amp; Contacts
+                            </span>
+                          )}
                           {isAdmin &&
+                            !e.managedByCall &&
                             (e.archived ? (
                               <button className="btn btn-sm" onClick={() => toggleArchive(e, false)} type="button">
                                 Unarchive
@@ -743,15 +751,17 @@ export default function JobHistory({
                                 Archive
                               </button>
                             ))}
-                          <button
-                            className="btn btn-sm btn-danger"
-                            onClick={() => remove(e)}
-                            type="button"
-                            disabled={e.canDelete === false}
-                            title={e.canDelete === false ? 'This entry has linked sales or job information and cannot be permanently deleted. Please archive it instead.' : undefined}
-                          >
-                            Delete
-                          </button>
+                          {!e.managedByCall && (
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => remove(e)}
+                              type="button"
+                              disabled={e.canDelete === false}
+                              title={e.canDelete === false ? 'This entry has linked sales or job information and cannot be permanently deleted. Please archive it instead.' : undefined}
+                            >
+                              Delete
+                            </button>
+                          )}
                           {e.historyCount > 0 && (
                             <button className="link-btn" style={{ fontSize: 11.5 }} onClick={() => toggleHistory(e)} type="button">
                               History ({e.historyCount})

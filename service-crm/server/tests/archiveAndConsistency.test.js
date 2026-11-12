@@ -279,7 +279,7 @@ test('archive is admins only, kind-checked, and starting the app never archives 
   }
 });
 
-test('a call and its pending cancellation archive together; one archived separately is never restored', async () => {
+test('a call and its pending cancellation archive together; the cancellation can\'t be archived or restored on its own', async () => {
   const server = await startTestServer();
   try {
     const ctx = await setup(server);
@@ -291,10 +291,18 @@ test('a call and its pending cancellation archive together; one archived separat
     ok(await archiveEntries(server, [{ kind: 'call', id: call.id }], false));
     assert.equal(dbGet('SELECT archived FROM pending_cancellations WHERE id = ?', [pcId]).archived, 0, 'restored with its call');
 
-    ok(await archiveEntries(server, [{ kind: 'pending_cancellation', id: pcId }])); // archived on its own
+    // Controlled only through its call: archiving or restoring it on its own
+    // (the Technician & Sales route) is refused and changes nothing.
+    const before = dbGet('SELECT * FROM pending_cancellations WHERE id = ?', [pcId]);
+    const own = await archiveEntries(server, [{ kind: 'pending_cancellation', id: pcId }]);
+    assert.equal(own.status, 405);
+    assert.match(own.data.error, /only through their linked call in Calls & Contacts/);
+    assert.deepEqual(dbGet('SELECT * FROM pending_cancellations WHERE id = ?', [pcId]), before);
     ok(await archiveEntries(server, [{ kind: 'call', id: call.id }]));
+    assert.equal((await archiveEntries(server, [{ kind: 'pending_cancellation', id: pcId }], false)).status, 405, 'restoring it on its own is refused too');
+    assert.equal(dbGet('SELECT archived FROM pending_cancellations WHERE id = ?', [pcId]).archived, 1, 'archived with its call, kept in history');
     ok(await archiveEntries(server, [{ kind: 'call', id: call.id }], false));
-    assert.equal(dbGet('SELECT archived FROM pending_cancellations WHERE id = ?', [pcId]).archived, 1, 'archived separately: stays archived');
+    assert.equal(dbGet('SELECT archived FROM pending_cancellations WHERE id = ?', [pcId]).archived, 0, 'restored with its call');
   } finally {
     server.close();
   }
@@ -381,8 +389,11 @@ test('editing a Pending Cancellation call keeps its own cancellation: no overwri
     assert.equal(pc.comments, 'typo fix', 'the field the edit changed is updated');
     assert.equal(dbAll('SELECT COUNT(*) n FROM pending_cancellations')[0].n, 1, 'no extra cancellation');
 
-    // Deleted on the Technician & Sales page: an edit to the call doesn't bring it back.
-    ok(await server.request('DELETE', `/tech/entries/pending_cancellation/${pcId}`));
+    // Deleting it on the Technician & Sales page is refused (only via its call).
+    assert.equal((await server.request('DELETE', `/tech/entries/pending_cancellation/${pcId}`)).status, 405);
+    assert.equal(dbAll('SELECT COUNT(*) n FROM pending_cancellations')[0].n, 1, 'still there');
+    // A cancellation removed in the past (before this rule) isn't brought back by an edit to its call.
+    dbRun('DELETE FROM pending_cancellations WHERE id = ?', [pcId]);
     ok(await server.request('PATCH', `/calls/${call.id}`, { notes: 'another edit' }));
     assert.equal(dbAll('SELECT COUNT(*) n FROM pending_cancellations')[0].n, 0);
 

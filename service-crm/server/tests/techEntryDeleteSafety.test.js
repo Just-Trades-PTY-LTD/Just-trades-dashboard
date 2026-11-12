@@ -133,11 +133,17 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
     const entries = (await server.request('GET', '/tech/entries')).data;
     assert.equal(entries.find((e) => e.id === job.id && e.kind === 'new_job_no_sale').canDelete, true);
     assert.equal(entries.find((e) => e.id === callBack.id && e.kind === 'call_back').canDelete, true);
-    assert.equal(entries.find((e) => e.id === pendingCancel.id && e.kind === 'pending_cancellation').canDelete, true);
+    // A Pending Cancellation with a linked call is deleted only through that call.
+    assert.deepEqual(
+      ['canDelete', 'managedByCall'].map((f) => entries.find((e) => e.id === pendingCancel.id && e.kind === 'pending_cancellation')[f]),
+      [false, true]
+    );
 
     assert.equal((await server.request('DELETE', `/tech/entries/new_job_no_sale/${job.id}`)).status, 200);
     assert.equal((await server.request('DELETE', `/tech/entries/call_back/${callBack.id}`)).status, 200);
-    assert.equal((await server.request('DELETE', `/tech/entries/pending_cancellation/${pendingCancel.id}`)).status, 200);
+    assert.equal((await server.request('DELETE', `/tech/entries/pending_cancellation/${pendingCancel.id}`)).status, 405);
+    // Deleting its call in Calls & Contacts deletes it.
+    assert.equal((await server.request('DELETE', `/calls/${pendingCancel.linkedCall.id}`)).status, 200);
 
     const entriesAfter = (await server.request('GET', '/tech/entries')).data;
     assert.ok(!entriesAfter.some((e) => e.id === job.id && e.kind === 'new_job_no_sale'));

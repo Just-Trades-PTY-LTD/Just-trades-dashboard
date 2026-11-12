@@ -6,7 +6,7 @@ import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '..
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
 import { checkNewJobLead, checkNewJobLeadEdit } from '../lib/leadRules.js';
-import { findEntry } from '../lib/archive.js';
+import { findEntry, pendingCancellationHasCall, PENDING_CANCELLATION_CALL_ONLY } from '../lib/archive.js';
 import {
   findActiveFollowUpForJob,
   findConvertibleKnockback,
@@ -619,7 +619,11 @@ export function listTechEntries({
     // callers below — it's never called for this entry type), so it can
     // never be the sale a job's converted_by_sale_id points back to.
     else if (e.kind === 'existing_job_upsell') e.canDelete = true;
-    else e.canDelete = true;
+    else if (e.kind === 'pending_cancellation' && e.linkedCall) {
+      // Controlled only through its call in Calls & Contacts.
+      e.canDelete = false;
+      e.managedByCall = true;
+    } else e.canDelete = true;
   });
 
   // Deferred from the main filter block above — these three need
@@ -1626,6 +1630,11 @@ export function createTechSalesRouter() {
     // The id must really be this kind of entry — ids overlap between tables
     // and between Sale Made / Quote Approved Later / Upsell sales.
     if (!findEntry(req.params.kind, req.params.id)) return res.status(404).json({ error: 'Entry not found.' });
+    // A Pending Cancellation with a linked call is deleted only by deleting
+    // (or changing) that call in Calls & Contacts.
+    if (req.params.kind === 'pending_cancellation' && pendingCancellationHasCall(req.params.id)) {
+      return res.status(405).json({ error: PENDING_CANCELLATION_CALL_ONLY });
+    }
     try {
       run(`DELETE FROM ${table} WHERE id = ?`, [req.params.id]);
       res.json({ ok: true });

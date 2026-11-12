@@ -100,9 +100,18 @@ function hasOtherActiveJobWithNumber(job) {
  * linked records deliberately left unchanged. Throws ArchiveError if the
  * action isn't allowed.
  */
+// A Pending Cancellation with a linked Calls & Contacts call is controlled
+// only through that call (archive, restore and delete) — never directly.
+export const PENDING_CANCELLATION_CALL_ONLY =
+  'Pending Cancellations are archived, restored and deleted only through their linked call in Calls & Contacts. Nothing was changed.';
+export function pendingCancellationHasCall(id) {
+  return !!get('SELECT 1 FROM calls WHERE pending_cancellation_id = ?', [Number(id)]);
+}
+
 export function planArchive(kind, id, archived) {
   const row = findEntry(kind, id);
   if (!row) throw new ArchiveError('Entry not found.', 404);
+  if (kind === 'pending_cancellation' && pendingCancellationHasCall(row.id)) throw new ArchiveError(PENDING_CANCELLATION_CALL_ONLY, 405);
   const k = KINDS[kind];
   const label = entryLabel(kind, row);
   if (!!row.archived === !!archived) {
