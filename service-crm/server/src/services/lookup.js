@@ -97,6 +97,47 @@ export function findCallbackOriginalJob(jobNumber) {
   return job ? { source: 'crmJob', job } : null;
 }
 
+/**
+ * New Job Cancellation: where its Trade / Job type / Suburb can come from,
+ * by exact Job Number. A Technician & Sales job first; otherwise every
+ * active booked Lead call with that Job Number (the caller decides, field by
+ * field, whether they agree). Nothing else from the calls is returned
+ * (no comments, date details beyond the call date, contact method, staff,
+ * Lead Source or reason). Read-only.
+ */
+export function findCancellationOrigin(jobNumber, excludeCallId = null) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  const job = findOriginalJob(jobNumber);
+  if (job) {
+    return {
+      source: 'job',
+      job: { jobNumber: String(job.job_number).trim(), visitDate: job.visit_date, tradeId: job.trade_id || null, trade: job.trade_name || '', jobTypeId: job.job_type_id || null, jobType: job.job_type_name || '', suburb: job.suburb || '' },
+    };
+  }
+  const calls = all(
+    `SELECT c.id, c.call_at, c.job_number, c.trade_id, c.job_type_id, c.suburb, tr.name AS trade_name, jt.name AS job_type_name
+     FROM calls c
+     LEFT JOIN trades tr ON tr.id = c.trade_id
+     LEFT JOIN job_types jt ON jt.id = c.job_type_id
+     WHERE c.archived = 0 AND c.call_type = 'Lead' AND c.booked = 'Yes'
+     ORDER BY c.call_at, c.id`
+  ).filter((c) => normKey(c.job_number) === key && c.id !== Number(excludeCallId || 0));
+  if (!calls.length) return null;
+  return {
+    source: 'leadCall',
+    calls: calls.map((c) => ({
+      id: c.id,
+      date: String(c.call_at || '').slice(0, 10),
+      tradeId: c.trade_id || null,
+      trade: c.trade_name || '',
+      jobTypeId: c.job_type_id || null,
+      jobType: c.job_type_name || '',
+      suburb: c.suburb || '',
+    })),
+  };
+}
+
 export function findCallbackEvidence(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return null;

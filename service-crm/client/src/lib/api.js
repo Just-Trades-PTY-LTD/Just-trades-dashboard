@@ -131,6 +131,7 @@ export const api = {
     call: (jn) => request('GET', `/lookup/call${qs({ jn })}`),
     callbackOrigin: (jn) => request('GET', `/lookup/callback-origin${qs({ jn })}`),
     upsellInvoice: (jn, invoice, excludeSaleId) => request('GET', `/lookup/upsell-invoice${qs({ jn, invoice, excludeSaleId })}`),
+    cancellationOrigin: (jn, excludeCallId) => request('GET', `/lookup/cancellation-origin${qs({ jn, excludeCallId })}`),
   },
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),

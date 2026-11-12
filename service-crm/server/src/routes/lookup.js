@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { crmRecordedOnInvoice } from '../services/upsell.js';
-import { findCallbackEvidence, findCallbackOriginalJob, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
+import { findCallbackEvidence, findCallbackOriginalJob, findCancellationOrigin, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
   const router = Router();
@@ -59,6 +59,14 @@ export function createLookupRouter() {
   router.get('/upsell-invoice', (req, res) => {
     const r = crmRecordedOnInvoice(req.query.jn || '', req.query.invoice || '', req.query.excludeSaleId || null);
     res.json(r ? { found: true, ...r } : { found: false });
+  });
+
+  // Calls & Contacts New Job Cancellation: Trade / Job type / Suburb from the
+  // Technician & Sales job, else the booked Lead call(s) with this exact Job
+  // Number (see findCancellationOrigin). Read-only.
+  router.get('/cancellation-origin', (req, res) => {
+    const r = findCancellationOrigin(req.query.jn || '', req.query.excludeCallId || null);
+    res.json(r ? { found: true, ...r } : { found: false, source: null });
   });
 
   // Calls & Contacts "Call back" call: the original CRM job its Job Number

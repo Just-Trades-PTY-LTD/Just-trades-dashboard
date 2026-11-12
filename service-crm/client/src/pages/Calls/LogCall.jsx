@@ -12,6 +12,7 @@ import { useJobLookup } from '../../lib/useLookup.js';
 import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation, leadAutoFillAllowed, withTimeout, LEAD_CHECK_TIMEOUT_MS } from '../../lib/arofloCallSuggest.js';
 import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money, creditedTechnicianPlan } from '../../lib/pendingCancellationForm.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { planCancellationFill, cancellationFillConfirmation } from '../../lib/cancellationFill.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -67,6 +68,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const [pcTouched, setPcTouched] = useState(false);
   const [pcInvoices, setPcInvoices] = useState(null); // { jn, loading, data, error }
   const pcAutoFilled = useRef(null);
+  const [cancelOrigin, setCancelOrigin] = useState(null); // { jn, result }
+  const cancelFill = useRef({});
   const pcTechFilled = useRef(null);
 
   useEffect(() => {
@@ -84,6 +87,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     leadFill.current = {};
     lookupFill.current = {};
     callbackFill.current = {};
+    cancelFill.current = {};
+    setCancelOrigin(null);
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -124,6 +129,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     leadFill.current = {};
     lookupFill.current = {};
     callbackFill.current = {};
+    cancelFill.current = {};
+    setCancelOrigin(null);
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
@@ -255,12 +262,14 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   // (unless staff changed it) — see lib/lookupFill.js.
   const lookupFill = useRef({});
   useEffect(() => {
-    const r = isCancellation && lookupResult?.found ? lookupResult : null;
+    // Pending Cancellation only — a New Job Cancellation uses
+    // /lookup/cancellation-origin below (the job first, else the booked Lead call).
+    const r = isPendingCancellation && lookupResult?.found ? lookupResult : null;
     const { patch: changes, filled } = nextLookupFill(form, lookupFill.current, r ? { tradeId: r.tradeId, jobTypeId: r.jobTypeId } : {});
     lookupFill.current = filled;
     if (Object.keys(changes).length) patch(changes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lookupResult, isCancellation]);
+  }, [lookupResult, isPendingCancellation]);
 
   // Call back: prefill Trade / Job type from the original CRM job (a Call
   // Back entry linking this new callback Job Number to its original job, or
@@ -313,6 +322,33 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setPc((cur) => ({ ...cur, creditedTechnicianId: pcTechPlan.set }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPendingCancellation, pc.invoiceKey, pcListForJn]);
+
+  // New Job Cancellation: blank Trade, Job type and Suburb from the Technician
+  // & Sales job with this exact Job Number, else its booked Lead call(s)
+  // (planCancellationFill). Runs when staff leave the Job Number field — a new
+  // cancellation, or a saved one getting its first Job Number; otherwise
+  // differences are only offered. Follows the Job Number; never replaces a
+  // staff entry; nothing is saved until Save.
+  const isNewJobCancellation = isCancellation && form.cancellationType === 'New Job Cancellation';
+  const cancelOriginForJn = cancelOrigin && cancelOrigin.jn === form.jobNumber.trim() && isNewJobCancellation ? cancelOrigin.result : null;
+  const cancelPlanForm = { ...form };
+  Object.entries(cancelFill.current).forEach(([f, v]) => {
+    if (String(cancelPlanForm[f] ?? '') === String(v ?? '')) cancelPlanForm[f] = '';
+  });
+  const cancelPlan = cancelOriginForJn
+    ? planCancellationFill({ origin: cancelOriginForJn, form: cancelPlanForm, allowFill: leadAutoFillAllowed(editing), jobNumber: form.jobNumber.trim() })
+    : null;
+  useEffect(() => {
+    const { patch: changes, filled } = nextLookupFill(form, cancelFill.current, cancelPlan ? cancelPlan.wanted : {});
+    cancelFill.current = filled;
+    if (Object.keys(changes).length) patch(changes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cancelOrigin, form.jobNumber, form.cancellationType, form.callType]);
+  // Switching to New Job Cancellation with a Job Number already typed.
+  useEffect(() => {
+    if (isNewJobCancellation && form.jobNumber.trim() && cancelOrigin?.jn !== form.jobNumber.trim()) autoLoadCancelOrigin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewJobCancellation]);
 
   const cancellationReasonList =
     form.cancellationType === 'New Job Cancellation'
@@ -382,6 +418,17 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     } catch (err) {
       setPcInvoices((cur) => (cur?.jn === jn ? { jn, error: err.message } : cur));
     }
+  }
+  async function autoLoadCancelOrigin() {
+    const jn = form.jobNumber.trim();
+    if (!(form.callType === 'Cancellation' && form.cancellationType === 'New Job Cancellation') || !jn || cancelOrigin?.jn === jn) return;
+    let result;
+    try {
+      result = await api.lookup.cancellationOrigin(jn, editing?.id);
+    } catch {
+      result = { found: false };
+    }
+    setCancelOrigin({ jn, result });
   }
   function autoLoadPcInvoices() {
     const jn = form.jobNumber.trim();
@@ -502,9 +549,13 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
               onBlur={() => {
                 autoLookupLead();
                 autoLoadPcInvoices();
+                autoLoadCancelOrigin();
               }}
             />
             {showJobLookup && <JobLookupBox jobNumber={form.jobNumber} mode={lookupMode} result={lookupResult} />}
+            {isNewJobCancellation && cancelOrigin && cancelOrigin.jn === form.jobNumber.trim() && (
+              <CancellationOriginBox origin={cancelOriginForJn} plan={cancelPlan} filled={cancelFill.current} jobNumber={form.jobNumber.trim()} patch={patch} />
+            )}
             {form.callType === 'Lead' && (
               <button
                 type="button"
@@ -882,6 +933,41 @@ function PendingCancellationInvoice({ jobNumber, saved, pc, touched, invoices, g
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// New Job Cancellation: what was filled from the job / booked Lead call, and
+// any difference or conflict offered as "Use this".
+function CancellationOriginBox({ origin, plan, filled, jobNumber, patch }) {
+  if (!origin?.found) {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 4 }} data-testid="cancel-origin">
+        No Technician &amp; Sales job or booked Lead call found for JN {jobNumber} — enter Trade, Job type and Suburb yourself.
+      </div>
+    );
+  }
+  const confirmation = cancellationFillConfirmation(plan?.sourceLabel, filled);
+  return (
+    <div style={{ fontSize: 12.5, marginTop: 6 }} data-testid="cancel-origin">
+      {confirmation && (
+        <div className="lookup-box lookup-found" style={{ marginTop: 0 }}>
+          ✓ {confirmation}
+        </div>
+      )}
+      {plan?.notes.map((n) => (
+        <div key={n} style={{ marginTop: 4 }}>
+          {n}
+        </div>
+      ))}
+      {plan?.suggestions.map((sug) => (
+        <div key={sug.label} style={{ marginTop: 4 }}>
+          From {plan.sourceLabel}: {sug.label}{' '}
+          <button type="button" className="btn btn-sm" onClick={() => patch(sug.values)}>
+            Use this
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
