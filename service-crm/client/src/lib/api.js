@@ -130,6 +130,7 @@ export const api = {
     sale: (jn) => request('GET', `/lookup/sale${qs({ jn })}`),
     call: (jn) => request('GET', `/lookup/call${qs({ jn })}`),
     callbackOrigin: (jn) => request('GET', `/lookup/callback-origin${qs({ jn })}`),
+    cancellationOrigin: (jn, excludeCallId) => request('GET', `/lookup/cancellation-origin${qs({ jn, excludeCallId })}`),
   },
   reports: {
     calls: (params) => request('GET', `/reports/calls${qs(params)}`),
