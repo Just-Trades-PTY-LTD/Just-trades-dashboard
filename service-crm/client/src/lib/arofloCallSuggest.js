@@ -201,3 +201,27 @@ export function leadCallFillConfirmation(filled) {
   const names = Object.keys(filled || {}).map((f) => FILL_LABELS[f]).filter(Boolean);
   return names.length ? `Filled from AroFlo: ${names.join(', ')} — still editable, check before saving.` : null;
 }
+
+/**
+ * Whether a Lead call's lookup may fill blank fields automatically:
+ * a new call, or a saved call that had NO Job Number and is getting one now
+ * (the usual "log the call, create the AroFlo job, add the Job Number"
+ * workflow). A saved call that already had a Job Number only gets "Use this"
+ * suggestions when it's looked up again.
+ */
+export function leadAutoFillAllowed(editing) {
+  return !editing || !String(editing.jobNumber || '').trim();
+}
+
+/** Lead call lookups and the customer-history check give up after this, so
+ * an AroFlo problem can never leave the form stuck (Save re-enabled). */
+export const LEAD_CHECK_TIMEOUT_MS = 20000;
+export function withTimeout(promise, ms, timeoutValue) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(timeoutValue), ms);
+    }),
+  ]);
+}

@@ -9,7 +9,7 @@ import { DateTimeField, SelectField, TextAreaField, Checkbox } from '../../compo
 import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
-import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation } from '../../lib/arofloCallSuggest.js';
+import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation, leadAutoFillAllowed, withTimeout, LEAD_CHECK_TIMEOUT_MS } from '../../lib/arofloCallSuggest.js';
 import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money, creditedTechnicianPlan } from '../../lib/pendingCancellationForm.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
@@ -79,6 +79,11 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setPcInvoices(null);
     pcAutoFilled.current = null;
     pcTechFilled.current = null;
+    // What a lookup filled belongs to the call it was filled on — never
+    // carried over to another call (it could blank matching fields there).
+    leadFill.current = {};
+    lookupFill.current = {};
+    callbackFill.current = {};
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -116,6 +121,9 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setPcInvoices(null);
     pcAutoFilled.current = null;
     pcTechFilled.current = null;
+    leadFill.current = {};
+    lookupFill.current = {};
+    callbackFill.current = {};
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
@@ -126,7 +134,12 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setHistory({ jn, status: 'checking', result: null });
     let result;
     try {
-      result = await api.aroflo.leadHistory(jn, editing?.id);
+      result = await withTimeout(api.aroflo.leadHistory(jn, editing?.id), LEAD_CHECK_TIMEOUT_MS, {
+        found: false,
+        kind: 'unavailable',
+        timedOut: true,
+        message: "AroFlo didn't answer in time.",
+      });
     } catch (err) {
       result = { found: false, kind: 'unavailable', message: err.message };
     }
@@ -141,7 +154,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     historySeq.current += 1;
     setHistory(null);
     try {
-      const result = await api.aroflo.lookup(jn);
+      const result = await withTimeout(api.aroflo.lookup(jn), LEAD_CHECK_TIMEOUT_MS, {
+        found: false,
+        message: "AroFlo didn't answer in time — look up again, or enter the details yourself.",
+      });
       setArofloResult({ jn, result });
       if (result?.found && form.callType === 'Lead') runCustomerHistory(jn);
     } catch (err) {
@@ -153,6 +169,10 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (leadCheckPending) {
+      setNotice('Checking customer history and Lead Source… — please wait a moment before saving.', true);
+      return;
+    }
     // Contact Method and Call Type are required on every new record — only
     // checked here for a brand-new call, not when editing one, since every
     // existing call already has both set from before this was enforced.
@@ -310,6 +330,20 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       ? leadSourceDecision(arofloSummary.leadSource, history && history.jn === form.jobNumber.trim() ? history : null, form, settings.lists.lead_source)
       : null;
 
+  // A booked Lead call's AroFlo lookup / customer-history check is running
+  // for the Job Number in the form: Save waits for it (each step gives up
+  // after LEAD_CHECK_TIMEOUT_MS, so the form can't get stuck).
+  const leadCheckPending =
+    form.callType === 'Lead' &&
+    !!form.jobNumber.trim() &&
+    (arofloLoading || (history?.status === 'checking' && history.jn === form.jobNumber.trim()));
+  const leadHistoryFailed =
+    form.callType === 'Lead' && history?.status === 'done' && history.jn === form.jobNumber.trim() && history.result?.kind === 'unavailable'
+      ? history.result.timedOut
+        ? 'timeout'
+        : 'failed'
+      : null;
+
   // Stage 2: a booked Lead call's lookup fills BLANK Suburb, Trade / Job type
   // and (once the customer-history check is done) Lead Source — see
   // planLeadCallFill. Follows the Job Number: a different Job Number takes
@@ -317,7 +351,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   // Never replaces a staff choice; nothing is saved until Save.
   const leadFill = useRef({});
   useEffect(() => {
-    const isLead = form.callType === 'Lead';
+    const isLead = form.callType === 'Lead' && leadAutoFillAllowed(editing);
     // Plan against the form with this source's own earlier fills treated as
     // blank, so they're kept (not taken back) while still wanted.
     const planForm = { ...form };
@@ -489,6 +523,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
                 showLeadSource={showLeadSource}
                 patch={patch}
                 filledNote={leadCallFillConfirmation(leadFill.current)}
+                historyFailed={leadHistoryFailed}
+                autoFill={leadAutoFillAllowed(editing)}
               />
             )}
           </div>
@@ -522,9 +558,14 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-        <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : editing ? 'Update call' : 'Save call'}
+        <button type="submit" className="btn btn-primary" disabled={saving || leadCheckPending} data-testid="save-call">
+          {saving ? 'Saving…' : leadCheckPending ? 'Checking customer history…' : editing ? 'Update call' : 'Save call'}
         </button>
+        {leadCheckPending && (
+          <span style={{ fontSize: 12, color: 'var(--ink-muted)', alignSelf: 'center' }} data-testid="lead-check-pending">
+            Checking customer history and Lead Source… Save is available again in a moment.
+          </span>
+        )}
         {editing && (
           <button type="button" className="btn" onClick={onCancelEdit}>
             Cancel edit
@@ -538,7 +579,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 // The result of "Look up in AroFlo" on a Lead call: why nothing was found,
 // or AroFlo's task type / Lead Source with "Use this" where one of this
 // CRM's options matches exactly. Clicking only changes the form.
-function ArofloCallSuggestions({ summary, decision, showLeadSource, patch, filledNote }) {
+function ArofloCallSuggestions({ summary, decision, showLeadSource, patch, filledNote, historyFailed, autoFill }) {
   if (!summary.found) {
     return (
       <div className="lookup-box lookup-missing" data-testid="aroflo-call-not-found">
@@ -563,7 +604,18 @@ function ArofloCallSuggestions({ summary, decision, showLeadSource, patch, fille
   );
   return (
     <div className="lookup-box" style={{ border: '1px solid var(--border)', color: 'var(--ink)' }} data-testid="aroflo-call-lookup">
-      <div>Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}. Blank fields are filled where AroFlo is clear; nothing is saved until you save the call.</div>
+      <div>
+        Found in AroFlo{summary.status ? ` (${summary.status.toLowerCase()})` : ''}.{' '}
+        {autoFill
+          ? 'Blank fields are filled where AroFlo is clear; nothing is saved until you save the call.'
+          : 'This call already had a Job Number, so nothing is filled in — use "Use this" for anything you want to change.'}
+      </div>
+      {showLeadSource && historyFailed && (
+        <div className="lookup-box lookup-missing" style={{ marginTop: 4 }} data-testid="aroflo-history-failed">
+          Lead Source couldn&apos;t be checked (the customer-history check {historyFailed === 'timeout' ? "didn't answer in time" : 'failed'}), so it was left
+          for you to choose.
+        </div>
+      )}
       {filledNote && (
         <div className="lookup-box lookup-found" style={{ marginTop: 4 }} data-testid="aroflo-call-filled">
           ✓ {filledNote}
@@ -654,7 +706,7 @@ function LeadSourceFromHistory({ decision, patch }) {
   ) : null;
   return (
     <div style={{ marginTop: 4 }} data-testid={`aroflo-lead-history-${decision.mode}`}>
-      {decision.mode === 'checking' && <div>Customer’s Lead Source: checking AroFlo customer history…</div>}
+      {decision.mode === 'checking' && <div data-testid="aroflo-history-checking">Checking customer history and Lead Source…</div>}
       {decision.mode === 'callback' && (
         <div>
           Customer’s Lead Source: this appears to be a <strong>callback</strong> ({decision.reasons.join('; ')}) — no Lead Source is
