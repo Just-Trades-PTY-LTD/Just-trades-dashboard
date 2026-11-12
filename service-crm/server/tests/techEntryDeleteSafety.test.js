@@ -122,13 +122,13 @@ test('an unconverted knock-back job, a Call Back, and a Pending Cancellation can
       })
     ).data.entry;
 
-    const pendingCancel = (
-      await server.request('POST', '/tech/pending-cancellations', {
-        jobNumber: 'JN-DELSAFE-5',
-        dateLogged: '2026-05-05',
-        comments: 'test',
-      })
-    ).data.entry;
+    // Pending Cancellations are recorded only on a Calls & Contacts call.
+    await server.request('POST', '/calls', {
+      callAt: '2026-05-05T09:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation',
+      jobNumber: 'JN-DELSAFE-5',
+      notes: 'test',
+    });
+    const pendingCancel = (await server.request('GET', '/tech/entries')).data.find((e) => e.kind === 'pending_cancellation' && e.jobNumber === 'JN-DELSAFE-5');
 
     const entries = (await server.request('GET', '/tech/entries')).data;
     assert.equal(entries.find((e) => e.id === job.id && e.kind === 'new_job_no_sale').canDelete, true);

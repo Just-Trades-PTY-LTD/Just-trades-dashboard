@@ -410,9 +410,11 @@ test('Call Back and Pending Cancellation require a Job Number, but are never blo
     });
     assert.equal(callBackNoMatch.status, 201, 'Call Back does not require an existing match, unlike Quote Approved Later');
 
+    // Pending Cancellations are recorded only on their Calls & Contacts call:
+    // the Technician & Sales route refuses every create.
     const pendingCancelNoJn = await server.request('POST', '/tech/pending-cancellations', { dateLogged: '2026-10-20' });
-    assert.equal(pendingCancelNoJn.status, 400);
-    assert.match(pendingCancelNoJn.data.error, /Job Number/);
+    assert.equal(pendingCancelNoJn.status, 405);
+    assert.match(pendingCancelNoJn.data.error, /only on their Calls & Contacts call/);
   } finally {
     server.close();
   }

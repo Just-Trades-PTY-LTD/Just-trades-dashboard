@@ -5,7 +5,7 @@ import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '..
 import { mergeId } from '../lib/merge.js';
 import { findLatestSale, findOriginalJob, isUserActive } from '../services/lookup.js';
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
-import { checkDetails, confirmationNeeded, applyDetails, detailsOf } from '../services/pendingCancellation.js';
+import { checkDetails, confirmationNeeded, applyDetails, detailsOf, checkCreditedTechnician, applyCreditedTechnician } from '../services/pendingCancellation.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
 
 const PENDING_CANCELLATION_TRACKED_FIELDS = ['sale_id', 'job_number', 'date_logged', 'credited_technician_id', 'trade_id', 'reason_id', 'comments'];
@@ -29,7 +29,7 @@ const PENDING_CANCELLATION_TRACKED_FIELDS = ['sale_id', 'job_number', 'date_logg
  * - Changing the call to another type removes its cancellation, as before.
  * `previous` is the call row before this edit (null on create).
  */
-function syncPendingCancellation({ previous, existingPendingCancellationId, callType, cancellationType, jobNumber, tradeId, cancellationReasonId, notes, callAt, userId }) {
+function syncPendingCancellation({ previous, existingPendingCancellationId, callType, cancellationType, jobNumber, tradeId, cancellationReasonId, notes, callAt, userId, chosen = {} }) {
   const shouldHaveLink = callType === 'Cancellation' && cancellationType === 'Pending Cancellation' && !!jobNumber;
 
   if (!shouldHaveLink) {
@@ -102,11 +102,14 @@ function syncPendingCancellation({ previous, existingPendingCancellationId, call
   }
 
   const { sale, originalJob } = resolveLinks();
+  // A new cancellation saved with the call form's own choices (Stage 5): the
+  // sale for the selected invoice and the chosen Credited technician are
+  // used straight away, so its history shows only what staff chose.
   const fields = {
-    sale_id: sale?.id || null,
+    sale_id: chosen.saleId || sale?.id || null,
     job_number: jobNumber,
     date_logged: (callAt || '').slice(0, 10),
-    credited_technician_id: sale?.credited_technician_id || originalJob?.technician_id || null,
+    credited_technician_id: chosen.creditedTechnicianId !== undefined ? chosen.creditedTechnicianId : sale?.credited_technician_id || originalJob?.technician_id || null,
     trade_id: tradeId || sale?.trade_id || originalJob?.trade_id || null,
     reason_id: cancellationReasonId || null,
     comments: notes || '',
@@ -365,9 +368,12 @@ export function createCallsRouter() {
     }
     const pcStep = pendingCancellationDetailsStep(b, { callType: b.callType, cancellationType: b.cancellationType, jobNumber: b.jobNumber, callAt: b.callAt, pc: null });
     if (pcStep?.error) return res.status(400).json({ error: pcStep.error });
+    const pcTech = checkCreditedTechnician(b.pendingCancellationCreditedTechnicianId);
+    if (pcTech.error) return res.status(400).json({ error: pcTech.error });
     if (pcStep?.needsConfirmation) return res.status(409).json({ error: pcStep.needsConfirmation.message, needsConfirmation: pcStep.needsConfirmation });
     const lastInsertRowid = transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
+        chosen: { saleId: pcStep?.checked?.saleId || null, creditedTechnicianId: pcTech.skip ? undefined : pcTech.id },
         existingPendingCancellationId: null,
         callType: b.callType,
         cancellationType: b.cancellationType || '',
@@ -381,6 +387,7 @@ export function createCallsRouter() {
       if (pendingCancellationId && pcStep?.checked) {
         applyDetails(pendingCancellationId, pcStep.checked, { supersedeIds: pcStep.confirm?.kind === 'supersede' ? pcStep.confirm.ids : [] }, req.user.id);
       }
+      if (pendingCancellationId && !pcTech.skip) applyCreditedTechnician(pendingCancellationId, pcTech.id, req.user.id);
       const values = {
         call_at: b.callAt,
         direction: b.direction,
@@ -463,9 +470,12 @@ export function createCallsRouter() {
     const existingPc = existing.pending_cancellation_id ? get('SELECT * FROM pending_cancellations WHERE id = ?', [existing.pending_cancellation_id]) : null;
     const pcStep = pendingCancellationDetailsStep(b, { callType: next.call_type, cancellationType: next.cancellation_type, jobNumber: next.job_number, callAt: next.call_at, pc: existingPc });
     if (pcStep?.error) return res.status(400).json({ error: pcStep.error });
+    const pcTech = checkCreditedTechnician(b.pendingCancellationCreditedTechnicianId);
+    if (pcTech.error) return res.status(400).json({ error: pcTech.error });
     if (pcStep?.needsConfirmation) return res.status(409).json({ error: pcStep.needsConfirmation.message, needsConfirmation: pcStep.needsConfirmation });
     transaction(() => {
       const pendingCancellationId = syncPendingCancellation({
+        chosen: { saleId: pcStep?.checked?.saleId || null, creditedTechnicianId: pcTech.skip ? undefined : pcTech.id },
         previous: existing,
         existingPendingCancellationId: existing.pending_cancellation_id,
         callType: next.call_type,
@@ -480,6 +490,7 @@ export function createCallsRouter() {
       if (pendingCancellationId && pcStep?.checked) {
         applyDetails(pendingCancellationId, pcStep.checked, { supersedeIds: pcStep.confirm?.kind === 'supersede' ? pcStep.confirm.ids : [] }, req.user.id);
       }
+      if (pendingCancellationId && !pcTech.skip) applyCreditedTechnician(pendingCancellationId, pcTech.id, req.user.id);
       run(
         `UPDATE calls SET call_at=?, direction=?, handled_by_user_id=?, call_type=?, trade_id=?, job_type_id=?,
           lead_source_id=?, booked=?, not_booked_reason_id=?, cancellation_type=?, cancellation_reason_id=?,

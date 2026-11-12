@@ -200,7 +200,7 @@ function ArofloChoice({ children, buttonLabel = 'Use this', onUse }) {
   );
 }
 
-export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) {
+export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, jumpToJN }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
   const [invalidFields, setInvalidFields] = useState(new Set());
@@ -910,16 +910,9 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
         };
         res = editing ? { entry: await api.tech.updateCallBack(editing.id, body) } : await api.tech.createCallBack(body);
       } else {
-        const body = {
-          jobNumber: form.jobNumber,
-          dateLogged: form.dateLogged,
-          creditedTechnicianId: form.creditedTechnicianId || null,
-          reasonId: form.pendingCancellationReasonId || null,
-          comments: form.comments,
-        };
-        res = editing
-          ? { entry: await api.tech.updatePendingCancellation(editing.id, body) }
-          : await api.tech.createPendingCancellation(body);
+        // Pending Cancellations are recorded only on their Calls & Contacts
+        // call; this form only ever shows them read-only.
+        throw new Error('Pending Cancellations are recorded and changed only on their Calls & Contacts call.');
       }
 
       let notice = res.notice || (editing ? 'Entry updated.' : 'Entry logged.');
@@ -944,6 +937,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
       savingRef.current = false;
       setSaving(false);
     }
+  }
+
+  // A Pending Cancellation is maintained only on its Calls & Contacts call —
+  // here every detail is read-only (the server refuses edits too).
+  if (isPendingCancellation && editing) {
+    return <PendingCancellationReadOnly entry={editing} onClose={onCancelEdit} jumpToJN={jumpToJN} />;
   }
 
   return (
@@ -1537,9 +1536,6 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
           />
         </div>
       )}
-      {isPendingCancellation && editing && (
-        <PendingCancellationReadOnly details={editing.pendingCancellation} linkedCall={editing.linkedCall} />
-      )}
 
       {isSaleMade && (
         <div className="panel" style={{ padding: 16, marginTop: 14, background: 'var(--surface-2)' }}>
@@ -1627,34 +1623,61 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice }) 
   );
 }
 
-// Stage 5: the Pending Cancellation's invoice and lost value, read-only —
-// they're recorded only on its Calls & Contacts call, never here, so the
-// same cancellation can't be maintained from two forms.
-function PendingCancellationReadOnly({ details, linkedCall }) {
-  const fmt = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ex GST`);
-  const basis = { whole_sale: 'Entire invoice cancelled', part_of_work: 'Part of the work cancelled' }[details?.lostValueBasis] || 'not recorded';
+// Stage 5: every Pending Cancellation detail, read-only. They're recorded and
+// changed only on its Calls & Contacts call, so the same cancellation is
+// never maintained from two forms.
+function PendingCancellationReadOnly({ entry, onClose, jumpToJN }) {
+  const d = entry.pendingCancellation || {};
+  const money = (n) => (n === null || n === undefined ? '—' : `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ex GST`);
+  const basis = { whole_sale: 'Entire invoice cancelled', part_of_work: 'Part of the work cancelled' }[d.lostValueBasis] || '';
+  const row = (label, value) => (
+    <tr>
+      <td style={{ padding: '4px 12px 4px 0', color: 'var(--ink-muted)', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{label}</td>
+      <td style={{ padding: '4px 0' }}>{value || '—'}</td>
+    </tr>
+  );
   return (
-    <div className="panel" style={{ padding: 14, marginTop: 14, background: 'var(--surface-2)', fontSize: 12.5 }} data-testid="pc-readonly">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Affected invoice and lost value (read-only)</div>
-      {details?.recorded ? (
-        <>
-          <div>
-            Invoice {details.invoiceNumber || '—'}
-            {details.invoiceDate ? ` · ${details.invoiceDate}` : ''} · CRM recorded {fmt(details.originalSaleValueExGst)} · AroFlo {fmt(details.arofloInvoiceValueExGst)}
-            {details.arofloInvoiceStatus ? ` · ${details.arofloInvoiceStatus}` : ''}
-          </div>
-          <div>
-            {basis} · Lost value {fmt(details.lostValueExGst)}
-          </div>
-          {details.supersededById && <div>Superseded for reporting by a later entire-invoice cancellation — kept in history.</div>}
-        </>
-      ) : (
-        <div>Invoice and lost value: not recorded.</div>
-      )}
-      <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>
-        {linkedCall
-          ? `Recorded on its Calls & Contacts call (Cancellation → Pending Cancellation, ${String(linkedCall.callAt || '').replace('T', ' ')}) — open that call in Calls & Contacts to change the invoice or lost value.`
-          : "This cancellation has no Calls & Contacts call, so its invoice and lost value can't be recorded."}
+    <div className="panel" style={{ padding: 22 }} data-testid="pc-readonly">
+      <div style={{ fontSize: 15, fontWeight: 600 }}>Pending Cancellation (read-only)</div>
+      <div className="lookup-box" style={{ marginTop: 10, border: '1px solid var(--border)', color: 'var(--ink)' }} data-testid="pc-readonly-where">
+        Pending Cancellations are recorded and changed only on their Calls &amp; Contacts call (Cancellation → Pending Cancellation).
+        {entry.linkedCall
+          ? ` Its call was logged ${String(entry.linkedCall.callAt || '').replace('T', ' ')}.`
+          : ' This cancellation has no Calls & Contacts call, so it can only be viewed.'}{' '}
+        {entry.linkedCall && jumpToJN && (
+          <button type="button" className="btn btn-sm" onClick={() => jumpToJN('calls', entry.jobNumber)}>
+            Open the call in Calls &amp; Contacts
+          </button>
+        )}
+      </div>
+      <table style={{ marginTop: 12, fontSize: 13, borderCollapse: 'collapse' }}>
+        <tbody>
+          {row('Job Number', entry.jobNumber)}
+          {row('Date', entry.dateShown)}
+          {row('Credited technician', entry.creditedTechnicianName)}
+          {row('Reason', entry.reasonName)}
+          {row('Comments', entry.comments)}
+          {row('Invoice', d.invoiceNumber ? `${d.invoiceNumber}${d.invoiceDate ? ` · ${d.invoiceDate}` : ''}` : 'not recorded')}
+          {row('CRM recorded value', d.invoiceNumber ? money(d.originalSaleValueExGst) : '')}
+          {row('AroFlo value / status', d.invoiceNumber ? `${money(d.arofloInvoiceValueExGst)}${d.arofloInvoiceStatus ? ` · ${d.arofloInvoiceStatus}` : ''}` : '')}
+          {row('Cancelled', basis || 'not recorded')}
+          {row('Lost value', d.lostValueExGst === null || d.lostValueExGst === undefined ? 'not recorded' : money(d.lostValueExGst))}
+          {row(
+            'Superseded',
+            d.supersededBy
+              ? `Yes — by the entire-invoice cancellation logged ${d.supersededBy.dateLogged} (${money(d.supersededBy.lostValueExGst)}). Kept in history, not counted twice.`
+              : 'No'
+          )}
+          {row(
+            'Supersedes',
+            d.supersedes?.length ? d.supersedes.map((x) => `the cancellation logged ${x.dateLogged} (${money(x.lostValueExGst)})`).join('; ') : 'None'
+          )}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 16 }}>
+        <button type="button" className="btn" onClick={onClose}>
+          Close
+        </button>
       </div>
     </div>
   );

@@ -26,6 +26,8 @@ export function detailsToState(d) {
     crmValueExGst: d?.originalSaleValueExGst ?? null,
     lostValueExGst: d?.lostValueExGst === null || d?.lostValueExGst === undefined ? '' : String(d.lostValueExGst),
     lostValueBasis: d?.lostValueBasis || '',
+    // The saved credited technician, shown as it is (never backfilled).
+    creditedTechnicianId: d?.creditedTechnicianId ? String(d.creditedTechnicianId) : '',
   };
 }
 
@@ -90,4 +92,39 @@ export function detailsPayload(state, confirmed = false) {
     lostValueBasis: state.lostValueBasis,
     confirmed,
   };
+}
+
+/**
+ * Credited technician on a Pending Cancellation call — from the CRM sale
+ * linked to the EXACT selected invoice (never the latest sale); with no
+ * invoice selected, only when the Job Number has exactly one CRM sale.
+ * Fills only a blank field (or one this rule filled itself, `filled`);
+ * a technician staff chose is never replaced — a different one is shown
+ * as a difference to choose. Returns { set, source, difference, note }:
+ * `set` is the value to put in the field ('' clears this rule's own fill),
+ * or null for no change.
+ */
+export function creditedTechnicianPlan({ pc, invoices, filled }) {
+  const list = invoices || [];
+  const current = String(pc.creditedTechnicianId || '');
+  const mine = !!filled && current === String(filled);
+  let source = null;
+  let note = null;
+  if (pc.invoiceKey) {
+    const inv = list.find((i) => i.key === pc.invoiceKey);
+    if (inv?.crm?.creditedTechnicianId) source = { id: String(inv.crm.creditedTechnicianId), name: inv.crm.creditedTechnicianName, invoiceNumber: inv.invoiceNumber };
+    else if (inv) note = `Invoice ${inv.invoiceNumber} isn't on a CRM sale with a credited technician, so none is suggested — choose the technician.`;
+  } else if (list.length) {
+    const sales = [...new Map(list.filter((i) => i.crm).map((i) => [i.crm.saleId, i])).values()];
+    if (sales.length === 1 && sales[0].crm.creditedTechnicianId) {
+      const i = sales[0];
+      source = { id: String(i.crm.creditedTechnicianId), name: i.crm.creditedTechnicianName, invoiceNumber: i.invoiceNumber };
+    } else if (sales.length > 1) note = `This Job Number has ${sales.length} CRM sales — select the invoice, or choose the technician.`;
+  }
+  if (source) {
+    if (!current || mine) return { set: current === source.id ? null : source.id, source, difference: null, note: null };
+    if (current !== source.id) return { set: null, source: null, difference: source, note: null };
+    return { set: null, source: null, difference: null, note: null };
+  }
+  return { set: mine ? '' : null, source: null, difference: null, note };
 }

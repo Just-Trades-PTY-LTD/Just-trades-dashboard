@@ -156,7 +156,17 @@ export function createArofloLookupRouter() {
         key,
         invoiceNumber: a?.invoiceNumber || c?.invoiceNumber || '',
         invoiceDate: a?.invoiceDate || c?.invoiceDate || '',
-        crm: c ? { saleId: c.saleId, valueExGst: c.crmValueExGst, saleValueExGst: c.saleValueExGst, upsellValueExGst: c.upsellValueExGst, upsellCount: c.upsellCount } : null,
+        crm: c
+          ? {
+              saleId: c.saleId,
+              valueExGst: c.crmValueExGst,
+              saleValueExGst: c.saleValueExGst,
+              upsellValueExGst: c.upsellValueExGst,
+              upsellCount: c.upsellCount,
+              creditedTechnicianId: c.creditedTechnicianId,
+              creditedTechnicianName: c.creditedTechnicianName,
+            }
+          : null,
         aroflo: a ? { id: a.id, valueExGst: a.valueExGst, status: a.status } : null,
         otherCancellations: cancellationsOnInvoice(c?.invoiceNumber || a?.invoiceNumber, pcId),
       };

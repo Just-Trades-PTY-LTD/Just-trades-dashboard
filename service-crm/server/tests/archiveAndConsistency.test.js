@@ -369,8 +369,9 @@ test('editing a Pending Cancellation call keeps its own cancellation: no overwri
     const original = visitSale(j.id);
     const call = ok(await server.request('POST', '/calls', { callAt: '2026-05-03T10:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation', jobNumber: 'P-1', cancellationReasonId: ctx.L.pending_cancellation_reason?.[0]?.id }));
     const pcId = dbGet('SELECT pending_cancellation_id p FROM calls WHERE id = ?', [call.id]).p;
-    // A correction on the Technician & Sales page, then an Upsell on the same job.
-    ok(await server.request('PATCH', `/tech/pending-cancellations/${pcId}`, { creditedTechnicianId: ctx.tB.id }));
+    // A credited technician correction on the call (the only place it's
+    // maintained), then an Upsell on the same job.
+    ok(await server.request('PATCH', `/calls/${call.id}`, { pendingCancellationCreditedTechnicianId: ctx.tB.id }));
     ok(await server.request('POST', '/tech/existing-job-upsell', { jobNumber: 'P-1', invoiceNumber: 'INV-P1', dateLogged: '2026-05-04', creditedTechnicianId: ctx.tB.id, invoiceDate: '2026-05-02', saleValueExGst: 50 }));
 
     ok(await server.request('PATCH', `/calls/${call.id}`, { notes: 'typo fix' }));

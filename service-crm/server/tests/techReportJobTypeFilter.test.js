@@ -161,10 +161,11 @@ test('with a specific Job Type selected, Pending Cancellations correctly show as
       saleValueExGst: 600,
     });
     assert.equal(saleJob.status, 201);
-    const pendingCancel = await server.request('POST', '/tech/pending-cancellations', {
+    // Pending Cancellations are recorded only on a Calls & Contacts call.
+    const pendingCancel = await server.request('POST', '/calls', {
+      callAt: '2026-11-05T09:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation',
       jobNumber: 'JTF-PC-1',
-      dateLogged: '2026-11-05',
-      creditedTechnicianId: tech.id,
+      pendingCancellationCreditedTechnicianId: tech.id,
       tradeId: plumbing.id,
     });
     assert.equal(pendingCancel.status, 201, JSON.stringify(pendingCancel.data));

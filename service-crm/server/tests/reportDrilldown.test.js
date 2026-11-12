@@ -176,7 +176,7 @@ test('Technician & Sales drill-down: every KPI, trade/technician cell and chart 
       tradeId: electrical.id, jobTypeId: electrical.jobTypes[0].id, lead: 'Qualified',
       invoiceNumber: 'INV-D5', invoiceDate: '2026-03-08', saleValueExGst: 700,
     });
-    await server.request('POST', '/tech/pending-cancellations', { jobNumber: 'JN-D5', dateLogged: '2026-03-15', creditedTechnicianId: techB.id, reasonId: bundle.lists.pending_cancellation_reason[0].id });
+    await server.request('POST', '/calls', { callAt: '2026-03-15T09:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation', jobNumber: 'JN-D5', pendingCancellationCreditedTechnicianId: techB.id, cancellationReasonId: bundle.lists.pending_cancellation_reason[0].id });
 
     const report = (await server.request('GET', `/reports/tech?from=${from}&to=${to}`)).data;
     assert.equal(report.company.jobsAttended, 5);

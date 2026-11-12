@@ -88,6 +88,7 @@ export default function TechSalesPage({ sub, setSub, editing, setEditing, pendin
           }}
           onCancelEdit={closeEdit}
           setNotice={setNotice}
+          jumpToJN={jumpToJN}
         />
       )}
       {sub === 'history' && (

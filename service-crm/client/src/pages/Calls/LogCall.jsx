@@ -10,7 +10,8 @@ import { SuburbPicker } from '../../components/SuburbPicker.jsx';
 import { JobLookupBox } from '../../components/JobLookupBox.jsx';
 import { useJobLookup } from '../../lib/useLookup.js';
 import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillConfirmation } from '../../lib/arofloCallSuggest.js';
-import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money } from '../../lib/pendingCancellationForm.js';
+import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money, creditedTechnicianPlan } from '../../lib/pendingCancellationForm.js';
+import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -66,6 +67,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const [pcTouched, setPcTouched] = useState(false);
   const [pcInvoices, setPcInvoices] = useState(null); // { jn, loading, data, error }
   const pcAutoFilled = useRef(null);
+  const pcTechFilled = useRef(null);
 
   useEffect(() => {
     setInvalidFields(new Set());
@@ -76,6 +78,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setPcTouched(false);
     setPcInvoices(null);
     pcAutoFilled.current = null;
+    pcTechFilled.current = null;
     if (editing) {
       setForm({
         callAt: editing.callAt,
@@ -112,6 +115,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     setPcTouched(false);
     setPcInvoices(null);
     pcAutoFilled.current = null;
+    pcTechFilled.current = null;
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
@@ -178,6 +182,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     const save = (confirmed) => {
       const body = { ...form };
       if (isPendingCancellation && pcTouched) body.pendingCancellationDetails = detailsPayload(pc, confirmed);
+      // The Pending Cancellation's Credited technician — maintained only here.
+      if (isPendingCancellation) body.pendingCancellationCreditedTechnicianId = pc.creditedTechnicianId || null;
       return editing ? api.calls.update(editing.id, body) : api.calls.create(body);
     };
     try {
@@ -275,6 +281,18 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pcTouched, pc.invoiceKey, pc.lostValueBasis, pcGuidance.fill]);
+
+  // Credited technician: from the CRM sale for the exact selected invoice
+  // (or the Job Number's only sale); blank or own fill only — a technician
+  // staff chose is never replaced (creditedTechnicianPlan).
+  const pcListForJn = pcInvoices?.data && pcInvoices.jn === form.jobNumber.trim() ? pcInvoices.data.invoices : null;
+  const pcTechPlan = isPendingCancellation ? creditedTechnicianPlan({ pc, invoices: pcListForJn, filled: pcTechFilled.current }) : null;
+  useEffect(() => {
+    if (!pcTechPlan || pcTechPlan.set === null) return;
+    pcTechFilled.current = pcTechPlan.set || null;
+    setPc((cur) => ({ ...cur, creditedTechnicianId: pcTechPlan.set }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPendingCancellation, pc.invoiceKey, pcListForJn]);
 
   const cancellationReasonList =
     form.cancellationType === 'New Job Cancellation'
@@ -489,6 +507,9 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
           autoFilled={pcAutoFilled.current !== null && pc.lostValueExGst === pcAutoFilled.current}
           onLoad={() => loadPcInvoices(form.jobNumber)}
           onChange={patchPc}
+          technicians={withInactiveLabel(settings.technicians)}
+          techPlan={pcTechPlan}
+          techAutoFilled={!!pcTechFilled.current && String(pc.creditedTechnicianId) === String(pcTechFilled.current)}
         />
       )}
 
@@ -691,7 +712,7 @@ function callbackOriginNote(form, origin, filled) {
 // Stage 5 — the affected invoice and lost value on a Pending Cancellation
 // call. One invoice at a time (never combined); the lost value is always ex
 // GST and always editable. Recorded only here, on the call.
-function PendingCancellationInvoice({ jobNumber, saved, pc, touched, invoices, guidance, autoFilled, onLoad, onChange }) {
+function PendingCancellationInvoice({ jobNumber, saved, pc, touched, invoices, guidance, autoFilled, onLoad, onChange, technicians, techPlan, techAutoFilled }) {
   const list = invoices && invoices.jn === jobNumber ? invoices : null;
   const notRecorded = !touched && !(saved && saved.recorded);
   const describeOthers = (others) =>
@@ -760,6 +781,23 @@ function PendingCancellationInvoice({ jobNumber, saved, pc, touched, invoices, g
           )}
         </div>
       )}
+      <div className="field" style={{ marginTop: 10, maxWidth: 420 }} data-testid="pc-credited-technician">
+        <SelectField label="Credited technician" value={pc.creditedTechnicianId} onChange={(v) => onChange({ creditedTechnicianId: v })} options={technicians} />
+        <div style={{ fontSize: 12, marginTop: 4 }} data-testid="pc-credited-technician-note">
+          {techAutoFilled && techPlan?.source && `Filled from the CRM sale for invoice ${techPlan.source.invoiceNumber} (${techPlan.source.name}) — still editable.`}
+          {techPlan?.difference && (
+            <>
+              The CRM sale for invoice {techPlan.difference.invoiceNumber} is credited to <strong>{techPlan.difference.name}</strong> — the technician selected
+              above was kept.{' '}
+              <button type="button" className="btn btn-sm" onClick={() => onChange({ creditedTechnicianId: techPlan.difference.id })}>
+                Use {techPlan.difference.name}
+              </button>
+            </>
+          )}
+          {techPlan?.note}
+          {!(techAutoFilled && techPlan?.source) && !techPlan?.difference && !techPlan?.note && 'Who receives this cancellation — choose or correct it here.'}
+        </div>
+      </div>
       <div style={{ marginTop: 10, fontSize: 12.5 }} data-testid="pc-basis">
         {BASIS_OPTIONS.map((o) => (
           <label key={o.value} style={{ marginRight: 16 }}>

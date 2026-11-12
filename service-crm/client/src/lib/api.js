@@ -97,8 +97,6 @@ export const api = {
     updateUpsell: (id, body) => request('PATCH', `/tech/existing-job-upsell/${id}`, body),
     createCallBack: (body) => request('POST', '/tech/call-backs', body),
     updateCallBack: (id, body) => request('PATCH', `/tech/call-backs/${id}`, body),
-    createPendingCancellation: (body) => request('POST', '/tech/pending-cancellations', body),
-    updatePendingCancellation: (id, body) => request('PATCH', `/tech/pending-cancellations/${id}`, body),
     remove: (kind, id) => request('DELETE', `/tech/entries/${kind}/${id}`),
   },
   // Admin-only. Always preview first (it changes nothing), show the admin what

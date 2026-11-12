@@ -17,7 +17,6 @@ import {
   findJobConvertedBySale,
   findOriginalBookingCall,
   findOriginalJob,
-  findLatestSale,
   findSaleForInvoice,
   isTechnicianActive,
   normKey,
@@ -64,7 +63,6 @@ const CALL_BACK_TRACKED_FIELDS = [
   'reason_id',
   'comments',
 ];
-const PENDING_CANCELLATION_TRACKED_FIELDS = ['job_number', 'credited_technician_id', 'reason_id', 'comments'];
 
 function jobRow(id) {
   return get(
@@ -1600,67 +1598,14 @@ export function createTechSalesRouter() {
   });
 
   // ---- Pending Cancellation ----
-  router.post('/pending-cancellations', (req, res) => {
-    const b = req.body || {};
-    if (!b.jobNumber || !String(b.jobNumber).trim()) {
-      return res.status(400).json({ error: 'Please enter a Job Number before saving.' });
-    }
-    const matchedSale = findLatestSale(b.jobNumber);
-    const values = {
-      job_number: b.jobNumber || '',
-      // No explicit value and no matched sale's own credited technician ->
-      // fall back to the original job's technician (via the matched sale's
-      // job_id), the same backstop used for Quote Approved Later/Call Back —
-      // see syncPendingCancellation() in routes/calls.js for the same rule
-      // applied to how this entry type is actually created in the UI today.
-      credited_technician_id: b.creditedTechnicianId || matchedSale?.credited_technician_id || originalJobTechnicianId(matchedSale?.job_id) || null,
-      reason_id: b.reasonId || null,
-      comments: b.comments || '',
-    };
-    const { lastInsertRowid } = run(
-      `INSERT INTO pending_cancellations (sale_id, job_number, date_logged, credited_technician_id, trade_id,
-        reason_id, comments, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        matchedSale?.id || null,
-        values.job_number,
-        b.dateLogged,
-        values.credited_technician_id,
-        matchedSale?.trade_id || null,
-        values.reason_id,
-        values.comments,
-        req.user.id,
-      ]
-    );
-    recordAudit({ entityType: 'pending_cancellation', entityId: lastInsertRowid, before: null, after: values, fields: PENDING_CANCELLATION_TRACKED_FIELDS, userId: req.user.id });
-    res.status(201).json({ entry: pendingCancellationToEntry(pendingCancellationRow(lastInsertRowid)) });
-  });
-
-  router.patch('/pending-cancellations/:id', (req, res) => {
-    const existing = get('SELECT * FROM pending_cancellations WHERE id = ?', [req.params.id]);
-    if (!existing) return res.status(404).json({ error: 'Entry not found.' });
-    const b = req.body || {};
-    const next = {
-      job_number: b.jobNumber ?? existing.job_number,
-      // Same fallback as Quote Approved Later/Call Back's own edit routes —
-      // an edit that clears Credited Technician falls back to the original
-      // job's technician (via this entry's linked sale's job_id), rather
-      // than silently saving null.
-      credited_technician_id:
-        mergeId(b.creditedTechnicianId, existing.credited_technician_id) ||
-        originalJobTechnicianId(existing.sale_id ? get('SELECT job_id FROM sales WHERE id = ?', [existing.sale_id])?.job_id : null),
-      reason_id: mergeId(b.reasonId, existing.reason_id),
-      comments: b.comments ?? existing.comments,
-    };
-    const dateLogged = b.dateLogged ?? existing.date_logged;
-    run(
-      `UPDATE pending_cancellations SET job_number=?, date_logged=?, credited_technician_id=?, reason_id=?,
-        comments=?, updated_at=datetime('now') WHERE id=?`,
-      [next.job_number, dateLogged, next.credited_technician_id, next.reason_id, next.comments, req.params.id]
-    );
-    recordAudit({ entityType: 'pending_cancellation', entityId: Number(req.params.id), before: existing, after: next, fields: PENDING_CANCELLATION_TRACKED_FIELDS, userId: req.user.id });
-    res.json(pendingCancellationToEntry(pendingCancellationRow(req.params.id)));
-  });
+  // Pending Cancellations are recorded and maintained ONLY on their Calls &
+  // Contacts call (Cancellation -> Pending Cancellation) — see routes/calls.js.
+  // Technician & Sales shows them read-only, so the same cancellation can never
+  // be changed from two forms; these routes refuse every create or edit.
+  const PENDING_CANCELLATION_READ_ONLY =
+    'Pending Cancellations are recorded and changed only on their Calls & Contacts call (Cancellation → Pending Cancellation). Nothing was changed.';
+  router.post('/pending-cancellations', (req, res) => res.status(405).json({ error: PENDING_CANCELLATION_READ_ONLY }));
+  router.patch('/pending-cancellations/:id', (req, res) => res.status(405).json({ error: PENDING_CANCELLATION_READ_ONLY }));
 
   // ---- Archive / delete (generic across the four underlying tables) ----
   const TABLE_BY_KIND = {

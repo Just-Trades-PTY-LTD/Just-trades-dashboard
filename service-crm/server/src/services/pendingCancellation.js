@@ -33,11 +33,25 @@ export const money = (n) => `$${cents(n).toLocaleString('en-AU', { minimumFracti
 export function crmInvoicesForJob(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return [];
-  const sales = all("SELECT * FROM sales WHERE archived = 0 AND invoice_number != '' ORDER BY id").filter((s) => normKey(s.job_number) === key);
+  const sales = all(
+    "SELECT s.*, t.name AS credited_technician_name FROM sales s LEFT JOIN technicians t ON t.id = s.credited_technician_id WHERE s.archived = 0 AND s.invoice_number != '' ORDER BY s.id"
+  ).filter((s) => normKey(s.job_number) === key);
   const byInvoice = new Map();
   for (const s of sales.filter((x) => !x.is_upsell)) {
     const k = invoiceKey(s.invoice_number);
-    if (!byInvoice.has(k)) byInvoice.set(k, { key: k, saleId: s.id, invoiceNumber: s.invoice_number.trim(), invoiceDate: s.invoice_date || '', saleValueExGst: cents(s.sale_value_ex_gst || 0), upsellValueExGst: 0, upsellCount: 0 });
+    if (!byInvoice.has(k)) {
+      byInvoice.set(k, {
+        key: k,
+        saleId: s.id,
+        invoiceNumber: s.invoice_number.trim(),
+        invoiceDate: s.invoice_date || '',
+        saleValueExGst: cents(s.sale_value_ex_gst || 0),
+        upsellValueExGst: 0,
+        upsellCount: 0,
+        creditedTechnicianId: s.credited_technician_id || null,
+        creditedTechnicianName: s.credited_technician_name || '',
+      });
+    }
   }
   for (const u of sales.filter((x) => x.is_upsell)) {
     const inv = byInvoice.get(invoiceKey(u.invoice_number));
@@ -186,6 +200,7 @@ export function applyDetails(pcId, { values, saleId }, { supersedeIds = [] } = {
 export function detailsOf(pc) {
   if (!pc) return null;
   const supersedes = all('SELECT id, lost_value_ex_gst, date_logged FROM pending_cancellations WHERE superseded_by_id = ? ORDER BY id', [pc.id]);
+  const by = pc.superseded_by_id ? get('SELECT id, lost_value_ex_gst, date_logged FROM pending_cancellations WHERE id = ?', [pc.superseded_by_id]) : null;
   return {
     id: pc.id,
     recorded: !!(pc.invoice_number || pc.lost_value_ex_gst !== null || pc.lost_value_basis),
@@ -199,6 +214,26 @@ export function detailsOf(pc) {
     lostValueExGst: pc.lost_value_ex_gst,
     lostValueBasis: pc.lost_value_basis || '',
     supersededById: pc.superseded_by_id || null,
+    supersededBy: by ? { id: by.id, lostValueExGst: by.lost_value_ex_gst, dateLogged: by.date_logged } : null,
+    creditedTechnicianId: pc.credited_technician_id || null,
     supersedes: supersedes.map((s) => ({ id: s.id, lostValueExGst: s.lost_value_ex_gst, dateLogged: s.date_logged })),
   };
+}
+
+/**
+ * The Credited technician staff chose on the Pending Cancellation call
+ * (blank allowed — left for staff). Saved only when the call form sends it;
+ * recorded in Activity history. Returns { id } or { error }.
+ */
+export function checkCreditedTechnician(value) {
+  if (value === undefined) return { skip: true };
+  if (value === null || value === '') return { id: null };
+  const t = get('SELECT id FROM technicians WHERE id = ?', [Number(value)]);
+  return t ? { id: t.id } : { error: "That credited technician isn't in Settings any more — choose another." };
+}
+export function applyCreditedTechnician(pcId, id, userId) {
+  const before = get('SELECT * FROM pending_cancellations WHERE id = ?', [pcId]);
+  if (!before || String(before.credited_technician_id ?? '') === String(id ?? '')) return;
+  run("UPDATE pending_cancellations SET credited_technician_id = ?, updated_at = datetime('now') WHERE id = ?", [id, pcId]);
+  recordAudit({ entityType: 'pending_cancellation', entityId: pcId, before, after: { ...before, credited_technician_id: id }, fields: ['credited_technician_id'], userId });
 }

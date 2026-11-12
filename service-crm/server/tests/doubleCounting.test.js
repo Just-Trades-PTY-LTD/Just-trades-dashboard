@@ -108,11 +108,12 @@ test('Pending Cancellation does not change sale figures (flag-only)', async () =
       saleValueExGst: 300,
     });
 
-    await server.request('POST', '/tech/pending-cancellations', {
+    // Pending Cancellations are recorded only on a Calls & Contacts call.
+    await server.request('POST', '/calls', {
+      callAt: '2025-06-15T09:00', direction: 'Inbound', callType: 'Cancellation', cancellationType: 'Pending Cancellation',
       jobNumber: 'JN-600',
-      dateLogged: '2025-06-15',
-      creditedTechnicianId: tech.id,
-      reasonId: bundle.lists.pending_cancellation_reason[0]?.id,
+      pendingCancellationCreditedTechnicianId: tech.id,
+      cancellationReasonId: bundle.lists.pending_cancellation_reason[0]?.id,
     });
 
     const report = (await server.request('GET', '/reports/tech?from=2025-06-01&to=2025-06-30')).data;
