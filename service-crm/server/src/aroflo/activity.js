@@ -1,3 +1,5 @@
+import { asText } from './values.js';
+
 // Read-only "AroFlo activity" for the live Technician & Sales form: labour
 // logged on a job and its booked visits, reduced to exactly what staff see —
 // technician name and position, date, start/finish and hours. Built field by
@@ -34,9 +36,6 @@ export function toLocalDateTime(value) {
   const m = value.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/);
   return m ? { date: m[1], time: m[2] || '' } : { date: '', time: '' };
 }
-
-// Only plain text is passed on — AroFlo sometimes nests values as objects.
-const asText = (v) => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 
 function personName(person) {
   return [asText(person?.givenName), asText(person?.familyName)].filter(Boolean).join(' ').trim();

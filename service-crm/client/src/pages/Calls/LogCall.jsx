@@ -1,3 +1,4 @@
+import { textOnly } from '../../lib/textFields.js';
 import { useEffect, useRef, useState } from 'react';
 import { nextLookupFill } from '../../lib/lookupFill.js';
 import { api } from '../../lib/api.js';
@@ -120,7 +121,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   }, [editing, user]);
 
   function patch(p) {
-    setForm((f) => ({ ...f, ...p }));
+    setForm((f) => ({ ...f, ...textOnly(p) }));
   }
 
   function resetForm() {

@@ -1,6 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from '../config.js';
 
+// AroFlo list items, keeping only real entries (a blank/null entry in a
+// list is skipped instead of breaking the lookup).
+function itemsOf(body) {
+  return Array.isArray(body?.items) ? body.items.filter((x) => x && typeof x === 'object') : [];
+}
+
 // Stage 1 test-only client: GET requests exclusively. There is deliberately
 // no function here that issues a POST/PUT/PATCH/DELETE to AroFlo — the
 // read-only guarantee comes from this file simply never containing a write
@@ -101,7 +107,7 @@ async function arofloGet(path, params = {}) {
 // than hardcoding it, so it keeps working even if that ever changes.
 export async function listBusinessUnits() {
   const body = await arofloGet('/businessunits', { limit: 100 });
-  return body?.items || [];
+  return itemsOf(body);
 }
 
 // ---- Task Management ----
@@ -136,7 +142,7 @@ export async function findTaskByJobNumber(businessUnitId, jobNumber) {
       page,
       limit: LIST_PAGE_SIZE,
     });
-    const items = body?.items || [];
+    const items = itemsOf(body);
     const match = items.find((item) => Number(item.jobNumber) === target);
     if (match) return match;
     if (items.length < LIST_PAGE_SIZE) break; // last page
@@ -155,7 +161,7 @@ export async function getInvoicesForTask(businessUnitId, taskId) {
   const invoices = [];
   for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
     const body = await arofloGet('/invoices', { businessUnitId, taskId, allStatus: 1, page, limit: 100 });
-    const items = body?.items || [];
+    const items = itemsOf(body);
     invoices.push(...items);
     if (items.length < 100) break;
   }
@@ -311,7 +317,7 @@ export async function getCustomFieldValues(zone, id, fieldNames) {
   }
   const names = Array.isArray(fieldNames) ? fieldNames : [fieldNames];
   const found = new Map();
-  for (const item of body?.items || []) {
+  for (const item of itemsOf(body)) {
     const entries = Array.isArray(item.fields) ? item.fields : [item];
     for (const entry of entries) {
       const name = String(entry.customField?.name || '').trim();
@@ -340,7 +346,7 @@ export async function getCustomFieldValue(zone, id, fieldName) {
 export async function listTaskLabours(taskId) {
   try {
     const body = await arofloGet(`/tasks/${encodeURIComponent(taskId)}/labours`, { limit: 100 });
-    return body?.items || [];
+    return itemsOf(body);
   } catch {
     return null;
   }
@@ -349,7 +355,7 @@ export async function listTaskLabours(taskId) {
 export async function listTaskSchedules(businessUnitId, taskId) {
   try {
     const body = await arofloGet('/schedules', { scheduleZone: 'TASK', zoneId: taskId, businessUnitId });
-    return body?.items || [];
+    return itemsOf(body);
   } catch {
     return null;
   }
@@ -371,7 +377,7 @@ async function listAllTaskTypes(businessUnitId, archived) {
     // eslint-disable-next-line no-await-in-loop
     const res = await arofloProbe('/types/tasks', { businessUnitId, archived: archived ? 'true' : undefined, page, limit: 100 }, label);
     if (!res.available) return res;
-    const pageItems = res.data?.items || [];
+    const pageItems = itemsOf(res.data);
     items.push(...pageItems);
     if (pageItems.length < 100) break;
   }
@@ -414,7 +420,7 @@ async function probeAllPages(params, label) {
     const res = await arofloProbe('/tasks', { ...params, page, limit: 100 }, label);
     if (!res.available) return { ...res, pagesFetched };
     pagesFetched += 1;
-    const pageItems = res.data?.items || [];
+    const pageItems = itemsOf(res.data);
     items.push(...pageItems);
     const n = Number(res.data?.count);
     if (Number.isFinite(n)) reported = n;
@@ -457,7 +463,7 @@ export async function probeSameNameClients(name) {
     // eslint-disable-next-line no-await-in-loop
     const res = await arofloProbe('/clients', { [param]: trimmed, limit: 100 }, label);
     if (res.available) {
-      return { tried: label, available: true, data: { items: (res.data?.items || []).map((c) => ({ id: c.id, archived: c.archived ?? c.isArchived ?? null })) } };
+      return { tried: label, available: true, data: { items: (itemsOf(res.data)).map((c) => ({ id: c.id, archived: c.archived ?? c.isArchived ?? null })) } };
     }
     last = { tried: label, available: false, status: res.status, errorText: cleanArofloError(res.detail) };
   }
@@ -498,7 +504,7 @@ export async function fetchAddressesForComparison(tasks, cap = ADDRESS_LOOKUP_CA
 export async function sampleLeadSourceOptions(businessUnitId, fieldNames, sampleSize = 10) {
   const list = await arofloProbe('/tasks', { businessUnitId, sortBy: 'jobnumber', ascending: 'false', page: 1, limit: 40, _fields: 'id,client' }, '/tasks (newest first)');
   if (!list.available) return { available: false, status: list.status, errorText: cleanArofloError(list.detail) };
-  const clientIds = [...new Set((list.data?.items || []).map((t) => t.client?.id).filter(Boolean))].slice(0, sampleSize);
+  const clientIds = [...new Set((itemsOf(list.data)).map((t) => t.client?.id).filter(Boolean))].slice(0, sampleSize);
   const wanted = fieldNames.map((n) => n.toLowerCase());
   const fields = new Map();
   let customersRead = 0;
@@ -507,7 +513,7 @@ export async function sampleLeadSourceOptions(businessUnitId, fieldNames, sample
     const res = await arofloProbe(`/customfields/CLIENTS/${encodeURIComponent(id)}`, {}, '/customfields/CLIENTS/{clientId}');
     if (!res.available) continue;
     customersRead += 1;
-    for (const item of res.data?.items || []) {
+    for (const item of itemsOf(res.data)) {
       for (const e of Array.isArray(item.fields) ? item.fields : [item]) {
         const name = String(e.customField?.name || '').trim();
         if (!wanted.includes(name.toLowerCase())) continue;

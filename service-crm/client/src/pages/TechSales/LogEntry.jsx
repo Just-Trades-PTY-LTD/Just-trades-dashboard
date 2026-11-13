@@ -13,6 +13,7 @@ import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, p
 import { prefillConfirmation, invoiceChoices, scheduleApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { useUnsavedChangesTracker } from '../../lib/unsavedChanges.js';
+import { textOnly } from '../../lib/textFields.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
 import { changeLead, switchNewJobKind, hasEnteredDetails, confirmMessage, NA } from '../../lib/leadTransitions.js';
 
@@ -30,14 +31,6 @@ const ENTRY_TYPES = [
   ['pending_cancellation', 'Pending Cancellation'],
 ];
 const LEAD_OPTIONS = ['Qualified', 'Not Qualified'];
-const TEXT_FIELDS = ['jobNumber', 'newJobNumber', 'invoiceNumber', 'invoiceDate', 'visitDate', 'installDate', 'dateLogged', 'comments', 'suburb'];
-// Text fields always hold text — a number from AroFlo (e.g. invoice 2300) is
-// turned into "2300" so the form never breaks on it.
-function textOnly(p) {
-  const clean = { ...p };
-  for (const k of TEXT_FIELDS) if (typeof clean[k] === 'number') clean[k] = String(clean[k]);
-  return clean;
-}
 const WORK_COMPLETION_OPTIONS = ['Completed on this visit', 'Install scheduled — different day'];
 
 function emptyForm(kind) {
