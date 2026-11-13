@@ -116,6 +116,15 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use(technicianGate);
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
+  // A screen that crashed in a signed-in browser reports the error text here
+  // so it shows in the server log. Logged only — nothing is stored.
+  app.post('/api/client-error', (req, res) => {
+    if (!req.user) return res.status(401).end();
+    const clip = (v, n) => String(v ?? '').replace(/\s+/g, ' ').slice(0, n);
+    const b = req.body || {};
+    console.error(`[client-error] user=${req.user.id} screen=${clip(b.screen, 40)} message=${clip(b.message, 500)} stack=${clip(b.stack, 1500)} component=${clip(b.componentStack, 1500)}`);
+    res.status(204).end();
+  });
   app.use('/api/auth', createAuthRouter());
   app.use('/api/users', createUsersRouter());
   app.use('/api/settings', createSettingsRouter());

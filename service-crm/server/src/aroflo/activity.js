@@ -35,8 +35,11 @@ export function toLocalDateTime(value) {
   return m ? { date: m[1], time: m[2] || '' } : { date: '', time: '' };
 }
 
+// Only plain text is passed on — AroFlo sometimes nests values as objects.
+const asText = (v) => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+
 function personName(person) {
-  return [person?.givenName, person?.familyName].filter(Boolean).join(' ').trim();
+  return [asText(person?.givenName), asText(person?.familyName)].filter(Boolean).join(' ').trim();
 }
 
 function toHours(value) {
@@ -54,8 +57,8 @@ export function summarizeLabour(items) {
       const finish = toLocalDateTime(item.finishTime);
       return {
         technician: personName(item.user),
-        position: item.user?.position || '',
-        date: (item.date || '').slice(0, 10) || start.date,
+        position: asText(item.user?.position) || asText(item.user?.position?.name),
+        date: asText(item.date).slice(0, 10) || start.date,
         start: start.time,
         finish: finish.time,
         hours: toHours(item.hours),
@@ -72,7 +75,7 @@ export function summarizeVisits(items) {
       const finish = toLocalDateTime(item.endTime);
       return {
         technician: personName(item.resource),
-        position: item.resource?.position || '',
+        position: asText(item.resource?.position) || asText(item.resource?.position?.name),
         date: start.date,
         start: start.time,
         finish: finish.time,

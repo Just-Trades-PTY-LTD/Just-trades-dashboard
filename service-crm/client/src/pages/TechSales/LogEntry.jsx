@@ -128,6 +128,10 @@ function fromEntry(entry) {
 // visit plus a separate install), so which entry is "the" visit or "the"
 // technician is left to staff, and AroFlo's own short names ("Ryan S") can't
 // be matched to the CRM's technicians safely.
+// AroFlo values shown as plain text only — anything else (e.g. a nested
+// object) shows as blank instead of breaking the screen.
+const text = (v) => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+
 function ActivityTable({ title, rows, emptyText }) {
   return (
     <div style={{ marginTop: 10 }}>
@@ -150,12 +154,12 @@ function ActivityTable({ title, rows, emptyText }) {
             {rows.map((r, i) => (
               <tr key={`${r.date}-${r.start}-${r.technician}-${i}`}>
                 <td>
-                  {r.technician || '—'}
-                  {r.position && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{r.position}</div>}
+                  {text(r.technician) || '—'}
+                  {text(r.position) && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{text(r.position)}</div>}
                 </td>
-                <td className="mono">{r.date || '—'}</td>
-                <td className="mono">{r.start ? `${r.start}${r.finish ? `–${r.finish}` : ''}` : '—'}</td>
-                <td className="mono">{r.hours ?? '—'}</td>
+                <td className="mono">{text(r.date) || '—'}</td>
+                <td className="mono">{text(r.start) ? `${text(r.start)}${text(r.finish) ? `–${text(r.finish)}` : ''}` : '—'}</td>
+                <td className="mono">{text(r.hours) || '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -1400,8 +1404,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
               )}
               {arofloView.schedule && (
                 <ArofloChoice buttonLabel="Use for install technician/date" onUse={applyArofloSchedule}>
-                  AroFlo shows a scheduled return visit: <strong>{arofloResult.scheduled.technicianName}</strong> on{' '}
-                  <strong>{arofloResult.scheduled.date}</strong>
+                  AroFlo shows a scheduled return visit: <strong>{text(arofloResult.scheduled.technicianName) || '—'}</strong> on{' '}
+                  <strong>{text(arofloResult.scheduled.date) || '—'}</strong>
                   {!arofloResult.scheduled.matchedTechnicianId && ' (no confident match to a technician on file — select one below)'}.
                 </ArofloChoice>
               )}
