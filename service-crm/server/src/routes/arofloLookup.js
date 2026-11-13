@@ -1,3 +1,4 @@
+import { asText, asTextOrNull, asMoney } from '../aroflo/values.js';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { all } from '../db/index.js';
@@ -30,7 +31,8 @@ import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
 // reported as `found: false` with a plain message rather than an HTTP error,
 // so a lookup problem never blocks manual entry on this form.
 
-function stripHtml(html) {
+function stripHtml(raw) {
+  const html = asText(raw);
   if (!html) return '';
   return html
     .replace(/<[^>]*>/g, ' ')
@@ -59,15 +61,16 @@ function matchTechnicianByName(arofloName) {
 // reliable to offer there (see the Stage 1 investigation). Requires both a
 // named resource and a date; either missing means nothing to suggest.
 function buildScheduled(task) {
-  if ((task.status || '').toUpperCase() !== 'PENDING') return null;
-  const resources = task.schedule?.resources || [];
-  const named = resources.find((r) => r && r.name);
+  if (asText(task.status).toUpperCase() !== 'PENDING') return null;
+  const resources = Array.isArray(task.schedule?.resources) ? task.schedule.resources : [];
+  const named = resources.find((r) => r && asText(r.name));
   if (!named) return null;
-  const date = (task.schedule.scheduleDate || task.schedule.startTime || '').slice(0, 10);
-  if (!date) return null;
+  const date = (asText(task.schedule.scheduleDate) || asText(task.schedule.startTime)).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const name = asText(named.name);
   return {
-    technicianName: named.name,
-    matchedTechnicianId: matchTechnicianByName(named.name),
+    technicianName: name,
+    matchedTechnicianId: matchTechnicianByName(name),
     date,
   };
 }
@@ -82,6 +85,17 @@ function recordedSaleLabel(invoiceNumber) {
   return { jobNumber: sale.job_number, kind: sale.source === 'quote_approved_later' ? 'Quote Approved Later' : 'Sale Made' };
 }
 
+// An unexpected error in an AroFlo lookup answers with a clear message
+// instead of leaving the screen waiting for ever (Express 4 doesn't catch
+// errors thrown in async handlers). Staff can still enter the job manually.
+function safe(handler) {
+  return (req, res, next) =>
+    Promise.resolve(handler(req, res, next)).catch((err) => {
+      console.error(`[aroflo-lookup] ${req.path} failed: ${err?.message || err}`);
+      if (!res.headersSent) res.status(502).json({ found: false, kind: 'unavailable', error: "AroFlo's answer couldn't be read — you can still enter this job manually.", message: "AroFlo's answer couldn't be read — you can still enter this job manually." });
+    });
+}
+
 export function createArofloLookupRouter() {
   const router = Router();
   router.use(requireAuth);
@@ -93,7 +107,7 @@ export function createArofloLookupRouter() {
   // requests to AroFlo and reads of the CRM only. Returns privacy-safe
   // results only (no address, phone or email); nothing is stored or logged,
   // and nothing on the form changes unless staff click "Use this".
-  router.get('/lead-history', async (req, res) => {
+  router.get('/lead-history', safe(async (req, res) => {
     const jn = (req.query.jn || '').trim();
     if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
     const started = Date.now();
@@ -120,7 +134,7 @@ export function createArofloLookupRouter() {
       if (err instanceof ArofloRequestError) return done({ found: false, kind: 'unavailable', message: 'AroFlo could not be reached for the customer history check.' });
       throw err;
     }
-  });
+  }));
 
   // Stage 5 — Calls & Contacts Pending Cancellation: the Job Number's
   // invoices, one entry per invoice (never combined): the CRM's recorded
@@ -128,7 +142,7 @@ export function createArofloLookupRouter() {
   // current value ex GST and status, plus any other cancellation already on
   // that invoice. Read-only: GET requests to AroFlo, SELECTs on the CRM.
   // AroFlo unavailable -> the CRM invoices alone, with a note.
-  router.get('/pending-cancellation-invoices', async (req, res) => {
+  router.get('/pending-cancellation-invoices', safe(async (req, res) => {
     const jn = (req.query.jn || '').trim();
     if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
     const pcId = Number(req.query.pendingCancellationId) || null;
@@ -141,11 +155,11 @@ export function createArofloLookupRouter() {
       if (!task) arofloNote = `No AroFlo job found for "${jn}" — only the CRM's invoices are shown.`;
       else {
         aroflo = (await getInvoicesForTask(businessUnit.id, task.id)).map((inv) => ({
-          id: inv.id || inv.invoiceId || '',
-          invoiceNumber: String(inv.invoiceNumber || '').trim(),
+          id: asText(inv.id) || asText(inv.invoiceId),
+          invoiceNumber: asText(inv.invoiceNumber),
           invoiceDate: toLocalDateTime(inv.invoicedDateTime).date,
-          valueExGst: inv.totalAmountEx ?? null,
-          status: inv.status || '',
+          valueExGst: asMoney(inv.totalAmountEx),
+          status: asText(inv.status),
         }));
       }
     } catch (err) {
@@ -177,9 +191,9 @@ export function createArofloLookupRouter() {
       };
     });
     res.json({ jobNumber: jn, invoices, arofloNote, capturedAt: new Date().toISOString() });
-  });
+  }));
 
-  router.get('/lookup', async (req, res) => {
+  router.get('/lookup', safe(async (req, res) => {
     const jn = (req.query.jn || '').trim();
     if (!jn) return res.status(400).json({ error: 'Please enter a job number.' });
 
@@ -212,14 +226,14 @@ export function createArofloLookupRouter() {
         activity = { labour: summarizeLabour(labours), visits: summarizeVisits(schedules) };
       }
 
-      const suburbAnswer = analyzeTaskSuburb({ location: detail.location, locationText: detail.locationText });
+      const suburbAnswer = analyzeTaskSuburb({ location: detail.location && typeof detail.location === 'object' ? detail.location : null, locationText: asText(detail.locationText) });
       res.json({
         found: true,
-        status: detail.status || '',
-        taskType: detail.taskType?.name || '',
+        status: asText(detail.status),
+        taskType: asText(detail.taskType?.name),
         // What that task type means for the forms: an admin mapping first,
         // then the exact-name fallback, else nothing (never guessed).
-        taskTypeMatch: resolveTaskType(detail.taskType?.name),
+        taskTypeMatch: resolveTaskType(asText(detail.taskType?.name)),
         description: stripHtml(detail.description),
         // null when no single confident match exists — the caller must
         // never fall back to guessing, same contract as every other
@@ -231,7 +245,7 @@ export function createArofloLookupRouter() {
         // suburb. Never stored, never the customer's postal address, and
         // never sent when a suburb was matched.
         addressForReference: suburbAnswer.suburb ? null : addressSummary(detail),
-        leadSource,
+        leadSource: asTextOrNull(leadSource),
         // The customer's AroFlo Lead Source value(s), resolved through the
         // admin mapping / exact name: one clear CRM Lead Source, unmapped
         // (reference only) or a conflict between the two AroFlo fields
@@ -240,20 +254,20 @@ export function createArofloLookupRouter() {
         invoices: invoices.map((inv) => ({
           // Always text: AroFlo sends invoice numbers as numbers, and the
           // form treats them as text (a number blanked the entry form).
-          invoiceNumber: inv.invoiceNumber === null || inv.invoiceNumber === undefined ? '' : String(inv.invoiceNumber).trim(),
+          invoiceNumber: asText(inv.invoiceNumber),
           // Adelaide calendar date: a UTC timestamp is converted, a plain
           // local one is read as-is (see toLocalDateTime).
           invoiceDate: toLocalDateTime(inv.invoicedDateTime).date,
           // This invoice's own total ex GST — never the task's sell total.
-          saleValueExGst: inv.totalAmountEx ?? 0,
-          status: inv.status || '',
+          saleValueExGst: asMoney(inv.totalAmountEx) ?? 0,
+          status: asText(inv.status),
           // AroFlo's invoice type (e.g. FINAL_INVOICE, SALES_INVOICE,
           // PART_INVOICE) — Stage 6 fills a separate Upsell invoice only from
           // a single final or sales invoice.
-          type: inv.type || '',
+          type: asText(inv.type),
           // Already recorded on a CRM sale (any job)? Then the forms never
           // fill it into another sale — it's listed with this label instead.
-          alreadyRecorded: recordedSaleLabel(inv.invoiceNumber),
+          alreadyRecorded: recordedSaleLabel(asText(inv.invoiceNumber)),
         })),
         scheduled: buildScheduled(detail),
         activity,
@@ -267,7 +281,7 @@ export function createArofloLookupRouter() {
       }
       throw err;
     }
-  });
+  }));
 
   return router;
 }

@@ -185,12 +185,10 @@ export function findReportingLeadCall(jobNumber) {
 }
 
 export function findDuplicateInvoice(invoiceNumber, excludeSaleId) {
-  const key = normKey(invoiceNumber);
+  const key = invoiceKey(invoiceNumber);
   if (!key) return null;
-  return get(
-    `SELECT * FROM sales WHERE archived = 0 AND lower(trim(invoice_number)) = ? AND id != ? LIMIT 1`,
-    [key, excludeSaleId || 0]
-  );
+  // "2181" and "2181.0" are the same invoice (see invoiceKey).
+  return all(`SELECT * FROM sales WHERE archived = 0 AND id != ? ORDER BY id`, [excludeSaleId || 0]).find((r) => invoiceKey(r.invoice_number) === key) || null;
 }
 
 /** An active Quote Approved Later sale already using this New Job Number, if
@@ -218,13 +216,13 @@ export function findDuplicateNewJobNumber(newJobNumber, excludeSaleId) {
  * routes/techSales.js). */
 export function findSaleForInvoice(jobNumber, invoiceNumber) {
   const jnKey = normKey(jobNumber);
-  const invKey = normKey(invoiceNumber);
+  const invKey = invoiceKey(invoiceNumber);
   if (!jnKey || !invKey) return null;
-  return get(
-    `SELECT * FROM sales
-     WHERE archived = 0 AND is_upsell = 0 AND lower(trim(job_number)) = ? AND lower(trim(invoice_number)) = ?
-     ORDER BY id DESC LIMIT 1`,
-    [jnKey, invKey]
+  // "2181" and "2181.0" are the same invoice (see invoiceKey).
+  return (
+    all(`SELECT * FROM sales WHERE archived = 0 AND is_upsell = 0 AND lower(trim(job_number)) = ? ORDER BY id DESC`, [jnKey]).find(
+      (r) => invoiceKey(r.invoice_number) === invKey
+    ) || null
   );
 }
 
@@ -236,14 +234,15 @@ export function findSaleForInvoice(jobNumber, invoiceNumber) {
  * for that job, are both legitimate and never blocked by this. */
 export function findDuplicateUpsell(jobNumber, invoiceNumber, creditedTechnicianId, excludeSaleId) {
   const jnKey = normKey(jobNumber);
-  const invKey = normKey(invoiceNumber);
+  const invKey = invoiceKey(invoiceNumber);
   if (!jnKey || !invKey || !creditedTechnicianId) return null;
-  return get(
-    `SELECT * FROM sales
-     WHERE archived = 0 AND is_upsell = 1 AND lower(trim(job_number)) = ? AND lower(trim(invoice_number)) = ?
-       AND credited_technician_id = ? AND id != ?
-     LIMIT 1`,
-    [jnKey, invKey, creditedTechnicianId, excludeSaleId || 0]
+  return (
+    all(
+      `SELECT * FROM sales
+       WHERE archived = 0 AND is_upsell = 1 AND lower(trim(job_number)) = ? AND credited_technician_id = ? AND id != ?
+       ORDER BY id`,
+      [jnKey, creditedTechnicianId, excludeSaleId || 0]
+    ).find((r) => invoiceKey(r.invoice_number) === invKey) || null
   );
 }
 
