@@ -1,3 +1,4 @@
+import NewVersionNotice from '../../components/NewVersionNotice.jsx';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { currentAdelaideWeek, DATE_RANGE_PRESETS, matchDateRangePreset, money } from '../../lib/dates.js';
@@ -54,6 +55,7 @@ export default function TechnicianApp({ user, logout }) {
   }
   return (
     <div className="app-shell">
+      <NewVersionNotice />
       <div className="app-header">
         <img src={logo} alt="Just Trades" className="app-logo" />
         <div className="app-header-right">

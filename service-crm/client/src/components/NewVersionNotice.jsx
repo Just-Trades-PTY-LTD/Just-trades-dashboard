@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { versionFromUrl, isNewerVersion, VERSION_CHECK_EVERY_MS, VERSION_CHECK_MIN_GAP_MS } from '../lib/appVersion.js';
-import { useHasUnsavedChanges, hasUnsavedChanges } from '../lib/unsavedChanges.js';
+import { useHasUnsavedChanges, hasUnsavedChanges, installUnsavedChangesTracking } from '../lib/unsavedChanges.js';
+
+installUnsavedChangesTracking();
 
 const RUNNING = versionFromUrl(import.meta.url);
 

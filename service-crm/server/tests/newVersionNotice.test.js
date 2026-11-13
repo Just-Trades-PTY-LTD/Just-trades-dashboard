@@ -42,3 +42,52 @@ test('GET /api/version answers without signing in', async () => {
     server.close();
   }
 });
+
+// App-wide unsaved-changes tracking, with stand-in form fields.
+import { isTrackable, installUnsavedChangesTracking, markAllSaved } from '../../client/src/lib/unsavedChanges.js';
+
+function fakeDoc() {
+  const handlers = {};
+  return { addEventListener: (ev, fn) => ((handlers[ev] = handlers[ev] || []).push(fn)), fire: (ev, target) => (handlers[ev] || []).forEach((fn) => fn({ target })) };
+}
+const field = (over = {}) => ({ tagName: 'INPUT', type: 'text', value: '', checked: false, isConnected: true, disabled: false, readOnly: false, closest: () => null, ...over });
+
+test('what counts: text, dropdowns, dates, checkboxes — not buttons, search boxes, disabled fields or marked filter areas', () => {
+  assert.equal(isTrackable(field()), true);
+  assert.equal(isTrackable(field({ tagName: 'TEXTAREA' })), true);
+  assert.equal(isTrackable(field({ tagName: 'SELECT' })), true);
+  assert.equal(isTrackable(field({ type: 'checkbox' })), true);
+  assert.equal(isTrackable(field({ type: 'submit' })), false);
+  assert.equal(isTrackable(field({ type: 'search' })), false);
+  assert.equal(isTrackable(field({ disabled: true })), false);
+  assert.equal(isTrackable(field({ closest: (sel) => (sel === '[data-unsaved-ignore]' ? {} : null) })), false, 'filters / reports');
+  assert.equal(isTrackable({ tagName: 'DIV' }), false);
+});
+
+test('any screen: a changed field is unsaved until a save succeeds; changing it back, or leaving the screen, clears it', () => {
+  const doc = fakeDoc();
+  installUnsavedChangesTracking(doc);
+  const note = field({ value: '' });
+  doc.fire('focusin', note);
+  note.value = 'Rang the customer';
+  doc.fire('input', note);
+  assert.equal(hasUnsavedChanges(), true);
+  note.value = '';
+  assert.equal(hasUnsavedChanges(), false, 'typed then removed: nothing unsaved');
+  note.value = 'Rang again';
+  doc.fire('input', note);
+  markAllSaved();
+  assert.equal(hasUnsavedChanges(), false, 'saved');
+  const box = field({ type: 'checkbox', checked: false });
+  doc.fire('pointerdown', box);
+  box.checked = true;
+  doc.fire('change', box);
+  assert.equal(hasUnsavedChanges(), true);
+  box.isConnected = false;
+  assert.equal(hasUnsavedChanges(), false, 'that screen was closed');
+  const filter = field({ closest: () => ({}) });
+  doc.fire('focusin', filter);
+  filter.value = '2742';
+  doc.fire('input', filter);
+  assert.equal(hasUnsavedChanges(), false, 'a filter never counts');
+});
