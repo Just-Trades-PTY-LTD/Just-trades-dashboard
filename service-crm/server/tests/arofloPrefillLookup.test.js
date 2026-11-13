@@ -55,3 +55,25 @@ test('the prefill lookup only reads from AroFlo, writes nothing to the CRM, uses
     server.close();
   }
 });
+
+test('an AroFlo invoice number sent as a number reaches the form as text (it blanked the entry form)', async () => {
+  const server = await startTestServer();
+  const original = global.fetch;
+  global.fetch = async (url, init) => {
+    const u = new URL(url);
+    if (u.origin !== 'http://mock.test') return original(url, init);
+    if (u.pathname === '/v2/businessunits') return json(200, { items: [{ id: 'BU-1' }] });
+    if (u.pathname === '/v2/tasks') return json(200, { items: u.searchParams.get('page') === '1' ? [{ id: 'T1', jobNumber: 2600 }] : [] });
+    if (u.pathname === '/v2/tasks/T1') return json(200, { id: 'T1', jobNumber: 2600, status: 'PENDING', taskType: { name: 'Hot Water' }, client: { id: 'C1' }, locationText: '' });
+    if (u.pathname === '/v2/invoices') return json(200, { items: [{ invoiceNumber: 2300, invoicedDateTime: '2026-11-13T00:00:00', totalAmountEx: 500, status: 'APPROVED' }] });
+    return json(200, { items: [] });
+  };
+  try {
+    await server.login();
+    const res = await server.request('GET', '/aroflo/lookup?jn=2600&activity=1');
+    assert.equal(res.data.invoices[0].invoiceNumber, '2300');
+  } finally {
+    global.fetch = original;
+    server.close();
+  }
+});
