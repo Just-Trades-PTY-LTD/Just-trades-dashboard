@@ -4,7 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { usePersistentFilters } from '../../lib/usePersistentFilters.js';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
-import { formatAuditChanges } from '../../lib/audit.js';
+import { formatHistoryEntry } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import ArchiveDialog from '../../components/ArchiveDialog.jsx';
@@ -776,7 +776,7 @@ export default function JobHistory({
                         <td colSpan={11} style={{ background: 'var(--surface-2)', fontSize: 12 }}>
                           {history.map((h) => (
                             <div key={h.id} style={{ padding: '6px 4px' }}>
-                              <strong>{h.at}</strong> — {h.by}: {formatAuditChanges(h.changes)}
+                              <strong>{h.at}</strong> — {h.by}: {formatHistoryEntry(h)}
                             </div>
                           ))}
                         </td>
