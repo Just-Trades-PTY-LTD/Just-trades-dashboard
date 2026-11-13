@@ -11,6 +11,7 @@ import FollowUpsPage from './pages/FollowUps/index.jsx';
 import ReviewsPage from './pages/Reviews/index.jsx';
 import TechnicianApp from './pages/Me/TechnicianApp.jsx';
 import logo from './assets/logo.png';
+import NewVersionNotice from './components/NewVersionNotice.jsx';
 
 const BASE_TABS = [
   ['home', 'Home'],
@@ -94,6 +95,7 @@ export default function App() {
 
   return (
     <SettingsProvider>
+      <NewVersionNotice />
       <div className={`app-shell${isWideHistoryView ? ' app-shell--wide' : ''}`}>
         <div className="app-header">
           <img src={logo} alt="Just Trades" className="app-logo" />

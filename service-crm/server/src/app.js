@@ -1,3 +1,4 @@
+import { getAppVersion } from './lib/appVersion.js';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -116,6 +117,9 @@ export function createApp({ dbPath, allowFreshInit } = {}) {
   app.use(technicianGate);
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
+  // The deployed CRM version, for the "new version available" notice.
+  // Public and read-only (just the build's script name).
+  app.get('/api/version', (req, res) => res.set('Cache-Control', 'no-store').json({ version: getAppVersion(CLIENT_DIST) }));
   app.use('/api/auth', createAuthRouter());
   app.use('/api/users', createUsersRouter());
   app.use('/api/settings', createSettingsRouter());

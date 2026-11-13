@@ -13,6 +13,7 @@ import { callLookupSummary, leadSourceDecision, planLeadCallFill, leadCallFillCo
 import { BASIS_OPTIONS, basisLabel, detailsToState, selectInvoice, lostValueGuidance, detailsPayload, money, creditedTechnicianPlan } from '../../lib/pendingCancellationForm.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { planCancellationFill, cancellationFillConfirmation } from '../../lib/cancellationFill.js';
+import { useUnsavedChangesTracker } from '../../lib/unsavedChanges.js';
 
 const CALL_TYPES = ['Lead', 'Not lead', 'Quote approved', 'Call back', 'Cancellation'];
 const CANCELLATION_TYPES = ['New Job Cancellation', 'Pending Cancellation'];
@@ -45,6 +46,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   const { user } = useAuth();
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm(user?.id));
+  // Staff edits not yet saved (for the "new version" reload warning).
+  const unsaved = useUnsavedChangesTracker('log-call');
   const [invalidFields, setInvalidFields] = useState(new Set());
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
@@ -74,6 +77,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   useEffect(() => {
     setInvalidFields(new Set());
+    unsaved.markClean();
     setArofloResult(null);
     historySeq.current += 1;
     setHistory(null);
@@ -120,6 +124,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   }
 
   function resetForm() {
+    unsaved.markClean();
     setForm(emptyForm(user?.id));
     setPc(detailsToState(null));
     setPcTouched(false);
@@ -450,7 +455,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }}>
+    <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }} onInputCapture={unsaved.markDirty} onChangeCapture={unsaved.markDirty}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600 }}>{editing ? 'Update call' : 'New call record'}</div>
         {!editing && (
