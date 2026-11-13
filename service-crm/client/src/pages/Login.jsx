@@ -23,7 +23,7 @@ export default function Login() {
   }
 
   return (
-    <div className="login-shell">
+    <div className="login-shell" data-unsaved-ignore>
       <form className="panel login-card" onSubmit={handleSubmit}>
         <img src={logo} alt="Just Trades" style={{ height: 44, marginBottom: 20 }} />
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Service CRM</div>

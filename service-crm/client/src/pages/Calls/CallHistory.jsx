@@ -194,7 +194,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
         )
       ) : (
         <>
-          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }} data-unsaved-ignore>
             <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
             <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
             <FilterSelect
@@ -231,7 +231,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
           </div>
 
           {advancedOpen && (
-            <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+            <div className="panel" style={{ padding: 16, marginBottom: 16 }} data-unsaved-ignore>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
               <div className="grid-form">
                 <FilterSelect label="Suburb" value={draft.suburb} onChange={(v) => setDraft((d) => ({ ...d, suburb: v }))} options={suburbOptions} />
@@ -303,6 +303,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                 <th>
                   {isAdmin && (
                     <input
+                      data-unsaved-ignore
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleSelectAll}
@@ -329,7 +330,7 @@ export default function CallHistory({ rows, loading, onEdit, onChanged, jumpToJN
                   <tr style={c.archived ? { opacity: 0.55 } : undefined}>
                     <td>
                       {isAdmin && !c.archived && (
-                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)} />
+                        <input type="checkbox" data-unsaved-ignore checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)} />
                       )}
                     </td>
                     <td className="mono">{(c.callAt || '').replace('T', ' ')}</td>

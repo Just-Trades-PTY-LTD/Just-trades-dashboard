@@ -16,7 +16,7 @@ export default function ReportsPage({
   jumpToJobId,
 }) {
   return (
-    <div>
+    <div data-unsaved-ignore>
       <SubTabs
         value={sub}
         onChange={setSub}

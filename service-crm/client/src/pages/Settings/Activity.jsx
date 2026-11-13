@@ -31,7 +31,7 @@ export default function Activity() {
   }
 
   return (
-    <div>
+    <div data-unsaved-ignore>
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         Every time a Call or Technician &amp; Sales record is created or edited, it's logged here — who did it, when, and what changed.
         Records created before this history existed won't show a "Created" entry, since that's not something that can be reconstructed

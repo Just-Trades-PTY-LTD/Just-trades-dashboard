@@ -13,6 +13,7 @@ import { prefillStep, revertPrefill, applyPrefill, planQuoteApprovedLaterFill, p
 import { prefillConfirmation, invoiceChoices, scheduleApplied, hasActivity } from '../../lib/arofloDisplay.js';
 import { leadCallStatus } from '../../lib/leadCallStatus.js';
 import { textOnly } from '../../lib/textFields.js';
+import { useUnsavedChangesTracker } from '../../lib/unsavedChanges.js';
 import { nextLookupFill } from '../../lib/lookupFill.js';
 import { changeLead, switchNewJobKind, hasEnteredDetails, confirmMessage, NA } from '../../lib/leadTransitions.js';
 
@@ -213,6 +214,8 @@ function ArofloChoice({ children, buttonLabel = 'Use this', onUse }) {
 export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, jumpToJN }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
+  // Staff edits not yet saved (for the "new version" reload warning).
+  const unsaved = useUnsavedChangesTracker('log-entry');
   const [invalidFields, setInvalidFields] = useState(new Set());
   // New Job only: the last "Look up in AroFlo" result, and what Suburb held
   // immediately before it was applied — purely so a conflicting call-based
@@ -267,6 +270,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     lookupFills.current = {};
     setArofloLoading(false);
     setForm(editing ? fromEntry(editing) : emptyForm());
+    unsaved.markClean();
     setInvalidFields(new Set());
     setArofloResult(null);
     setPriorSuburb('');
@@ -1017,6 +1021,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
       setNotice(notice, noticeIsError);
       onSaved();
       if (!editing) changeEntryType(form.kind, { force: true });
+      unsaved.markClean();
     } catch (err) {
       setNotice(err.message, true);
     } finally {
@@ -1032,7 +1037,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   }
 
   return (
-    <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }}>
+    <form onSubmit={handleSubmit} className="panel" style={{ padding: 22 }} onInputCapture={unsaved.markDirty} onChangeCapture={unsaved.markDirty}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 600 }}>{editing ? 'Update entry' : 'New entry'}</div>
       </div>

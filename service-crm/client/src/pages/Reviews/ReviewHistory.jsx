@@ -61,7 +61,7 @@ export default function ReviewHistory({ rows, loading, onEdit, embedded }) {
   return (
     <div>
       {!embedded && (
-        <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }} data-unsaved-ignore>
           <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
           <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
           <FilterSelect
