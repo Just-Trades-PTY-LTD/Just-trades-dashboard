@@ -12,6 +12,7 @@ import ReviewsPage from './pages/Reviews/index.jsx';
 import TechnicianApp from './pages/Me/TechnicianApp.jsx';
 import logo from './assets/logo.png';
 import NewVersionNotice from './components/NewVersionNotice.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 const BASE_TABS = [
   ['home', 'Home'],
@@ -117,6 +118,7 @@ export default function App() {
           ))}
         </div>
 
+        <ErrorBoundary key={activeModule} screen={activeModule}>
         {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} />}
         {activeModule === 'calls' && (
           <CallsPage
@@ -162,6 +164,7 @@ export default function App() {
           />
         )}
         {activeModule === 'settings' && isAdmin && <SettingsPage sub={nav.settings.sub} setSub={setSettingsSub} isAdmin={isAdmin} />}
+        </ErrorBoundary>
       </div>
     </SettingsProvider>
   );
