@@ -238,7 +238,9 @@ export function createArofloLookupRouter() {
         // (left for staff). A suggestion only on the call form.
         leadSourceMatch: resolveLeadSourceValues(leadSourceValues),
         invoices: invoices.map((inv) => ({
-          invoiceNumber: inv.invoiceNumber || '',
+          // Always text: AroFlo sends invoice numbers as numbers, and the
+          // form treats them as text (a number blanked the entry form).
+          invoiceNumber: inv.invoiceNumber === null || inv.invoiceNumber === undefined ? '' : String(inv.invoiceNumber).trim(),
           // Adelaide calendar date: a UTC timestamp is converted, a plain
           // local one is read as-is (see toLocalDateTime).
           invoiceDate: toLocalDateTime(inv.invoicedDateTime).date,

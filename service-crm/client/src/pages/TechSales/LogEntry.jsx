@@ -29,6 +29,14 @@ const ENTRY_TYPES = [
   ['pending_cancellation', 'Pending Cancellation'],
 ];
 const LEAD_OPTIONS = ['Qualified', 'Not Qualified'];
+const TEXT_FIELDS = ['jobNumber', 'newJobNumber', 'invoiceNumber', 'invoiceDate', 'visitDate', 'installDate', 'dateLogged', 'comments', 'suburb'];
+// Text fields always hold text — a number from AroFlo (e.g. invoice 2300) is
+// turned into "2300" so the form never breaks on it.
+function textOnly(p) {
+  const clean = { ...p };
+  for (const k of TEXT_FIELDS) if (typeof clean[k] === 'number') clean[k] = String(clean[k]);
+  return clean;
+}
 const WORK_COMPLETION_OPTIONS = ['Completed on this visit', 'Install scheduled — different day'];
 
 function emptyForm(kind) {
@@ -278,7 +286,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   }, [editing]);
 
   function patch(p) {
-    setForm((f) => ({ ...f, ...p }));
+    setForm((f) => ({ ...f, ...textOnly(p) }));
   }
 
   const isNewJob = form.kind === 'new_job_no_sale' || form.kind === 'new_job_sale_made';
@@ -332,8 +340,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   // suggestion against AroFlo's current total.
   const [upsellCrm, setUpsellCrm] = useState(null);
   useEffect(() => {
-    const jn = form.jobNumber.trim();
-    const inv = form.invoiceNumber.trim();
+    const jn = String(form.jobNumber ?? '').trim();
+    const inv = String(form.invoiceNumber ?? '').trim();
     if (!isUpsell || isSeparateUpsell || form.predatesCrm || !jn || !inv) {
       setUpsellCrm(null);
       return undefined;
@@ -525,7 +533,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
       setArofloAutoFilled(Object.keys(fill));
       // Re-checked inside the update against the very latest form, so text
       // typed into Comments while the lookup was running is never replaced.
-      setForm((f) => ({ ...f, ...arofloAutoFill({ result, form: f, applySuburb, editing: !!editing }) }));
+      setForm((f) => ({ ...f, ...textOnly(arofloAutoFill({ result, form: f, applySuburb, editing: !!editing })) }));
       // Pre-CRM Upsell: the original Job Number's AroFlo customer card Lead
       // Source (mapped) fills a blank Original job's Lead Source.
       if (kindAtStart === 'existing_job_upsell' && formRef.current.predatesCrm) {
@@ -540,7 +548,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         qalFilled.current = { jn, fields: filled };
         setQalPlan(plan);
         setArofloAutoFilled([...Object.keys(fill), ...Object.keys(filled)]);
-        if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+        if (Object.keys(changes).length) setForm((f) => ({ ...f, ...textOnly(changes) }));
       }
     } catch (err) {
       if (!stillApplies()) return;
@@ -583,7 +591,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     });
     arofloFilled.current = { jn, fields: filled };
     setArofloPlan({ ...plan, filled: Object.keys(filled) });
-    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...textOnly(changes) }));
   }
 
   // The New Job Number field changed: drop the previous lookup's
@@ -680,7 +688,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     const { patch: changes, filled } = applyPrefill(formRef.current, sepFilled.current.fields, plan.wanted, { invoiceDate: emptyForm().invoiceDate });
     sepFilled.current = { jn, fields: filled };
     setSepLookup({ jn, result, plan, filledNames: Object.keys(filled) });
-    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...changes }));
+    if (Object.keys(changes).length) setForm((f) => ({ ...f, ...textOnly(changes) }));
   }
   // A different separate Job Number (or switching back to the existing
   // invoice) takes back what the previous lookup filled, unless changed.
