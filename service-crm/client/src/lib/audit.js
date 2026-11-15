@@ -26,6 +26,13 @@ const LINK_LABELS = {
     ch.to ? `converted by Quote Approved Later sale #${ch.to}` : `no longer converted by Quote Approved Later sale #${ch.from}`,
 };
 
+/** One history entry as text: the server's readable wording (names looked
+ * up at display time) when present, else the raw field diff. */
+export function formatHistoryEntry(entry) {
+  if (Array.isArray(entry?.readable) && entry.readable.length) return entry.readable.join(', ');
+  return formatAuditChanges(entry?.changes);
+}
+
 export function formatAuditChanges(changes) {
   const entries = Object.entries(changes || {});
   if (!entries.length) return '—';
