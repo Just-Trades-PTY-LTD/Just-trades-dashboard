@@ -295,7 +295,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   // flagged (or required to explain) a knock-back.
   const isGenuineKnockback = form.kind === 'new_job_no_sale' && form.lead === 'Qualified';
   const knockbackReason = settings.lists.knockback_reason.find((r) => String(r.id) === String(form.knockbackReasonId));
-  const knockbackReasonIsOther = knockbackReason?.name === 'Other';
+  // Comments are required only by a reason's own "Requires comments" setting
+  // (Settings → Lists), never by its name.
+  const knockbackReasonNeedsComment = !!knockbackReason?.requiresComment;
+  const callBackReason = settings.lists.callback_reason.find((r) => String(r.id) === String(form.callBackReasonId));
   const isNotQualifiedNoSale = form.kind === 'new_job_no_sale' && form.lead === 'Not Qualified';
   const legacySaleMadeNotQualified = !!editing && isSaleMade && editing.lead === 'Not Qualified';
   // Same rule as the server (lib/leadRules.js): Lead can't be changed on a
@@ -823,8 +826,8 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         if (!form.knockbackReasonId) {
           missing.push('Reason for Knockback');
           fields.add('knockbackReasonId');
-        } else if (knockbackReasonIsOther && !form.comments.trim()) {
-          missing.push('Additional Comments (required when Reason for Knockback is "Other")');
+        } else if (knockbackReasonNeedsComment && !form.comments.trim()) {
+          missing.push(`Additional Comments (required for the reason "${knockbackReason.name}")`);
           fields.add('comments');
         }
       }
@@ -885,6 +888,10 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
       if (!form.jobNumber || !form.jobNumber.trim()) {
         missing.push('Original Job Number');
         fields.add('jobNumber');
+      }
+      if (callBackReason?.requiresComment && !form.comments.trim()) {
+        missing.push(`Additional Comments (required for the reason "${callBackReason.name}")`);
+        fields.add('comments');
       }
       if (!form.technicianId) {
         missing.push('Attending Technician');
@@ -1740,7 +1747,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
 
       <div style={{ marginTop: 14 }}>
         <TextAreaField
-          label={isGenuineKnockback && knockbackReasonIsOther ? 'Additional comments *' : 'Additional comments'}
+          label={(isGenuineKnockback && knockbackReasonNeedsComment) || (isCallBack && callBackReason?.requiresComment) ? 'Additional comments *' : 'Additional comments'}
           value={form.comments}
           onChange={(v) => patch({ comments: v })}
           invalid={invalidFields.has('comments')}

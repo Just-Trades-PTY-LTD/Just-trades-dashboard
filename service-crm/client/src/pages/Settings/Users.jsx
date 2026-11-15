@@ -7,6 +7,25 @@ function emptyForm() {
   return { name: '', email: '', password: '', role: 'staff' };
 }
 
+// What each account type can use — shown as a key and on every account.
+const TYPES = {
+  admin: { label: 'Admin', badge: 'badge-warn', access: 'Everything, including Settings and staff accounts.' },
+  staff: { label: 'Staff', badge: 'badge-success', access: 'Calls & Contacts, Technician & Sales, Follow-ups, Reviews and Reports. No Settings.' },
+  technician: { label: 'Technician', badge: 'badge-info', access: 'Only their own My Performance, My Reviews and My account.' },
+};
+
+function TypeBadge({ u }) {
+  const t = TYPES[u.accessType] || TYPES.staff;
+  const text = u.accessType === 'technician' ? `Technician — ${u.technicianName}` : t.label;
+  return (
+    <span className={`badge ${t.badge}`} title={t.access} data-testid="account-type">
+      {text}
+    </span>
+  );
+}
+
+const plainEmail = (u) => (u.emailReleased ? '(email released)' : u.email);
+
 export default function Users() {
   const { user: me } = useAuth();
   const { refresh: refreshSettings, technicians } = useSettings();
@@ -15,126 +34,236 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [showRemoved, setShowRemoved] = useState(false);
 
   function reload() {
     api.users.list().then(setUsers);
   }
   useEffect(reload, []);
 
+  async function act(fn, done) {
+    setError('');
+    setMessage('');
+    try {
+      await fn();
+      if (done) setMessage(done);
+      reload();
+      refreshSettings();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function createUser(e) {
     e.preventDefault();
-    setError('');
-    try {
+    await act(async () => {
       await api.users.create(form);
       setForm(emptyForm());
-      reload();
-      refreshSettings();
-    } catch (err) {
-      setError(err.message);
-    }
+    }, 'Account created.');
   }
 
-  async function toggleActive(u) {
-    setError('');
-    try {
-      await api.users.update(u.id, { active: !u.active });
-      reload();
-      refreshSettings();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
+  const toggleActive = (u) => act(() => api.users.update(u.id, { active: !u.active }), `${u.name} ${u.active ? 'deactivated' : 'reactivated'}.`);
 
-  async function toggleRole(u) {
-    await api.users.update(u.id, { role: u.role === 'admin' ? 'staff' : 'admin' });
-    reload();
+  function changeType(u, to) {
+    const t = TYPES[to];
+    const ok = window.confirm(
+      `Change ${u.name} from ${TYPES[u.role].label} to ${t.label}?\n\n${t.label}: ${t.access}\n\nTheir records and history stay exactly as they are.`
+    );
+    if (ok) act(() => api.users.update(u.id, { role: to }), `${u.name} is now ${t.label}.`);
   }
 
   async function resetPassword(u) {
     const password = window.prompt(`New password for ${u.name} (min 8 characters):`);
     if (!password) return;
-    try {
-      await api.users.update(u.id, { password });
-      window.alert('Password updated.');
-    } catch (err) {
-      window.alert(err.message);
-    }
+    act(() => api.users.update(u.id, { password }), `Password updated for ${u.name}.`);
   }
 
-  const activeAdminCount = users.filter((u) => u.role === 'admin' && u.active).length;
+  function remove(u) {
+    const ok = window.confirm(
+      `Remove ${u.name}?\n\n• They can't sign in while removed.\n• Their name stays on every record and in history.\n• Their email stays reserved.\n• You can restore the account later (Removed accounts).`
+    );
+    if (ok) act(() => api.users.remove(u.id), `${u.name} removed. Restore it any time under Removed accounts.`);
+  }
+
+  function restore(u) {
+    let email;
+    if (u.emailReleased) {
+      email = window.prompt(`${u.name}'s email was released. Enter an email to restore the account with:`);
+      if (!email) return;
+    } else if (!window.confirm(`Restore ${u.name}? It comes back inactive with the same account type — reactivate it when it's needed.`)) return;
+    act(() => api.users.restore(u.id, email), `${u.name} restored (still inactive).`);
+  }
+
+  function releaseEmail(u) {
+    const ok = window.confirm(
+      `Release ${u.email} so another account can use it?\n\n${u.name} stays removed and keeps all its records. Restoring it later will need a new email. The original email is kept in Settings Activity.`
+    );
+    if (ok) act(() => api.users.releaseEmail(u.id), `Email released from ${u.name}.`);
+  }
+
+  function deletePermanently(u) {
+    const typed = window.prompt(`Permanently delete ${u.name}? This can't be undone.\n\nIt isn't linked to any record. Type the account name to confirm:`);
+    if (typed === null) return;
+    act(() => api.users.deletePermanently(u.id, typed), `${u.name} was permanently deleted.`);
+  }
+
+  const activeAdminCount = users.filter((u) => u.role === 'admin' && u.active && !u.removed).length;
+  const nameCounts = users.reduce((m, u) => m.set(u.name.trim().toLowerCase(), (m.get(u.name.trim().toLowerCase()) || 0) + 1), new Map());
+  const current = users.filter((u) => !u.removed);
+  const groups = [
+    ['Administrators', current.filter((u) => u.active && u.accessType === 'admin')],
+    ['Staff', current.filter((u) => u.active && u.accessType === 'staff')],
+    ['Technicians', current.filter((u) => u.active && u.accessType === 'technician')],
+    ['Inactive', current.filter((u) => !u.active)],
+  ];
+  const removed = users.filter((u) => u.removed);
+
+  function Row({ u }) {
+    const isLastActiveAdmin = u.role === 'admin' && u.active && activeAdminCount <= 1;
+    const isTech = u.accessType === 'technician';
+    const duplicate = nameCounts.get(u.name.trim().toLowerCase()) > 1;
+    const linked = u.links?.total > 0;
+    return (
+      <div className="list-row" data-testid="account-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 6 }}>
+        <div style={{ opacity: u.active && !u.removed ? 1 : 0.65, minWidth: 220 }}>
+          <div style={{ fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong>{u.name}</strong> {u.id === me.id && <span style={{ color: 'var(--ink-muted)' }}>(you)</span>}
+            <TypeBadge u={u} />
+            {duplicate && (
+              <span className="badge" style={{ background: 'var(--surface-2)' }} title="Another account has the same name — check it isn't a duplicate">
+                Same name as another account
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{plainEmail(u)}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>
+            {(TYPES[u.accessType] || TYPES.staff).access}
+            {isTech && !u.technicianActive && <strong> Blocked while the technician record is inactive.</strong>}
+          </div>
+          {!u.active && (
+            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)' }}>{linked ? `Linked to ${u.links.text}.` : 'Not linked to any record.'}</div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {u.removed ? (
+            <>
+              <button className="btn btn-sm" type="button" onClick={() => restore(u)}>
+                Restore…
+              </button>
+              {!u.emailReleased && (
+                <button className="btn btn-sm" type="button" onClick={() => releaseEmail(u)}>
+                  Release email…
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {u.active && !isTech && u.role === 'staff' && (
+                <button className="btn btn-sm" type="button" onClick={() => changeType(u, 'admin')}>
+                  Change to Admin…
+                </button>
+              )}
+              {u.active && !isTech && u.role === 'admin' && (
+                <button
+                  className="btn btn-sm"
+                  type="button"
+                  disabled={u.id === me.id || isLastActiveAdmin}
+                  title={u.id === me.id ? "You can't change your own account type." : isLastActiveAdmin ? 'The last active administrator must stay Admin.' : undefined}
+                  onClick={() => changeType(u, 'staff')}
+                >
+                  Change to Staff…
+                </button>
+              )}
+              {u.active && !isTech && u.role === 'staff' && (
+                <button className="btn btn-sm" onClick={() => setAccess({ user: u, mode: 'link' })} type="button">
+                  Change to Technician…
+                </button>
+              )}
+              {isTech && (
+                <button className="btn btn-sm" onClick={() => setAccess({ user: u, mode: 'unlink' })} type="button">
+                  Change back to Staff…
+                </button>
+              )}
+              <button className="btn btn-sm" onClick={() => resetPassword(u)} type="button">
+                Reset password
+              </button>
+              <button
+                className="btn btn-sm"
+                disabled={u.id === me.id || isLastActiveAdmin}
+                title={u.id === me.id ? "You can't deactivate your own account." : isLastActiveAdmin ? "You can't deactivate the last active administrator account." : undefined}
+                onClick={() => toggleActive(u)}
+                type="button"
+              >
+                {u.active ? 'Deactivate' : 'Reactivate'}
+              </button>
+              {!u.active && u.id !== me.id && (
+                <button className="btn btn-sm" type="button" onClick={() => remove(u)}>
+                  Remove…
+                </button>
+              )}
+            </>
+          )}
+          {!u.active && u.id !== me.id && !linked && (
+            <button className="btn btn-sm btn-danger" type="button" onClick={() => deletePermanently(u)}>
+              Delete permanently…
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid-charts">
       <div className="panel" style={{ padding: 18 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>Staff accounts</div>
+        <div className="panel" style={{ padding: 10, marginBottom: 12, fontSize: 12 }} data-testid="account-type-key">
+          {Object.values(TYPES).map((t) => (
+            <div key={t.label} style={{ marginBottom: 3 }}>
+              <span className={`badge ${t.badge}`}>{t.label}</span> {t.access}
+            </div>
+          ))}
+          <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>
+            Changing type: Technician → Staff → Admin, one confirmed step at a time. Only Admins can change account types.
+          </div>
+        </div>
+        {message && <div className="notice panel" style={{ marginBottom: 10 }} role="status">{message}</div>}
         {error && <div className="notice error" style={{ marginBottom: 10 }}>{error}</div>}
         {users.some((u) => u.accessType === 'technician') && (
           <div style={{ marginBottom: 12 }}>
             <RollbackWarning />
           </div>
         )}
-        {users.map((u) => {
-          const isLastActiveAdmin = u.role === 'admin' && u.active && activeAdminCount <= 1;
-          return (
-            <div key={u.id} className="list-row" style={{ justifyContent: 'space-between' }}>
-              <div style={{ opacity: u.active ? 1 : 0.5 }}>
-                <div style={{ fontSize: 13.5 }}>
-                  {u.name} {u.id === me.id && <span style={{ color: 'var(--ink-muted)' }}>(you)</span>}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{u.email}</div>
+        {groups.map(([title, list]) =>
+          list.length ? (
+            <div key={title} style={{ marginBottom: 12 }} data-testid={`account-group-${title}`}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: 0.4, margin: '8px 0 2px' }}>
+                {title} ({list.length})
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                {u.active ? (
-                  <span className="badge badge-success">Active</span>
-                ) : (
-                  <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--ink-muted)' }}>
-                    Inactive
-                  </span>
-                )}
-                {u.accessType === 'technician' ? (
-                  <>
-                    <span className="badge badge-info" title="Can only see My Performance and My Reviews for this technician record">
-                      Technician — {u.technicianName}
-                      {u.technicianActive ? '' : ' (inactive — account blocked)'}
-                    </span>
-                    <button className="btn btn-sm" onClick={() => setAccess({ user: u, mode: 'unlink' })} type="button">
-                      Change back to Staff…
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="btn btn-sm" onClick={() => toggleRole(u)} type="button">
-                      {u.role === 'admin' ? 'Admin' : 'Staff'}
-                    </button>
-                    {u.role === 'staff' && (
-                      <button className="btn btn-sm" onClick={() => setAccess({ user: u, mode: 'link' })} type="button">
-                        Change to Technician…
-                      </button>
-                    )}
-                  </>
-                )}
-                <button className="btn btn-sm" onClick={() => resetPassword(u)} type="button">
-                  Reset password
-                </button>
-                <button
-                  className="btn btn-sm"
-                  disabled={u.id === me.id || isLastActiveAdmin}
-                  title={
-                    u.id === me.id
-                      ? "You can't deactivate your own account."
-                      : isLastActiveAdmin
-                      ? "You can't deactivate the last active administrator account."
-                      : undefined
-                  }
-                  onClick={() => toggleActive(u)}
-                  type="button"
-                >
-                  {u.active ? 'Deactivate' : 'Reactivate'}
-                </button>
-              </div>
+              {list.map((u) => (
+                <Row key={u.id} u={u} />
+              ))}
             </div>
-          );
-        })}
+          ) : null
+        )}
+        {removed.length > 0 && (
+          <div style={{ marginTop: 6 }} data-testid="removed-accounts">
+            <button className="btn btn-sm" type="button" aria-expanded={showRemoved} onClick={() => setShowRemoved((v) => !v)}>
+              {showRemoved ? 'Hide' : 'Show'} removed accounts ({removed.length})
+            </button>
+            {showRemoved && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginBottom: 4 }}>
+                  Removed accounts can't sign in. Their names stay on all their records and history, and their emails stay reserved.
+                </div>
+                {removed.map((u) => (
+                  <Row key={u.id} u={u} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {access && (
@@ -151,7 +280,6 @@ export default function Users() {
 
       <form className="panel" style={{ padding: 18 }} onSubmit={createUser}>
         <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>Add a staff account</div>
-        {error && <div className="notice error" style={{ marginBottom: 10 }}>{error}</div>}
         <div className="grid-form">
           <div className="field">
             <label>Name</label>
@@ -166,10 +294,10 @@ export default function Users() {
             <input type="text" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required minLength={8} />
           </div>
           <div className="field">
-            <label>Role</label>
+            <label>Account type</label>
             <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
+              <option value="staff">Staff — {TYPES.staff.access}</option>
+              <option value="admin">Admin — {TYPES.admin.access}</option>
             </select>
           </div>
         </div>

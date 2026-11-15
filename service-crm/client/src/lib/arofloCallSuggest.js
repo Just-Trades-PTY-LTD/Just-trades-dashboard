@@ -132,7 +132,10 @@ export function callLookupSummary(result, form, { trades, leadSources }) {
  * mapped source can't be accepted moments before Repeat customer appears.
  * Suggestions only — never applied on their own.
  */
-export function leadSourceDecision(leadSource, history, form, leadSources) {
+// `repeatCustomerId`: the Lead Source Settings uses for repeat customers (by
+// id, so it can be renamed). Without one, the single Lead Source named
+// "Repeat customer" is used, as before.
+export function leadSourceDecision(leadSource, history, form, leadSources, repeatCustomerId = null) {
   const original = leadSource?.arofloValue || '';
   if (!history) return { mode: 'normal', original };
   if (history.status === 'checking') return { mode: 'checking', original };
@@ -146,9 +149,10 @@ export function leadSourceDecision(leadSource, history, form, leadSources) {
   if (r.kind === 'no-earlier') return { mode: 'normal', original, occupant, warnings: r.warnings || [], historyConfirmed: true };
   if (r.kind === 'callback') return { mode: 'callback', original, reasons: r.reasons || [] };
   if (r.kind === 'repeat') {
-    const repeat = (leadSources || []).filter((l) => normName(l.name) === 'repeat customer');
+    const byId = repeatCustomerId ? (leadSources || []).filter((l) => same(l.id, repeatCustomerId)) : [];
+    const repeat = (byId.length ? byId : (leadSources || []).filter((l) => normName(l.name) === 'repeat customer')).filter((l) => !l.hidden);
     if (repeat.length !== 1) {
-      return { mode: 'uncertain', original, occupant, reasons: ['AroFlo history shows a returning customer, but there is no single "Repeat customer" Lead Source in Settings.'] };
+      return { mode: 'uncertain', original, occupant, reasons: ['AroFlo history shows a returning customer, but no Lead Source is set for repeat customers in Settings.'] };
     }
     return {
       mode: 'repeat',

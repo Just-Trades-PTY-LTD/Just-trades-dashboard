@@ -202,6 +202,25 @@ const MIGRATIONS = [
     id: 'pending_cancellations_stage4_fields',
     run: addPendingCancellationStage4Columns,
   },
+  {
+    // Lists, Trades, Job types and accounts: hide instead of remove, a
+    // per-reason "Requires comments" setting, and soft-removed accounts.
+    // Purely additive — every column starts empty (NULL = visible / not
+    // removed) or 0 (no reason requires comments), so no existing row's
+    // meaning changes. Each column is added only if missing.
+    id: 'settings_hide_remove_comments',
+    run(database) {
+      const add = (table, column, definition) => {
+        const have = database.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+        if (!have) database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      };
+      add('list_items', 'hidden_at', 'TEXT');
+      add('list_items', 'requires_comment', 'INTEGER NOT NULL DEFAULT 0');
+      add('trades', 'hidden_at', 'TEXT');
+      add('job_types', 'hidden_at', 'TEXT');
+      add('users', 'removed_at', 'TEXT');
+    },
+  },
 ];
 
 // One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;
@@ -212,6 +231,21 @@ const MIGRATIONS = [
 // blank) after this first ran. Never rewrite or remove an entry once it has
 // shipped, for the same reason as MIGRATIONS above.
 const ONE_TIME_MIGRATIONS = [
+  {
+    // Remember the "Repeat customer" Lead Source by its id, so it can be
+    // renamed without breaking callback / repeat-customer attribution. Saved
+    // only when exactly one Lead Source is named "Repeat customer"; otherwise
+    // nothing is saved and the CRM keeps finding it by name until an Admin
+    // chooses one in Settings. Writes one app_settings row — never a record.
+    id: 'repeat_customer_lead_source_setting',
+    run(database) {
+      const rows = database.prepare("SELECT id FROM list_items WHERE category = 'lead_source' AND lower(trim(name)) = 'repeat customer'").all();
+      if (rows.length !== 1) return;
+      database
+        .prepare("INSERT INTO app_settings (key, value) VALUES ('repeat_customer_lead_source_id', ?) ON CONFLICT(key) DO NOTHING")
+        .run(String(rows[0].id));
+    },
+  },
   {
     // Populates jobs.suburb from Calls & Contacts for jobs that already
     // existed when this feature shipped — see lookup.js's

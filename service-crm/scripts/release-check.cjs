@@ -171,7 +171,10 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1366, height: 1300 } });
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
-  page.on('dialog', (d) => d.accept());
+  // Confirmations are accepted; a prompt gets the answer the step set up
+  // (e.g. the account name to type before a permanent delete).
+  let promptAnswer = '';
+  page.on('dialog', (d) => (d.type() === 'prompt' ? d.accept(promptAnswer) : d.accept()));
   // A step that can't complete fails quickly instead of hanging the check.
   page.setDefaultTimeout(15000);
   const base = `http://localhost:${port}/`;
@@ -355,7 +358,127 @@ async function main() {
       record(`${label} — saved`, counts() > n0, counts() > n0 ? '' : `not saved: ${notice}`);
     }
 
-    // 4. What was saved: Job and Invoice Numbers stored as text, no "2180.0".
+    // 4. Settings → Lists and Staff accounts (only on this throwaway copy).
+    const settingsStep = async (name, fn) => {
+      try {
+        const detail = await fn();
+        if (!(await check(`Settings: ${name}`))) return;
+        if (detail) record(`Settings: ${name} — result`, detail.ok, detail.text || '');
+      } catch (err) {
+        await page.screenshot({ path: path.join(WORK, `settings-${name.replace(/\W+/g, '-')}.png`), fullPage: true });
+        record(`Settings: ${name}`, false, err.message.split('\n')[0]);
+      }
+    };
+    const openLists = async (section) => {
+      await tab('Settings').click();
+      await page.waitForTimeout(500);
+      await page.locator('.subtabs button').filter({ hasText: /^Lists$/ }).first().click();
+      await page.waitForTimeout(800);
+      // Sections start open; nothing to click.
+      void section;
+    };
+    const target = query("SELECT id, name FROM list_items WHERE category='not_booked_reason' AND hidden_at IS NULL ORDER BY sort_order LIMIT 1")[0];
+    const renamed = `${target.name} (renamed)`;
+    await settingsStep('rename a list item', async () => {
+      await openLists('Not-booked reasons');
+      const box = page.locator(`input[aria-label="Name of ${target.name}"]`).first();
+      await box.fill(renamed);
+      await box.press('Enter');
+      await page.waitForTimeout(1200);
+      const row = query(`SELECT name FROM list_items WHERE id = ${target.id}`)[0];
+      return { ok: row.name === renamed, text: `stored name now "${row.name}" (same item)` };
+    });
+    await settingsStep('hide a list item', async () => {
+      const row = page.locator('[data-testid=settings-item]').filter({ has: page.locator(`input[aria-label="Name of ${renamed}"]`) }).first();
+      await row.getByRole('button', { name: 'Hide' }).click();
+      await page.waitForTimeout(1200);
+      const hidden = !!query(`SELECT hidden_at FROM list_items WHERE id = ${target.id}`)[0].hidden_at;
+      return { ok: hidden, text: hidden ? '' : 'not hidden' };
+    });
+    await settingsStep('hidden item not offered on a new call', async () => {
+      await tab('Calls & Contacts').click();
+      await page.waitForTimeout(500);
+      await page.locator('.subtabs button').first().click();
+      await page.waitForTimeout(500);
+      await field('Call type *').locator('select').selectOption('Lead');
+      await field('Booked? *').locator('select').selectOption('No');
+      await page.waitForTimeout(300);
+      const opts = await field("Why wasn't it booked?").locator('option').allInnerTexts();
+      return { ok: !opts.some((o) => o.startsWith(renamed)), text: opts.some((o) => o.startsWith(renamed)) ? 'hidden item still offered' : '' };
+    });
+    await settingsStep('show the item again', async () => {
+      await openLists('Not-booked reasons');
+      await page.getByRole('button', { name: /Show hidden items/ }).first().click();
+      await page.waitForTimeout(300);
+      await page.locator('[data-testid=settings-hidden-item]').filter({ hasText: renamed }).getByRole('button', { name: 'Show again' }).click();
+      await page.waitForTimeout(1200);
+      const hidden = !!query(`SELECT hidden_at FROM list_items WHERE id = ${target.id}`)[0].hidden_at;
+      return { ok: !hidden, text: hidden ? 'still hidden' : '' };
+    });
+    await settingsStep('remove a used item is refused with a clear message', async () => {
+      const used = query("SELECT l.id, l.name FROM list_items l WHERE l.category='lead_source' AND l.hidden_at IS NULL AND EXISTS (SELECT 1 FROM calls c WHERE c.lead_source_id = l.id) ORDER BY l.id LIMIT 1")[0];
+      await openLists('Lead sources');
+      const row = page.locator('[data-testid=settings-item]').filter({ has: page.locator(`input[aria-label="Name of ${used.name}"]`) }).first();
+      const disabled = await row.getByRole('button', { name: 'Remove' }).isDisabled();
+      return { ok: disabled && !!query(`SELECT id FROM list_items WHERE id = ${used.id}`)[0], text: disabled ? '' : 'Remove was offered for a used item' };
+    });
+    const openAccounts = async () => {
+      await tab('Settings').click();
+      await page.waitForTimeout(500);
+      await page.locator('.subtabs button').filter({ hasText: /^Staff accounts$/ }).first().click();
+      await page.waitForTimeout(800);
+    };
+    const accountRow = (name) => page.locator('[data-testid=account-row]').filter({ has: page.locator('strong', { hasText: new RegExp(`^${name}$`) }) });
+    const linked = query("SELECT u.id, u.name FROM users u WHERE u.active = 0 AND u.removed_at IS NULL AND (EXISTS (SELECT 1 FROM calls c WHERE c.created_by_user_id = u.id) OR EXISTS (SELECT 1 FROM audit_log a WHERE a.changed_by_user_id = u.id)) ORDER BY u.id LIMIT 1")[0];
+    if (linked) {
+      await settingsStep(`remove linked account ${linked.name}`, async () => {
+        await openAccounts();
+        await accountRow(linked.name).first().getByRole('button', { name: 'Remove…' }).click();
+        await page.waitForTimeout(1200);
+        const r = query(`SELECT removed_at FROM users WHERE id = ${linked.id}`)[0];
+        const refs = query(`SELECT COUNT(*) n FROM calls WHERE created_by_user_id = ${linked.id} OR handled_by_user_id = ${linked.id}`)[0].n;
+        return { ok: !!r.removed_at && refs > 0, text: `removed; still linked to ${refs} calls` };
+      });
+      await settingsStep(`restore account ${linked.name}`, async () => {
+        await page.getByRole('button', { name: /Show removed accounts/ }).click();
+        await page.waitForTimeout(300);
+        await accountRow(linked.name).first().getByRole('button', { name: 'Restore…' }).click();
+        await page.waitForTimeout(1200);
+        const r = query(`SELECT removed_at, active FROM users WHERE id = ${linked.id}`)[0];
+        return { ok: !r.removed_at && r.active === 0, text: 'restored, still inactive' };
+      });
+    }
+    const unlinked = query("SELECT u.id, u.name FROM users u WHERE u.active = 0 AND u.removed_at IS NULL AND u.email NOT LIKE 'release-check%' AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.created_by_user_id = u.id OR c.handled_by_user_id = u.id) AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.changed_by_user_id = u.id) AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.created_by_user_id = u.id) AND NOT EXISTS (SELECT 1 FROM sales s WHERE s.created_by_user_id = u.id) ORDER BY u.id LIMIT 1")[0];
+    if (unlinked) {
+      await settingsStep(`permanently delete unlinked account ${unlinked.name} (#${unlinked.id})`, async () => {
+        await openAccounts();
+        promptAnswer = unlinked.name;
+        const rows = accountRow(unlinked.name);
+        const n = await rows.count();
+        for (let i = 0; i < n; i++) {
+          const btn = rows.nth(i).getByRole('button', { name: 'Delete permanently…' });
+          if (await btn.count()) {
+            await btn.click();
+            break;
+          }
+        }
+        await page.waitForTimeout(1200);
+        promptAnswer = '';
+        const gone = !query(`SELECT id FROM users WHERE id = ${unlinked.id}`)[0];
+        return { ok: gone, text: gone ? 'deleted; recorded in Settings Activity' : 'still there' };
+      });
+    }
+    await settingsStep('Settings Activity lists the changes', async () => {
+      await tab('Settings').click();
+      await page.waitForTimeout(400);
+      await page.locator('.subtabs button').filter({ hasText: /^Activity history$/ }).first().click();
+      await page.waitForTimeout(1200);
+      const text = await page.getByTestId('settings-activity').innerText();
+      const okText = /Renamed/.test(text) && /Hidden/.test(text) && /Shown again/.test(text);
+      return { ok: okText, text: okText ? '' : 'missing entries' };
+    });
+
+    // 5. What was saved: Job and Invoice Numbers stored as text, no "2180.0".
     const bad = query(
       `SELECT 'call' t, id, job_number v FROM calls WHERE id > ${before.maxCall} AND (typeof(job_number) <> 'text' OR job_number LIKE '%.0')
        UNION ALL SELECT 'job', id, job_number FROM jobs WHERE id > ${before.maxJob} AND (typeof(job_number) <> 'text' OR job_number LIKE '%.0')

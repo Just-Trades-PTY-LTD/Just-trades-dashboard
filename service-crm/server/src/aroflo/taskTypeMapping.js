@@ -32,9 +32,11 @@ export function normName(v) {
 }
 
 function crmTrades() {
-  return all('SELECT id, name FROM trades ORDER BY sort_order').map((t) => ({
-    ...t,
-    jobTypes: all('SELECT id, name FROM job_types WHERE trade_id = ? ORDER BY sort_order', [t.id]),
+  return all('SELECT id, name, hidden_at FROM trades ORDER BY sort_order').map((t) => ({
+    id: t.id,
+    name: t.name,
+    hidden: !!t.hidden_at,
+    jobTypes: all('SELECT id, name, hidden_at FROM job_types WHERE trade_id = ? ORDER BY sort_order', [t.id]).map((j) => ({ id: j.id, name: j.name, hidden: !!j.hidden_at || !!t.hidden_at })),
   }));
 }
 
@@ -105,7 +107,7 @@ function resolveStored(m, trades) {
     if (!jt) return { ...m, broken: `its Job type no longer exists under ${trade.name}` };
     return { ...m, tradeName: trade.name, jobTypeName: jt.name };
   }
-  const choices = (m.choiceJobTypeIds || []).map((id) => trade.jobTypes.find((j) => j.id === Number(id))).filter(Boolean);
+  const choices = (m.choiceJobTypeIds || []).map((id) => trade.jobTypes.find((j) => j.id === Number(id))).filter((j) => j && !j.hidden);
   if (choices.length < 2) return { ...m, broken: `fewer than two of its Job type choices still exist under ${trade.name}` };
   return { ...m, tradeName: trade.name, choices: choices.map((j) => ({ jobTypeId: j.id, name: j.name })) };
 }
@@ -122,6 +124,7 @@ function exactNameMatch(taskType, trades) {
   const matches = [];
   for (const t of trades) {
     for (const jt of t.jobTypes) {
+      if (jt.hidden) continue;
       if (normName(jt.name) === key || normName(`${t.name} ${jt.name}`) === key) matches.push({ trade: t, jt });
     }
   }
@@ -141,6 +144,12 @@ export function resolveTaskType(taskType) {
   const stored = readMappings().find((m) => normName(m.arofloTaskType) === normName(name));
   if (stored) {
     const m = resolveStored(stored, trades);
+    // A mapping to a hidden Trade or Job type is treated as no match.
+    const trade = trades.find((t) => t.id === Number(m.tradeId));
+    const hiddenTarget =
+      m.kind !== 'callback' &&
+      (trade?.hidden || (m.kind === 'full' && trade?.jobTypes.find((j) => j.id === Number(m.jobTypeId))?.hidden));
+    if (hiddenTarget) return none;
     if (!m.broken) {
       if (m.kind === 'callback') return { ...none, kind: 'callback', source: 'mapping' };
       if (m.kind === 'full') {

@@ -4,6 +4,7 @@ import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { formatAuditChanges } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import SettingsActivity from './SettingsActivity.jsx';
 
 const ENTITY_TYPES = [
   { id: 'call', name: 'Call' },
@@ -87,6 +88,7 @@ export default function Activity() {
           </table>
         )}
       </div>
+      <SettingsActivity />
     </div>
   );
 }

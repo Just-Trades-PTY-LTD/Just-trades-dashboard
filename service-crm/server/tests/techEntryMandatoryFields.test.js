@@ -208,40 +208,39 @@ test('an unqualified no-sale job is never counted as a knock-back to convert, ev
   }
 });
 
-test('Reason for Knockback "Other" requires a brief Additional Comments explanation; every other reason (including "Unknown/not provided") does not', async () => {
+test('comments are required only by the reason\u2019s own Requires comments setting, never by its name (Other included)', async () => {
   const server = await startTestServer();
   try {
     const { tech, plumbing } = await setup(server);
     const bundle = (await server.request('GET', '/settings/bundle')).data;
-    const otherReasonId = bundle.lists.knockback_reason.find((r) => r.name === 'Other').id;
-    const unknownReasonId = bundle.lists.knockback_reason.find((r) => r.name === 'Unknown/not provided').id;
+    const other = bundle.lists.knockback_reason.find((r) => r.name === 'Other');
+    const unknown = bundle.lists.knockback_reason.find((r) => r.name === 'Unknown/not provided');
+    assert.equal(other.requiresComment, false, 'every reason starts with "Requires comments" off');
 
+    // Named "Other", setting off: no comment needed (the old name rule is gone).
     const otherNoComments = await server.request(
       'POST',
       '/tech/new-job',
-      validNewJobBody(tech, plumbing, { jobNumber: 'JN-OTHER-1', lead: 'Qualified', knockbackReasonId: otherReasonId, comments: '' })
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-OTHER-1', lead: 'Qualified', knockbackReasonId: other.id, comments: '' })
     );
-    assert.equal(otherNoComments.status, 400);
-    assert.match(otherNoComments.data.error, /Additional Comments/);
+    assert.equal(otherNoComments.status, 201, JSON.stringify(otherNoComments.data));
 
-    const otherWithComments = await server.request(
-      'POST',
-      '/tech/new-job',
-      validNewJobBody(tech, plumbing, {
-        jobNumber: 'JN-OTHER-2',
-        lead: 'Qualified',
-        knockbackReasonId: otherReasonId,
-        comments: 'Customer moved interstate before the job could proceed.',
-      })
-    );
-    assert.equal(otherWithComments.status, 201);
-
+    // An Admin turns the setting on for "Unknown/not provided": now it needs a comment.
+    const on = await server.request('PATCH', `/settings/list-items/${unknown.id}/requires-comment`, { requiresComment: true });
+    assert.equal(on.status, 200);
     const unknownNoComments = await server.request(
       'POST',
       '/tech/new-job',
-      validNewJobBody(tech, plumbing, { jobNumber: 'JN-UNKNOWN-1', lead: 'Qualified', knockbackReasonId: unknownReasonId, comments: '' })
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-UNKNOWN-1', lead: 'Qualified', knockbackReasonId: unknown.id, comments: '' })
     );
-    assert.equal(unknownNoComments.status, 201, '"Unknown/not provided" never requires Additional Comments');
+    assert.equal(unknownNoComments.status, 400);
+    assert.match(unknownNoComments.data.error, /requires one/);
+    const unknownWithComments = await server.request(
+      'POST',
+      '/tech/new-job',
+      validNewJobBody(tech, plumbing, { jobNumber: 'JN-UNKNOWN-2', lead: 'Qualified', knockbackReasonId: unknown.id, comments: 'Customer did not say.' })
+    );
+    assert.equal(unknownWithComments.status, 201);
   } finally {
     server.close();
   }

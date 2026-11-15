@@ -28,7 +28,13 @@ async function setup(server) {
   const ensure = async (tradeName, names) => {
     let t = b.trades.find((x) => x.name === tradeName);
     if (!t) t = { ...ok(await server.request('POST', '/settings/trades', { name: tradeName })), jobTypes: [] };
-    for (const n of names) if (!t.jobTypes.some((j) => j.name === n)) ok(await server.request('POST', `/settings/trades/${t.id}/job-types`, { name: n }));
+    for (const n of names) {
+      if (t.jobTypes.some((j) => j.name === n)) continue;
+      // Names are unique ignoring capitals: rename a seeded "Gas fitting" to "Gas Fitting".
+      const near = t.jobTypes.find((j) => j.name.toLowerCase() === n.toLowerCase());
+      if (near) ok(await server.request('PATCH', `/settings/job-types/${near.id}`, { name: n }));
+      else ok(await server.request('POST', `/settings/trades/${t.id}/job-types`, { name: n }));
+    }
   };
   await ensure('Heating & Cooling', ['Installation', 'Servicing', 'Faults']);
   await ensure('Plumbing', ['Gas Fitting', 'Burst Pipe', 'Hot Water']);

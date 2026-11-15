@@ -37,7 +37,15 @@ because the fake AroFlo used text. These checks exist so that can't recur:
   entry type and every Calls & Contacts call type with real Job Numbers from
   the backup, presses every "Use this", and fails on any blank page,
   "Something went wrong" screen, browser error, server error, or a Job/Invoice
-  Number saved as a number or "2180.0".
+  Number saved as a number or "2180.0". It also renames, hides and shows again
+  a list item (checking a hidden item isn't offered on a new call), checks
+  Remove is refused for a used item, removes and restores a linked account,
+  permanently deletes an unlinked inactive account, and checks Settings
+  Activity records it all.
+- **Any database change:** migrate a throwaway copy of the latest backup with
+  the new code (built with the live code first) and compare every table, Data
+  Health and the reports before and after; then open the migrated copy with
+  the previous code (rollback) and compare again.
 
 ## Rules for new code
 

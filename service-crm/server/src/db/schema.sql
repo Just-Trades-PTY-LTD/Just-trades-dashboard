@@ -426,3 +426,22 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoice_number ON sales (invoice_number);
 CREATE INDEX IF NOT EXISTS idx_call_backs_job_number ON call_backs (job_number);
 CREATE INDEX IF NOT EXISTS idx_pending_cancellations_job_number ON pending_cancellations (job_number);
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log (entity_type, entity_id);
+
+-- Settings & accounts Activity history (Lists, Trades, Job types, staff
+-- accounts, CRM settings). Separate from audit_log, whose record types are
+-- fixed. entity_id is a plain number (not a link) so deleting the item or
+-- account it describes is never blocked; entity_label and changed_by_name
+-- keep the names at the time. changed_by_user_id IS a link: an account with
+-- entries here counts as linked and can only be soft-removed.
+CREATE TABLE IF NOT EXISTS settings_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('list_item', 'trade', 'job_type', 'user', 'technician', 'setting')),
+  entity_id INTEGER,
+  entity_label TEXT NOT NULL,
+  action TEXT NOT NULL,
+  changes_json TEXT NOT NULL DEFAULT '{}',
+  changed_by_user_id INTEGER REFERENCES users(id),
+  changed_by_name TEXT NOT NULL,
+  changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_settings_activity_changed_at ON settings_activity(changed_at);
