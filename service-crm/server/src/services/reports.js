@@ -1,3 +1,4 @@
+import { repeatCustomerLeadSource } from './settingsCatalog.js';
 import { all } from '../db/index.js';
 import { mondayOf, utcToAdelaideDisplay } from '../lib/adelaideTime.js';
 import { classifyRating } from '../lib/reviewRating.js';
@@ -1151,9 +1152,10 @@ export const NO_BOOKED_LEAD_CALL = 'Unassigned (no booked Lead call)';
 
 // The "Repeat customer" Lead Source as it's set up in Settings (falls back to
 // the plain label, with no id, if it was ever renamed/removed).
+// Found by its id (Settings), so renaming it never splits callbacks from it.
 function repeatCustomerItem() {
-  const [item] = all("SELECT id, name FROM list_items WHERE category = 'lead_source' AND lower(trim(name)) = 'repeat customer'");
-  return { id: item?.id ?? null, name: item?.name || 'Repeat customer' };
+  const item = repeatCustomerLeadSource();
+  return { id: item.id, name: item.name };
 }
 
 // The one final Marketing Category attribution, shared by Sales by Marketing

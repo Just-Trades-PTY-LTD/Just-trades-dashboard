@@ -21,7 +21,7 @@ import { normName } from './taskTypeMapping.js';
 const KEY = 'aroflo_lead_source_mappings';
 
 function crmLeadSources() {
-  return all("SELECT id, name FROM list_items WHERE category = 'lead_source' ORDER BY sort_order");
+  return all("SELECT id, name, hidden_at FROM list_items WHERE category = 'lead_source' ORDER BY sort_order").map((s) => ({ id: s.id, name: s.name, hidden: !!s.hidden_at }));
 }
 
 export function readLeadSourceMappings() {
@@ -66,7 +66,8 @@ export function listLeadSourceMappingsForSettings() {
   const sources = crmLeadSources();
   return readLeadSourceMappings().map((m) => {
     const ls = sources.find((s) => s.id === Number(m.leadSourceId));
-    return ls ? { ...m, leadSourceName: ls.name } : { ...m, broken: 'its CRM Lead Source no longer exists' };
+    if (!ls) return { ...m, broken: 'its CRM Lead Source no longer exists' };
+    return ls.hidden ? { ...m, leadSourceName: ls.name, hidden: `${ls.name} is hidden in Settings, so this mapping isn't used` } : { ...m, leadSourceName: ls.name };
   });
 }
 
@@ -79,9 +80,10 @@ function resolveValue(value, mappings, sources) {
     const ls = sources.find((s) => s.id === Number(stored.leadSourceId));
     // A mapping whose Lead Source was deleted is ignored — never guessed,
     // and it doesn't fall back to a name match either.
-    return ls ? { leadSourceId: ls.id, label: ls.name, source: 'mapping' } : null;
+    // A mapping to a hidden Lead Source is treated as no match too.
+    return ls && !ls.hidden ? { leadSourceId: ls.id, label: ls.name, source: 'mapping' } : null;
   }
-  const exact = sources.filter((s) => normName(s.name) === key);
+  const exact = sources.filter((s) => !s.hidden && normName(s.name) === key);
   return exact.length === 1 ? { leadSourceId: exact[0].id, label: exact[0].name, source: 'exact name' } : null;
 }
 

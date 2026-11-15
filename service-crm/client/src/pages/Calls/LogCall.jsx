@@ -369,7 +369,7 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
       : null;
   const leadDecision =
     arofloSummary && arofloSummary.found
-      ? leadSourceDecision(arofloSummary.leadSource, history && history.jn === form.jobNumber.trim() ? history : null, form, settings.lists.lead_source)
+      ? leadSourceDecision(arofloSummary.leadSource, history && history.jn === form.jobNumber.trim() ? history : null, form, settings.lists.lead_source, settings.repeatCustomerLeadSourceId)
       : null;
 
   // A booked Lead call's AroFlo lookup / customer-history check is running

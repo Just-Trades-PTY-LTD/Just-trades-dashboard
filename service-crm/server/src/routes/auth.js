@@ -20,7 +20,7 @@ export function createAuthRouter() {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
     const user = get('SELECT * FROM users WHERE email = ?', [String(email).toLowerCase().trim()]);
-    if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
+    if (!user || !user.active || user.removed_at || !verifyPassword(password, user.password_hash)) {
       return res.status(401).json({ error: 'Incorrect email or password.' });
     }
     const token = newToken();

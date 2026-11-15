@@ -1,3 +1,4 @@
+import { recordItemGuard } from '../services/settingsCatalog.js';
 import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -349,7 +350,7 @@ export function createCallsRouter() {
     res.json(getHistory('call', req.params.id));
   });
 
-  router.post('/', (req, res) => {
+  router.post('/', recordItemGuard({ table: null, commentField: 'notes' }), (req, res) => {
     const b = req.body || {};
     // Contact Method and Call Type both start blank in the UI now and must
     // be chosen before saving — this is the backend backstop for that same
@@ -437,7 +438,7 @@ export function createCallsRouter() {
     res.status(201).json(toRow(get(`${SELECT_SQL} WHERE c.id = ?`, [lastInsertRowid])));
   });
 
-  router.patch('/:id', (req, res) => {
+  router.patch('/:id', recordItemGuard({ table: 'calls', commentField: 'notes' }), (req, res) => {
     const existing = get('SELECT * FROM calls WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Call not found.' });
     const b = req.body || {};

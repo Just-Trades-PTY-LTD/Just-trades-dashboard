@@ -46,6 +46,12 @@ export const api = {
     technicianPreview: (id, technicianId) => request('GET', `/users/${id}/technician-preview${qs({ technicianId })}`),
     linkTechnician: (id, technicianId) => request('POST', `/users/${id}/technician-link`, { technicianId, confirm: true }),
     unlinkTechnician: (id) => request('POST', `/users/${id}/technician-unlink`, { confirm: true }),
+    // Removed accounts: soft-remove, restore, release email; permanent delete
+    // only for an unlinked inactive account, confirmed by typing its name.
+    remove: (id) => request('POST', `/users/${id}/remove`, { confirm: true }),
+    restore: (id, email) => request('POST', `/users/${id}/restore`, { confirm: true, ...(email ? { email } : {}) }),
+    releaseEmail: (id) => request('POST', `/users/${id}/release-email`, { confirm: true }),
+    deletePermanently: (id, confirmName) => request('DELETE', `/users/${id}`, { confirmName }),
   },
   // Technician accounts only — always scoped by the server to the linked technician.
   me: {
@@ -73,6 +79,14 @@ export const api = {
     addListItem: (category, name) => request('POST', `/settings/lists/${category}`, { name }),
     updateListItem: (id, name) => request('PATCH', `/settings/list-items/${id}`, { name }),
     removeListItem: (id) => request('DELETE', `/settings/list-items/${id}`),
+    // Hide / show again (kept on saved records and in reports), comments rule,
+    // usage counts and the Repeat customer Lead Source.
+    setListItemHidden: (id, hidden) => request('PATCH', `/settings/list-items/${id}/hidden`, { hidden }),
+    setRequiresComment: (id, requiresComment) => request('PATCH', `/settings/list-items/${id}/requires-comment`, { requiresComment }),
+    setTradeHidden: (id, hidden) => request('PATCH', `/settings/trades/${id}/hidden`, { hidden }),
+    setJobTypeHidden: (id, hidden) => request('PATCH', `/settings/job-types/${id}/hidden`, { hidden }),
+    usage: () => request('GET', '/settings/usage'),
+    setRepeatCustomerLeadSource: (leadSourceId) => request('PUT', '/settings/repeat-customer-lead-source', { leadSourceId }),
     suburbs: (params) => request('GET', `/settings/suburbs${qs(params)}`),
     searchSuburbs: (q) => request('GET', `/settings/suburbs/search${qs({ q })}`),
     addSuburb: (name, postcode) => request('POST', '/settings/suburbs', { name, postcode }),
@@ -153,6 +167,7 @@ export const api = {
   },
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),
+    settingsActivity: (params) => request('GET', `/audit/settings-activity${qs(params)}`),
   },
   dataHealth: {
     run: () => request('GET', '/data-health'),

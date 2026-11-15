@@ -34,7 +34,7 @@ function addMissingUsers(backupUsers) {
   if (!Array.isArray(backupUsers)) return 0;
   let added = 0;
   const insert = prepare(
-    'INSERT INTO users (id, name, email, password_hash, role, active, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)'
+    'INSERT INTO users (id, name, email, password_hash, role, active, created_at, removed_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)'
   );
   backupUsers.forEach((u) => {
     const id = Number(u?.id);
@@ -48,7 +48,9 @@ function addMissingUsers(backupUsers) {
       freeEmail,
       hashPassword(crypto.randomBytes(24).toString('hex')),
       u.role === 'admin' ? 'admin' : 'staff',
-      u.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19)
+      u.created_at || new Date().toISOString().replace('T', ' ').slice(0, 19),
+      // A removed account comes back removed.
+      u.removed_at || null
     );
     added += 1;
   });

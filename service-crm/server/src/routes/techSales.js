@@ -1,3 +1,4 @@
+import { recordItemGuard } from '../services/settingsCatalog.js';
 import { Router } from 'express';
 import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -678,7 +679,7 @@ export function createTechSalesRouter() {
   });
 
   // ---- New Job (No Sale / Sale Made) ----
-  router.post('/new-job', (req, res) => {
+  router.post('/new-job', recordItemGuard({ table: null, commentField: 'comments' }), (req, res) => {
     const b = req.body || {};
     const isSaleMade = b.kind === 'new_job_sale_made';
 
@@ -744,10 +745,8 @@ export function createTechSalesRouter() {
       if (!b.knockbackReasonId) {
         return res.status(400).json({ error: 'Please select a Reason for Knockback before saving.' });
       }
-      const reason = get('SELECT name FROM list_items WHERE id = ?', [b.knockbackReasonId]);
-      if (reason?.name === 'Other' && !(b.comments || '').trim()) {
-        return res.status(400).json({ error: 'Please add a brief explanation in Additional Comments when Reason for Knockback is "Other".' });
-      }
+      // Whether comments are required is the reason's own "Requires
+      // comments" setting (see recordItemGuard), never its name.
     }
 
     let notice = null;
@@ -841,7 +840,7 @@ export function createTechSalesRouter() {
     res.status(201).json({ entry: jobToEntry(jobRow(result)), notice });
   });
 
-  router.patch('/new-job/:id', (req, res) => {
+  router.patch('/new-job/:id', recordItemGuard({ table: 'jobs', commentField: 'comments' }), (req, res) => {
     const existing = jobRow(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
@@ -964,7 +963,7 @@ export function createTechSalesRouter() {
   });
 
   // ---- Existing Job — Quote Approved Later ----
-  router.post('/quote-approved-later', (req, res) => {
+  router.post('/quote-approved-later', recordItemGuard({ table: null, commentField: 'comments' }), (req, res) => {
     const b = req.body || {};
     // Both JNs are required on every brand-new entry — Original Job Number
     // to locate/link the original visit (and drive technician/trade/job-type
@@ -1104,7 +1103,7 @@ export function createTechSalesRouter() {
     });
   });
 
-  router.patch('/quote-approved-later/:id', (req, res) => {
+  router.patch('/quote-approved-later/:id', recordItemGuard({ table: 'sales', commentField: 'comments' }), (req, res) => {
     // is_upsell = 0 so this route can never be used to edit an Upsell entry
     // (which shares the same `source` value) — see /existing-job-upsell/:id
     // below for that row's own edit route.
@@ -1236,7 +1235,7 @@ export function createTechSalesRouter() {
   // flow's "flip a knock-back to converted" behaviour (findConvertibleKnockback
   // is never called below) and must link against an invoice ALREADY on
   // record, not a freely-entered one.
-  router.post('/existing-job-upsell', (req, res) => {
+  router.post('/existing-job-upsell', recordItemGuard({ table: null, commentField: 'comments' }), (req, res) => {
     const b = req.body || {};
     // Lets an Upsell reference a job/invoice from before the CRM was in use,
     // which (by definition) has no matching jobs/sales row to find. Set
@@ -1390,7 +1389,7 @@ export function createTechSalesRouter() {
     res.status(201).json({ entry: saleToEntry(saleRow(saleId)) });
   });
 
-  router.patch('/existing-job-upsell/:id', (req, res) => {
+  router.patch('/existing-job-upsell/:id', recordItemGuard({ table: 'sales', commentField: 'comments' }), (req, res) => {
     const existing = get('SELECT * FROM sales WHERE id = ? AND is_upsell = 1', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};
@@ -1490,7 +1489,7 @@ export function createTechSalesRouter() {
   });
 
   // ---- Call Back ----
-  router.post('/call-backs', (req, res) => {
+  router.post('/call-backs', recordItemGuard({ table: null, commentField: 'comments' }), (req, res) => {
     const b = req.body || {};
     if (!b.jobNumber || !String(b.jobNumber).trim()) {
       return res.status(400).json({ error: 'Please enter the Original Job Number before saving.' });
@@ -1565,7 +1564,7 @@ export function createTechSalesRouter() {
     res.status(201).json({ entry: callBackToEntry(callBackRow(lastInsertRowid)) });
   });
 
-  router.patch('/call-backs/:id', (req, res) => {
+  router.patch('/call-backs/:id', recordItemGuard({ table: 'call_backs', commentField: 'comments' }), (req, res) => {
     const existing = get('SELECT * FROM call_backs WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Entry not found.' });
     const b = req.body || {};

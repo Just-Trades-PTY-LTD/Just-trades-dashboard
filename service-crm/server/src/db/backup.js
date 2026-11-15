@@ -25,7 +25,9 @@ export const BACKUP_TABLES = [
 
 // Backed up, but only replaced on restore when the backup file has them, so
 // restoring a backup made before they were included keeps current values.
-export const OPTIONAL_BACKUP_TABLES = ['app_settings'];
+// settings_activity: Settings & accounts Activity history — kept (not
+// cleared) when restoring an older backup that doesn't have it.
+export const OPTIONAL_BACKUP_TABLES = ['app_settings', 'settings_activity'];
 
 export function buildBackupPayload() {
   const backup = { exportedAt: new Date().toISOString(), tables: {} };
@@ -35,7 +37,7 @@ export function buildBackupPayload() {
   // Staff accounts WITHOUT password hashes — only so a restore onto a fresh
   // install can keep every record linked to the account that made it (see
   // db/restore.js). A restore never changes existing accounts.
-  backup.tables.users = all('SELECT id, name, email, role, active, created_at FROM users');
+  backup.tables.users = all('SELECT id, name, email, role, active, removed_at, created_at FROM users');
   return backup;
 }
 

@@ -11,8 +11,10 @@ export function currentSession(req) {
     run('DELETE FROM sessions WHERE token = ?', [token]);
     return null;
   }
-  const user = get('SELECT id, name, email, role, active FROM users WHERE id = ?', [session.user_id]);
-  if (!user || !user.active) return null;
+  const user = get('SELECT id, name, email, role, active, removed_at FROM users WHERE id = ?', [session.user_id]);
+  // A removed account can never use a session, even one left over.
+  if (!user || !user.active || user.removed_at) return null;
+  delete user.removed_at;
   return { token, user: withAccessType(user) };
 }
 

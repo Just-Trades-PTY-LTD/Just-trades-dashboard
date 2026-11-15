@@ -49,8 +49,12 @@ export function TextAreaField({ label, value, onChange, rows = 3, placeholder, i
 }
 
 // options: array of {id,name} OR array of plain strings.
-export function SelectField({ label, value, onChange, options, placeholder = '—', disabled, style, maxWidth, invalid }) {
-  const isObjectOptions = options.length > 0 && typeof options[0] === 'object';
+// An item hidden in Settings is never offered for new entries; a record that
+// already has it still shows it (marked "(hidden)") so it can be kept.
+const hiddenLabel = (o) => (o.hidden ? `${o.name} (hidden)` : o.name);
+export function SelectField({ label, value, onChange, options: allOptions, placeholder = '—', disabled, style, maxWidth, invalid }) {
+  const isObjectOptions = allOptions.length > 0 && typeof allOptions[0] === 'object';
+  const options = isObjectOptions ? allOptions.filter((o) => !o.hidden || String(o.id) === String(value ?? '')) : allOptions;
   return (
     <div className={`field${invalid ? ' invalid' : ''}`} style={{ maxWidth, ...style }}>
       {label && <label>{label}</label>}
@@ -59,7 +63,7 @@ export function SelectField({ label, value, onChange, options, placeholder = '�
         {options.map((o) =>
           isObjectOptions ? (
             <option key={o.id} value={o.id}>
-              {o.name}
+              {hiddenLabel(o)}
             </option>
           ) : (
             <option key={o} value={o}>
@@ -82,7 +86,7 @@ export function FilterSelect({ label, value, onChange, options }) {
         {options.map((o) =>
           isObjectOptions ? (
             <option key={o.id} value={o.id}>
-              {o.name}
+              {hiddenLabel(o)}
             </option>
           ) : (
             <option key={o} value={o}>

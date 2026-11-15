@@ -305,13 +305,18 @@ test('deactivating one of two active admins is allowed, and the resulting sole a
   }
 });
 
-test('there is no route to permanently delete a user account, and a direct request against it fails cleanly rather than with a raw 500', async () => {
+test('an account can only be permanently deleted when inactive, linked to nothing and confirmed by name — never with a raw 500', async () => {
   const server = await startTestServer();
   try {
     await server.login();
     const staff = (await server.request('POST', '/users', { name: 'Someone', email: 'someone@justtrades.au', password: 'password123', role: 'staff' })).data;
-    const res = await server.request('DELETE', `/users/${staff.id}`);
-    assert.ok(res.status === 404 || res.status === 405, `expected a clean 404/405, got ${res.status}`);
+    const active = await server.request('DELETE', `/users/${staff.id}`, { confirmName: 'Someone' });
+    assert.equal(active.status, 400, 'an active account is never deleted');
+    await server.request('PATCH', `/users/${staff.id}`, { active: false });
+    const noName = await server.request('DELETE', `/users/${staff.id}`, {});
+    assert.equal(noName.status, 400, 'the exact name must be typed');
+    const ok = await server.request('DELETE', `/users/${staff.id}`, { confirmName: 'Someone' });
+    assert.equal(ok.status, 200, JSON.stringify(ok.data));
   } finally {
     server.close();
   }
