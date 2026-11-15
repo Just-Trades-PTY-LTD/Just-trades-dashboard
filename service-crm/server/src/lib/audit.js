@@ -1,4 +1,5 @@
 import { all, get, run } from '../db/index.js';
+import { withReadableChanges } from './auditDisplay.js';
 
 /**
  * Compares `before` and `after` on the given fields and, if anything
@@ -29,12 +30,14 @@ export function getHistory(entityType, entityId) {
      ORDER BY a.changed_at DESC, a.id DESC`,
     [entityType, entityId]
   );
-  return rows.map((r) => ({
-    id: r.id,
-    at: r.changed_at,
-    by: r.changed_by || 'Unknown',
-    changes: JSON.parse(r.changes_json),
-  }));
+  return withReadableChanges(
+    rows.map((r) => ({
+      id: r.id,
+      at: r.changed_at,
+      by: r.changed_by || 'Unknown',
+      changes: JSON.parse(r.changes_json),
+    }))
+  );
 }
 
 export function getHistoryCounts(entityType, ids) {
@@ -176,7 +179,7 @@ export function listActivity({ from, to, userId, entityType, limit = 100, offset
 
   return {
     total,
-    rows: rows.map((r) => ({
+    rows: withReadableChanges(rows.map((r) => ({
       id: r.id,
       at: r.changed_at,
       by: r.changed_by || 'Unknown',
@@ -186,6 +189,6 @@ export function listActivity({ from, to, userId, entityType, limit = 100, offset
       entityId: r.entity_id,
       record: labelsByType[r.entity_type]?.[r.entity_id] || `${ENTITY_TYPE_LABELS[r.entity_type] || r.entity_type} #${r.entity_id} (deleted)`,
       changes: JSON.parse(r.changes_json),
-    })),
+    }))),
   };
 }

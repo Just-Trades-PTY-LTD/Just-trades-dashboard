@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useSettings } from '../../lib/SettingsContext.jsx';
 import { DateField, FilterSelect } from '../../components/Fields.jsx';
-import { formatAuditChanges } from '../../lib/audit.js';
+import { formatHistoryEntry } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 
 const ENTITY_TYPES = [
@@ -80,7 +80,7 @@ export default function Activity() {
                   </td>
                   <td>{r.entityTypeLabel}</td>
                   <td>{r.record}</td>
-                  <td style={{ fontSize: 12 }}>{formatAuditChanges(r.changes)}</td>
+                  <td style={{ fontSize: 12 }}>{formatHistoryEntry(r)}</td>
                 </tr>
               ))}
             </tbody>
