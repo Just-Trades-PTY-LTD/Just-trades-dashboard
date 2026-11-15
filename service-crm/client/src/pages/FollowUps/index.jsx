@@ -128,7 +128,7 @@ function CompletedList({ onOpen, q, setQ }) {
 
   return (
     <div>
-      <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+      <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, alignItems: 'flex-end' }} data-unsaved-ignore>
         <TextField label="Search" placeholder="Job number or suburb…" value={q} onChange={setQ} maxWidth={240} />
         <button className="btn" type="button" onClick={() => load(q)}>
           Search

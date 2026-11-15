@@ -57,6 +57,7 @@ export default function Suburbs({ refreshCount }) {
             setPage(1);
           }}
           placeholder="Filter by name or postcode…"
+          data-unsaved-ignore
         />
       </div>
 

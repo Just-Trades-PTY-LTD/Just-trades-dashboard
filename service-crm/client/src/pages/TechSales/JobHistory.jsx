@@ -423,7 +423,7 @@ export default function JobHistory({
         )
       ) : (
         <>
-          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div className="panel" style={{ padding: 16, marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }} data-unsaved-ignore>
             <DateField label="From" value={filters.from} onChange={(v) => patch({ from: v })} />
             <DateField label="To" value={filters.to} onChange={(v) => patch({ to: v })} />
             <FilterSelect
@@ -468,7 +468,7 @@ export default function JobHistory({
           </div>
 
           {advancedOpen && (
-            <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+            <div className="panel" style={{ padding: 16, marginBottom: 16 }} data-unsaved-ignore>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Advanced Filters</div>
               <div className="grid-form">
                 <TextField
@@ -607,6 +607,7 @@ export default function JobHistory({
                 <th>
                   {isAdmin && (
                     <input
+                      data-unsaved-ignore
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleSelectAll}
@@ -635,7 +636,7 @@ export default function JobHistory({
                     <tr style={e.archived ? { opacity: 0.55 } : undefined}>
                       <td>
                         {isAdmin && !e.archived && !e.managedByCall && (
-                          <input type="checkbox" checked={selectedKeys.has(key)} onChange={() => toggleSelected(key)} />
+                          <input type="checkbox" data-unsaved-ignore checked={selectedKeys.has(key)} onChange={() => toggleSelected(key)} />
                         )}
                       </td>
                       <td className="mono">{e.dateShown}</td>

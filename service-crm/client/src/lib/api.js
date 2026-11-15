@@ -1,3 +1,5 @@
+import { markAllSaved } from './unsavedChanges.js';
+
 async function request(method, path, body) {
   const res = await fetch(`/api${path}`, {
     method,
@@ -14,6 +16,8 @@ async function request(method, path, body) {
     err.data = data;
     throw err;
   }
+  // A save succeeded: what's on screen is now saved (reload notice).
+  if (method !== 'GET') markAllSaved();
   return data;
 }
 

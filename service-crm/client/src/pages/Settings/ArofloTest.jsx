@@ -134,7 +134,7 @@ export default function ArofloTest() {
   }
 
   return (
-    <div>
+    <div data-unsaved-ignore>
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         Stage 1 test only — looks up one AroFlo task by job number and shows what comes back. This makes no changes to AroFlo
         and no changes to this CRM's data; it's purely read-only, for checking the integration before it's built into the real
