@@ -84,7 +84,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // Technician view — DISPLAY ONLY. Technician accounts always get it; an
   // Admin can switch it on temporarily (toolbox meetings, screen sharing).
   // It hides Actual Knockbacks, Converted Later and Unqualified Jobs from the
-  // Summary figures and Actual Knockbacks from By technician, and labels
+  // Summary figures and the By technician table, and labels
   // Adjusted Knockbacks simply "Knockbacks". Never stored (resets on reload,
   // close or sign-out) and never changes filters, figures, calculations,
   // drill-downs, exports or saved layouts.
@@ -648,7 +648,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                     <th>Total Jobs</th>
                     <th>Qualified Jobs</th>
                     <th>Sales</th>
-                    <th title="Report logic only — see the note above">Converted Later</th>
+                    {!simplified && <th title="Report logic only — see the note above">Converted Later</th>}
                     {!simplified && <th title="Report logic only — see the note above">Actual Knockbacks</th>}
                     <th title={`Report logic only — see the note above. ${KB_TIP}`}>{KB}</th>
                     <th title={`Report logic only — see the note above. ${CONV_TIP}`}>Conversion %</th>
@@ -656,7 +656,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                     <th>Average Sale</th>
                     <th>Upsells</th>
                     <th>Upsell Value (ex GST)</th>
-                    <th>Unqualified Jobs</th>
+                    {!simplified && <th>Unqualified Jobs</th>}
                     <th>Call Backs</th>
                     <th>Pending Cancellations</th>
                     <th>Inspection Sheet %</th>
@@ -690,7 +690,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                         ['inspectionRate', rateLabel(r.inspectionRate)],
                         ['optionRate', rateLabel(r.optionRate)],
                       ]
-                        .filter(([field]) => !(simplified && field === 'actualKnockbacks'))
+                        .filter(([field]) => !(simplified && HIDDEN_IN_TECHNICIAN_VIEW.has(field)))
                         .map(([field, val, tooltip]) => (
                         <td
                           key={field}
