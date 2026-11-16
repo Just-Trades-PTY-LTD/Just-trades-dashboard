@@ -25,7 +25,7 @@ function JobTypesEditor({ trades, refresh, usage }) {
     <CollapsibleSection title="Job types by trade">
       <div className="field" style={{ marginBottom: 10 }}>
         <label>For trade</label>
-        <select value={tradeId} onChange={(e) => setTradeId(e.target.value)}>
+        <select value={tradeId} onChange={(e) => setTradeId(e.target.value)} data-unsaved-ignore>
           {trades.map((t) => (
             <option key={t.id} value={t.id}>
               {t.hidden ? `${t.name} (hidden)` : t.name}
