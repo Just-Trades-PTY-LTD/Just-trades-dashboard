@@ -12,6 +12,7 @@ import DrilldownModal from '../../components/DrilldownModal.jsx';
 import KnockbackReasonsTracker, { defaultKnockbackReasonsFilters } from './KnockbackReasonsTracker.jsx';
 import { useSessionState } from '../../lib/useSessionState.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
 
 const YES_NO = ['Yes', 'No'];
 const ENTRY_TYPES = [
@@ -80,6 +81,23 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
   // A Technician account sees this same team report, read-only, from the
   // statistics-only API (see lib/reportAccess.js and routes/me.js).
   const access = useReportAccess();
+  // Technician view — DISPLAY ONLY. Technician accounts always get it; an
+  // Admin can switch it on temporarily (toolbox meetings, screen sharing).
+  // It hides Actual Knockbacks, Converted Later and Unqualified Jobs from the
+  // Summary figures and Actual Knockbacks from By technician, and labels
+  // Adjusted Knockbacks simply "Knockbacks". Never stored (resets on reload,
+  // close or sign-out) and never changes filters, figures, calculations,
+  // drill-downs, exports or saved layouts.
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [technicianViewOn, setTechnicianViewOn] = useState(false);
+  const simplified = access.technician || (isAdmin && technicianViewOn);
+  const KB = simplified ? 'Knockbacks' : 'Adjusted Knockbacks';
+  const KB_TIP = simplified
+    ? 'Knockbacks after Converted Later credits: a Converted Later sale offsets one knockback for the same technician in the same Monday–Sunday week.'
+    : 'Calculated as Actual Knockbacks minus Converted Later.';
+  const CONV_TIP = `Calculated as (Qualified Jobs − ${KB}) ÷ Qualified Jobs.`;
+  const HIDDEN_IN_TECHNICIAN_VIEW = new Set(['actualKnockbacks', 'convertedLaterCredits', 'unqualifiedJobs']);
   const { draft, applied, patch, error, refresh, reset } = useReportFilters(defaultFilters, 'crm.reports.tech.filters');
   const [granularity, setGranularity] = useState('week');
   const [data, setData] = useState(null);
@@ -207,13 +225,8 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     ['Sales (invoices)', company.sales, 'sales'],
     ['Converted Later', company.convertedLaterCredits, 'convertedLaterCredits'],
     ['Actual Knockbacks', company.actualKnockbacks, 'actualKnockbacks'],
-    ['Adjusted Knockbacks', company.adjustedKnockbacks, null, 'Calculated as Actual Knockbacks minus Converted Later.'],
-    [
-      'Conversion %',
-      `${(company.bonusConversionRate ?? 0).toFixed(2)}%`,
-      null,
-      'Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.',
-    ],
+    [KB, company.adjustedKnockbacks, null, KB_TIP],
+    ['Conversion %', `${(company.bonusConversionRate ?? 0).toFixed(2)}%`, null, CONV_TIP],
     ['Total sale value (ex GST)', money(company.totalSaleExGst), 'totalSaleExGst'],
     ['Average sale (ex GST)', money(company.avgSaleExGst), 'avgSaleExGst'],
     // Reported separately from Sales/Value above — never folded into either
@@ -228,7 +241,7 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
     ['Pending cancellations', company.pendingCancellations, 'pendingCancellations'],
     ['Inspection sheet completion', rateLabel(company.inspectionRate), 'inspectionRate'],
     ['Option sheet completion', rateLabel(company.optionRate), 'optionRate'],
-  ];
+  ].filter(([, , metric]) => !(simplified && HIDDEN_IN_TECHNICIAN_VIEW.has(metric)));
 
   return (
     <div className={access.technician ? 'report-readonly' : undefined}>
@@ -305,6 +318,18 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         <button className="btn" type="button" onClick={reset}>
           Reset Filters
         </button>
+        {isAdmin && !access.technician && (
+          <button
+            className={`btn${technicianViewOn ? ' btn-primary' : ''}`}
+            type="button"
+            aria-pressed={technicianViewOn}
+            data-testid="technician-view-toggle"
+            onClick={() => setTechnicianViewOn((v) => !v)}
+            title="Show the simplified figures Technician accounts see (display only, until you switch it off or reload)"
+          >
+            {technicianViewOn ? 'Technician view: on' : 'Technician view'}
+          </button>
+        )}
         {!access.technician && (
           <AdvancedFiltersToggle open={advancedOpen} onToggle={() => setAdvancedOpen((o) => !o)} activeCount={advancedActiveCount} />
         )}
@@ -356,6 +381,23 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         </div>
       )}
 
+      {isAdmin && !access.technician && technicianViewOn && (
+        <div
+          className="notice panel"
+          role="status"
+          data-testid="technician-view-banner"
+          style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderColor: 'var(--info)' }}
+        >
+          <strong>Technician view is on</strong>
+          <span style={{ fontSize: 12.5 }}>
+            Showing the simplified figures Technician accounts see. Display only — filters, figures and exports are unchanged.
+          </span>
+          <button className="btn btn-sm btn-primary" type="button" style={{ marginLeft: 'auto' }} onClick={() => setTechnicianViewOn(false)}>
+            Exit Technician view
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="notice panel error" style={{ marginBottom: 16 }}>
           {error}
@@ -378,10 +420,21 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
       <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 14 }}>
         Jobs, leads, knock-backs and call backs are dated by visit date. Sales are dated by invoice creation date.
         <br />
-        <strong>Note:</strong> Actual Knockbacks and Converted Later are each counted by their own date (visit date / invoice
-        date), calculated by report logic only — no saved record is ever changed. Adjusted Knockbacks credits one Converted
-        Later sale against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits
-        expire at the end of that week. Conversion % is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
+        {simplified ? (
+          <>
+            <strong>Note:</strong> Knockbacks are qualified visits without a sale, after Converted Later credits — a Converted Later
+            sale offsets one knockback for the same technician within the same Monday–Sunday week. Conversion % is (Qualified Jobs −
+            Knockbacks) ÷ Qualified Jobs. The Knockback Reasons section lists every qualified visit without a sale, before those
+            credits, so its total can be higher than Knockbacks.
+          </>
+        ) : (
+          <>
+            <strong>Note:</strong> Actual Knockbacks and Converted Later are each counted by their own date (visit date / invoice
+            date), calculated by report logic only — no saved record is ever changed. Adjusted Knockbacks credits one Converted
+            Later sale against one Actual Knockback for the same technician within the same Monday–Sunday week — unused credits
+            expire at the end of that week. Conversion % is (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.
+          </>
+        )}
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -596,13 +649,9 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                     <th>Qualified Jobs</th>
                     <th>Sales</th>
                     <th title="Report logic only — see the note above">Converted Later</th>
-                    <th title="Report logic only — see the note above">Actual Knockbacks</th>
-                    <th title="Report logic only — see the note above. Calculated as Actual Knockbacks minus Converted Later.">
-                      Adjusted Knockbacks
-                    </th>
-                    <th title="Report logic only — see the note above. Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.">
-                      Conversion %
-                    </th>
+                    {!simplified && <th title="Report logic only — see the note above">Actual Knockbacks</th>}
+                    <th title={`Report logic only — see the note above. ${KB_TIP}`}>{KB}</th>
+                    <th title={`Report logic only — see the note above. ${CONV_TIP}`}>Conversion %</th>
                     <th>Value (ex GST)</th>
                     <th>Average Sale</th>
                     <th>Upsells</th>
@@ -629,12 +678,8 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                         // calculated (see the column header tooltips above) —
                         // neither is its own group of records, so neither cell
                         // opens a drill-down.
-                        ['adjustedKnockbacks', r.adjustedKnockbacks, 'Calculated as Actual Knockbacks minus Converted Later.'],
-                        [
-                          'bonusConversionRate',
-                          `${(r.bonusConversionRate ?? 0).toFixed(2)}%`,
-                          'Calculated as (Qualified Jobs − Adjusted Knockbacks) ÷ Qualified Jobs.',
-                        ],
+                        ['adjustedKnockbacks', r.adjustedKnockbacks, KB_TIP],
+                        ['bonusConversionRate', `${(r.bonusConversionRate ?? 0).toFixed(2)}%`, CONV_TIP],
                         ['totalSaleExGst', money(r.totalSaleExGst)],
                         ['avgSaleExGst', money(r.avgSaleExGst)],
                         ['upsellsCount', r.upsellsCount],
@@ -644,7 +689,9 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
                         ['pendingCancellations', r.pendingCancellations],
                         ['inspectionRate', rateLabel(r.inspectionRate)],
                         ['optionRate', rateLabel(r.optionRate)],
-                      ].map(([field, val, tooltip]) => (
+                      ]
+                        .filter(([field]) => !(simplified && field === 'actualKnockbacks'))
+                        .map(([field, val, tooltip]) => (
                         <td
                           key={field}
                           className={tooltip ? undefined : `clickable-stat${access.technician && opensRecords(field, r.name) ? ' clickable-own' : ''}`}
