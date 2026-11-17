@@ -1,6 +1,7 @@
 # Stage 4 — Needs Attention page: design (for approval, not built)
 
-Status: **design only.** Nothing is built. This first version uses only data
+Status: **design approved (decisions recorded 17 Nov 2026, §11) — not built.**
+Nothing is built. This first version uses only data
 the CRM already has — no Podium, Google or expanded AroFlo data. It is built so
 those can be added later as new item sources without rebuilding the page.
 
@@ -15,14 +16,14 @@ Counts are what each rule would show today on a copy of the 13 Nov backup.
 
 | # | Item | Shows after | Links to | Today |
 |---|---|---|---|---|
-| 1 | Booked Lead call with no Job Number | 1 day | The call (Calls & Contacts) | 2 (calls 72, 182) |
+| 1 | Booked Lead call with no Job Number | Straight away (decided) | The call (Calls & Contacts) | 2 (calls 72, 182) |
 | 2 | Job or sale with no Job Number | Straight away | The job/sale (Technician & Sales) | 2 (job 24, sale 14) |
-| 3 | Job reporting as Unassigned (no booked Lead call or Call back call for its Job Number) | Straight away | The job | 4 from 1 Oct (2412, 2475, 2621, 2646) |
+| 3 | Job reporting as Unassigned (no booked Lead call or Call back call for its Job Number) | Straight away, jobs from 1 Oct 2026 onwards (decided) | The job | 4 (2412, 2475, 2621, 2646) |
 | 4 | Booked Lead call with a Job Number but no Technician & Sales job, no sale and no Cancellation call | 14 days | The call | **43** (10 Sep, 33 Oct) — see §3 |
 | 5 | Sale Made mismatch (same check as Data Health) | Straight away | The job and sale | 1 (2269, Sep) |
 | 6 | Pending Cancellation without invoice or lost value | 2 days | The Pending Cancellation's call | 3 (2498, 2683, 2576) |
 | 7 | Call Back entry without the new callback Job Number | 7 days | The Call Back entry | 3 (2321, 2408, 2430) |
-| 8 | Job with a blank suburb | Straight away | The job | 1 from 1 Oct (2412); 41 including September |
+| 8 | Job with a blank suburb | Straight away, jobs from 1 Oct 2026 onwards (decided) | The job | 1 (2412) |
 | 9 | Overdue follow-ups | Count only | The Follow-ups page | 4 |
 
 "Shows after" counts from the call date, visit date or date logged. All
@@ -100,3 +101,41 @@ visible in Data Health either way.
 3. Rule 4 — keep at 14 days (43 items today), or another period?
 4. Dismissing — Option A (recommended) or B?
 5. Older records — rules 3 and 8 from 1 October (recommended), or everything?
+
+## 11. Decisions (owner, 17 Nov 2026)
+
+1. **Access — Option A.** Admin and office Staff see all Needs Attention items,
+   with a **Mine / All** filter. Technician accounts cannot access the page
+   (blocked on the server). *Depends on the owner's definition of "office
+   Staff" (still to be confirmed); until then this means Admin and Staff
+   accounts.*
+2. **Waiting times** — as proposed in §2, except **Booked Lead call with no Job
+   Number appears straight away** (not after one day). Final timings:
+   - Booked Lead call with no Job Number: straight away.
+   - Job or sale with no Job Number: straight away.
+   - Job reporting as Unassigned: straight away.
+   - Sale Made mismatch: straight away.
+   - Pending Cancellation without invoice or lost value: after 2 days.
+   - Call Back entry without the new callback Job Number: after 7 days.
+   - Job with a blank suburb: straight away.
+   - Overdue follow-ups: count only, linking to Follow-ups.
+3. **Booked Lead with no job entry** — flagged after **14 days** when the call has
+   a Job Number but there is no Technician & Sales entry, sale or cancellation
+   for it.
+4. **Dismissal** — both **Admin and office Staff** can mark an item **"Reviewed —
+   leave as is"**. A **reason is required**, and the dismissal is **recorded**
+   (who, when, reason). This replaces Option A in §6 with a version of
+   Option B open to office Staff, and needs one small additive table (item key,
+   reason, who, when), included in backups, kept when restoring an older
+   backup, and ignored by the previous code on rollback.
+5. **Older records — Option A.** The checks for jobs with no matching booked
+   Lead / Call back call (rule 3) and jobs with no suburb (rule 8) only include
+   records from **1 October 2026** onwards. September records stay visible in
+   Data Health. (Rules 1, 2, 4, 5, 6 and 7 cover all dates.)
+
+### Proposed details for the dismissal (to confirm when Stage 4 is reviewed)
+- A dismissed item **reappears automatically** if its record later changes in a
+  way that matters to that rule (for example the Job Number is removed again).
+- A **"Reviewed" list** shows dismissed items with their reason, who and when;
+  an Admin can **reopen** one if it was dismissed by mistake (also recorded).
+- Dismissals and reopenings appear in Activity history.

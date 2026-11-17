@@ -187,7 +187,7 @@ backups):
 | Stage | What | Depends on |
 |---|---|---|
 | **0. Preparation** (no code) | Answers below; Podium questions sent; information from Kurt/JET/website/Google | Owner |
-| **1. Needs Attention (Stage 4)** | The existing design (`stage4-needs-attention-design.md`), built so later items plug in | The five Stage 4 decisions |
+| **1. Needs Attention (Stage 4)** | The approved design (`stage4-needs-attention-design.md`, decisions §11), built so later items plug in | "Office Staff" definition; build approval |
 | **2. Customer foundation** | CRM customer records linked to AroFlo client IDs; encrypted phone numbers + fingerprints; permission-controlled display of AroFlo email/address; no new outside data yet beyond AroFlo reads | Stage 1; "office Staff" definition |
 | **3. AroFlo read-only expansion** | Completed visits without a Technician & Sales entry (prefilled entry); invoice vs sale amount differences; job/quote/invoice status on the timeline; checks every 10–15 minutes | Stage 2; AroFlo `/v2` limits and a read-only API user confirmed |
 | **4. Podium call log** | Read-only import on a timer; missed/abandoned reports (time of day, day of week, number called, totals); outgoing calls logged and linked | Podium API access and `read_phones` confirmed |
@@ -238,6 +238,5 @@ CRM. (It was mainly considered for the JMS idea, now on hold.) Instead:
 ## 9. Still needed from the owner
 1. Website platform, and where website enquiries currently go.
 2. Who counts as "office Staff" (all Staff accounts, or some excluded).
-3. The five Stage 4 decisions (`stage4-needs-attention-design.md` §10).
-4. From Kurt / JET / Google / Podium: as listed in
+3. From Kurt / JET / Google / Podium: as listed in
    `integration-investigation.md` §9 and `podium-questions.md`.
