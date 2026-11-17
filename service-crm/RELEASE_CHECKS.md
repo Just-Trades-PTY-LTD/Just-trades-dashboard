@@ -46,6 +46,11 @@ because the fake AroFlo used text. These checks exist so that can't recur:
   the new code (built with the live code first) and compare every table, Data
   Health and the reports before and after; then open the migrated copy with
   the previous code (rollback) and compare again.
+- **Before a live database change:** take a current backup, restore it into a
+  temporary copy to prove it's complete, and run the migration and rollback on
+  that copy before deploying.
+- **Integrations:** each has its own feature switch (off by default) so it can be
+  turned off immediately without affecting the rest of the CRM.
 
 ## Rules for new code
 

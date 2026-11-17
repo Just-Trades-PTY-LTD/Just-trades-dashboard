@@ -5,7 +5,7 @@ needs the owner's separate approval before any work starts. This plan
 supersedes the direction in `integration-investigation.md` where they differ;
 that document still holds the detailed provider research (16 Nov 2026).
 
-Last updated: 17 Nov 2026.
+Last updated: 17 Nov 2026 (test CRM removed from the plan the same day).
 
 ## 1. Direction (confirmed 17 Nov 2026)
 
@@ -37,8 +37,8 @@ Last updated: 17 Nov 2026.
   and Podium already provide. No other provider purchases are approved.
 - ServiceTitan is only a reference for the kind of features; nothing of its
   branding, wording, design or processes is copied.
-- Every stage is built on its own branch, tested on the **test CRM** first, goes
-  through `RELEASE_CHECKS.md`, and is pushed live only with approval.
+- Every stage follows the development and release process in §8 and is
+  pushed live only with approval.
 
 ## 3. Source of truth
 
@@ -64,8 +64,13 @@ Last updated: 17 Nov 2026.
    review; neither value is changed automatically.
 3. **Lead Source and enquiry outcomes**: the CRM is the source of truth; not
    written to AroFlo at this stage.
-4. **Test CRM**: approved in principle — cost and exact setup to be confirmed
-   before anything is created (§8).
+4. **No permanent test CRM.** (Approved earlier the same day, then withdrawn by
+   the owner.) Changes are tested on the backup branch with temporary database
+   copies and mock integration data instead (§8). If an integration genuinely
+   can't be tested safely without a separate Railway environment, the reason and
+   expected cost are explained first and the owner decides then.
+11. **Recent enquiry window: 14 days** (§5.1 step 3).
+12. **Railway plan: Pro.**
 5. **Call tracking**: not purchased; first confirm what JET, Google Ads and
    Podium already provide.
 6. **Outgoing calls**: logged and linked automatically; no draft Contact unless
@@ -113,7 +118,7 @@ use the exact phone number only.
    **added to that item**; no new draft. A returned missed call is marked
    "Returned / answered".
 3. **Recent enquiry or job for the same caller** — a Contact or call in the last
-   *N* days (proposed **14**) or an AroFlo job that isn't completed →
+   **14 days** (approved) or an AroFlo job that isn't completed →
    the call is **linked to that customer and enquiry** on the timeline, and a
    small Needs Attention item asks staff "Link to existing enquiry" (default)
    or "Create new contact" (a genuinely new job). No draft unless staff choose.
@@ -181,7 +186,7 @@ backups):
 
 | Stage | What | Depends on |
 |---|---|---|
-| **0. Preparation** (no code) | Answers below; Podium questions sent; information from Kurt/JET/website/Google; **test CRM created** after cost approval (§8) | Owner |
+| **0. Preparation** (no code) | Answers below; Podium questions sent; information from Kurt/JET/website/Google | Owner |
 | **1. Needs Attention (Stage 4)** | The existing design (`stage4-needs-attention-design.md`), built so later items plug in | The five Stage 4 decisions |
 | **2. Customer foundation** | CRM customer records linked to AroFlo client IDs; encrypted phone numbers + fingerprints; permission-controlled display of AroFlo email/address; no new outside data yet beyond AroFlo reads | Stage 1; "office Staff" definition |
 | **3. AroFlo read-only expansion** | Completed visits without a Technician & Sales entry (prefilled entry); invoice vs sale amount differences; job/quote/invoice status on the timeline; checks every 10–15 minutes | Stage 2; AroFlo `/v2` limits and a read-only API user confirmed |
@@ -191,54 +196,48 @@ backups):
 | **7. Google Ads** | Click-ID look-ups (campaign, ad group, ad, keyword); cost import; advertising report: cost vs booked leads, qualified leads, sales and ex-GST revenue | Kurt: account, auto-tagging, API access; JET information |
 | **8. Optional** | Send confirmed bookings/sales (ex-GST) back to Google | Privacy notice updated; separate approval |
 
-Each stage: own branch → tests and release checks → test CRM → owner review →
+Each stage follows §8: backup branch → temporary database copies and mock
+integration data → owner review of the finished feature and test results →
 live only with approval.
 
-## 8. Test CRM (approved in principle — not yet created)
+## 8. Development and release process (no permanent test CRM)
 
-**What would be created (in the existing Railway project, nothing else
-touched):**
-1. A new Railway **environment** called `test`, containing one copy of the CRM
-   service (same code as live).
-2. Its **own volume** (500 MB) mounted at `/data` — a completely separate
-   database. It never connects to the live volume.
-3. Its **own web address** (a generated `*.up.railway.app` domain) and its own
-   logins.
-4. It deploys from a separate **test branch**, never the live branch, so test
-   changes can't reach live.
-5. Its own settings: a new session secret, a seed admin login, and
-   `ALLOW_FRESH_DB_INIT` used once for first start then removed. **No AroFlo,
-   Podium or Google credentials** until an integration stage is approved
-   (then read-only, ideally a separate read-only AroFlo API user).
-6. Data: a fresh backup restored into it (real data, so it's treated with the
-   same access care as live; staff accounts arrive inactive and only invited
-   people get logins).
-7. Recommended small code change (display only, controlled by a setting that
-   live doesn't have): a clear **"TEST CRM — not live"** banner so it's never
-   mistaken for the real system.
+The owner decided on 17 Nov 2026 **not** to create a permanent test or dummy
+CRM. (It was mainly considered for the JMS idea, now on hold.) Instead:
 
-**Expected cost** (Railway's published rates, USD, checked 17 Nov 2026: memory
-$10/GB/month, CPU $20/vCPU/month, volume $0.15/GB/month, egress $0.05/GB):
-- Live currently averages ~0.18 GB memory (peak ~0.41 GB), almost no CPU and
-  ~0.1 GB of disk — roughly **US$2–3/month** of usage.
-- A test CRM with similar or lighter use: **about US$2–4/month** (≈ A$3–6),
-  mostly memory, plus under US$0.10 for its volume.
-- Railway plans include usage: Hobby US$5/month includes US$5; Pro US$20/month
-  includes US$20. Live + test together (~US$4–7) may fit inside the included
-  credit (no extra charge) or add a few dollars, depending on the plan.
-- It can be paused (no running deployment) between test rounds to cut the
-  memory cost to almost nothing.
-- Deleting the `test` environment removes everything it created, with no
-  effect on live.
+1. **Build on the backup branch** (`claude/loving-tesla-770enf`), each change
+   on its own short branch merged into it. Railway never deploys these
+   branches.
+2. **Test with temporary copies of the CRM database**, restored from the
+   latest backup on the development machine and thrown away afterwards. Never
+   the live database.
+3. **Mock or test integration data first**: fake AroFlo, Podium and Google
+   responses (including messy real-world data) before any live account is
+   connected. When live accounts are connected, read-only access first.
+4. **Feature switches**: each integration (AroFlo expansion, Podium, website
+   enquiries, Google Ads) has its own on/off switch in server settings, off by
+   default. Switching one off stops it immediately without affecting the rest
+   of the CRM or any saved records.
+5. **Show the owner the completed feature and the test results**
+   (screenshots, figures, checks) before anything goes live.
+6. **Check each release against the current live version** before deploying: a
+   straight step on from live, only the approved change, the full test suite,
+   the build, the messy-data tests and the browser release check
+   (`RELEASE_CHECKS.md`).
+7. **Take and verify a current backup before each live database change
+   (migration)**: download it, restore it into a temporary copy, and confirm
+   the migration and its rollback on that copy before deploying.
+8. **Separate Railway environment only by exception**: if an AroFlo, Podium or
+   Google integration genuinely can't be tested safely without one (for
+   example, a provider that can only send webhooks to a public address), the
+   reason and the expected cost are explained first and the owner decides. For
+   reference, Railway's published rates (17 Nov 2026) put a small copy of this
+   CRM at about US$2–4/month of usage; the account is on the Pro plan, whose
+   monthly fee includes US$20 of usage.
 
 ## 9. Still needed from the owner
 1. Website platform, and where website enquiries currently go.
 2. Who counts as "office Staff" (all Staff accounts, or some excluded).
 3. The five Stage 4 decisions (`stage4-needs-attention-design.md` §10).
-4. The time window for "recent enquiry" in §5.1 step 3 (proposed 14 days).
-5. Approval of the test CRM setup and cost (§8), including the "TEST CRM"
-   banner change.
-6. Which Railway plan the account is on (Hobby or Pro), to confirm whether the
-   test CRM is covered by the included credit.
-7. From Kurt / JET / Google / Podium: as listed in
+4. From Kurt / JET / Google / Podium: as listed in
    `integration-investigation.md` §9 and `podium-questions.md`.
