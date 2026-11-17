@@ -1,5 +1,11 @@
 # CRM integrations — investigation, decisions and open questions
 
+> **Update 17 Nov 2026:** the full JMS idea and replacing AroFlo are **on hold**.
+> AroFlo remains the job management system and the CRM is the central tracking
+> and reporting hub. The current plan, decisions and staged order are in
+> `integration-plan.md`, which supersedes this document where they differ.
+> This document is kept for the detailed provider research.
+
 Status: **investigation only.** Nothing in this document has been built,
 connected or enabled. No phone, Podium, Google or expanded AroFlo integration
 starts until the owner approves a specific phase.
@@ -46,7 +52,7 @@ the Just Trades accounts before any build.
 | 12 | Costs / providers | No extra costs approved. Kurt will likely use JET for this side of the business; what JET manages and what access/tracking it provides is to be clarified. List likely costs separately; recommend no purchases yet. |
 | 13 | AroFlo client ID | May be stored securely as an internal identifier (not displayed unnecessarily), included in backups, using whichever design gives reliable matching and a future customer/job timeline without copying unnecessary customer information. |
 | 14 | Stage 4 | Finish the existing Needs Attention design first, without Podium/Google/expanded AroFlo. Design it so missed/abandoned calls, after-hours AI enquiries, webchat enquiries, draft Contacts, returned missed calls and other integration issues can be added later. See `docs/stage4-needs-attention-design.md`. |
-| — | Long-term direction | AroFlo stays the source for jobs, scheduling, quotes, invoices and payments; Podium for calls and messages; the CRM connects them into one staff workflow, customer timeline, Needs Attention and reporting layer. The design must not lock AroFlo in as the only possible source of jobs and customers, so the CRM can gradually become a Just Trades JMS if practical and safe. |
+| — | Long-term direction (**on hold since 17 Nov 2026 — see integration-plan.md**) | AroFlo stays the source for jobs, scheduling, quotes, invoices and payments; Podium for calls and messages; the CRM connects them into one staff workflow, customer timeline, Needs Attention and reporting layer. The design must not lock AroFlo in as the only possible source of jobs and customers, so the CRM can gradually become a Just Trades JMS if practical and safe. |
 
 ## 3. Still needs clarification from the owner
 
