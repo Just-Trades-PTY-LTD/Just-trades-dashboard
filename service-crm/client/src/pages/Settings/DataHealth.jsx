@@ -14,6 +14,8 @@ const LABELS = {
   jobNumber: 'Job Number',
   saleJobNumber: 'Sale Job Number',
   linkedJobNumber: 'Linked job',
+  newJobNumber: 'New Job Number',
+  previousSale: 'Previous approved sale',
   visitDate: 'Visit date',
   saleDateLogged: 'Sale date logged',
   technician: 'Technician',

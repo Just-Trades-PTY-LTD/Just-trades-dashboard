@@ -5,6 +5,7 @@ import { usePersistentFilters } from '../../lib/usePersistentFilters.js';
 import { money } from '../../lib/dates.js';
 import { DateField, FilterSelect, TextField, Checkbox, SelectField, AdvancedFiltersToggle } from '../../components/Fields.jsx';
 import { formatHistoryEntry } from '../../lib/audit.js';
+import FollowOnCorrectionDialog from '../../components/FollowOnCorrectionDialog.jsx';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import ArchiveDialog from '../../components/ArchiveDialog.jsx';
@@ -192,6 +193,10 @@ export default function JobHistory({
   // goes through ArchiveDialog's preview + confirmation.
   const isAdmin = useAuth().user?.role === 'admin';
   const [archiveRequest, setArchiveRequest] = useState(null);
+  // "Correct follow-on link" — Admin and Staff (the server enforces it too).
+  const role = useAuth().user?.role;
+  const isOffice = role === 'admin' || role === 'staff';
+  const [followOnFix, setFollowOnFix] = useState(null);
 
   useEffect(() => {
     if (initialJobNumber) setFilters((f) => ({ ...f, jobNumber: initialJobNumber }));
@@ -668,7 +673,38 @@ export default function JobHistory({
                             </button>
                           </div>
                         )}
-                        {e.kind === 'quote_approved_later' && (
+                        {e.kind === 'quote_approved_later' && e.followsSaleId && (
+                          <div data-testid="followon-history-chain">
+                            <span className="badge badge-info" style={{ fontSize: 10.5 }}>Follow-on approved quote</span>{' '}
+                            <span className="badge badge-success" style={{ fontSize: 10.5 }}>Repeat customer</span>
+                            <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontFamily: 'inherit' }}>Chain: {e.followOnChain?.text || '—'}</div>
+                            {!embedded && (
+                              <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewByJobNumber(e.jobNumber)}>
+                                View previous approved sale →
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {e.kind === 'quote_approved_later' && e.followedBy?.length > 0 && (
+                          <div style={{ fontSize: 11 }} data-testid="followon-followed-by">
+                            Followed on by:{' '}
+                            {e.followedBy.map((f, i) => (
+                              <span key={f.saleId}>
+                                {i > 0 && ', '}
+                                {embedded ? (
+                                  `JN ${f.newJobNumber || '—'}`
+                                ) : (
+                                  <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewByJobNumber(f.newJobNumber || e.newJobNumber)}>
+                                    JN {f.newJobNumber || '—'}
+                                    {f.invoiceNumber ? ` (invoice ${f.invoiceNumber})` : ''}
+                                    {f.archived ? ' (archived)' : ''} →
+                                  </button>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {e.kind === 'quote_approved_later' && !e.followsSaleId && (
                           <div>
                             {e.originalKnockbackJobId ? (
                               <button className="link-btn" style={{ fontSize: 11 }} onClick={() => viewOriginalKnockbackJob(e.originalKnockbackJobId)}>
@@ -763,6 +799,11 @@ export default function JobHistory({
                               Delete
                             </button>
                           )}
+                          {isOffice && !embedded && e.kind === 'quote_approved_later' && e.followsSaleId && (
+                            <button className="btn btn-sm" onClick={() => setFollowOnFix(e)} type="button" data-testid="followon-fix-open">
+                              Correct follow-on link…
+                            </button>
+                          )}
                           {e.historyCount > 0 && (
                             <button className="link-btn" style={{ fontSize: 11.5 }} onClick={() => toggleHistory(e)} type="button">
                               History ({e.historyCount})
@@ -790,6 +831,18 @@ export default function JobHistory({
         )}
       </div>
       {archiveRequest && <ArchiveDialog request={archiveRequest} onCancel={() => setArchiveRequest(null)} onDone={archiveDone} />}
+      {followOnFix && (
+        <FollowOnCorrectionDialog
+          entry={followOnFix}
+          onCancel={() => setFollowOnFix(null)}
+          onDone={(res) => {
+            setFollowOnFix(null);
+            setExpandedId(null);
+            setNotice(`Follow-on link corrected. Chain is now ${res.chain}.`);
+            onChanged?.();
+          }}
+        />
+      )}
     </div>
   );
 }

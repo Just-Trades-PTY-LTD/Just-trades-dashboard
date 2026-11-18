@@ -100,6 +100,37 @@ export function runDataHealthChecks() {
   }
 
   // 8. Stored knock-back flag disagrees with Lead / Sale Made.
+  // Follow-on approved quotes whose previous approved sale is archived (or
+  // gone). The follow-on still counts normally under Repeat customer — this
+  // only lists it so Admin or Staff can review it.
+  {
+    const rows = all(
+      `SELECT f.job_number AS jobNumber, f.new_job_number AS newJobNumber, f.invoice_number AS invoiceNumber,
+              f.invoice_date AS invoiceDate, f.sale_value_ex_gst AS saleValue,
+              CASE WHEN p.id IS NULL THEN 'Deleted (sale #' || f.follows_sale_id || ')'
+                   ELSE 'Sale #' || p.id || ' · JN ' || p.job_number || ' → ' || p.new_job_number || CASE WHEN p.invoice_number <> '' THEN ' · invoice ' || p.invoice_number ELSE '' END
+              END AS previousSale
+       FROM sales f
+       LEFT JOIN sales p ON p.id = f.follows_sale_id
+       WHERE f.archived = 0 AND f.follows_sale_id IS NOT NULL AND (p.id IS NULL OR p.archived = 1)
+       ORDER BY f.invoice_date`
+    );
+    checks.push(
+      check(
+        {
+          id: 'followOnPreviousArchived',
+          finding: 'Follow-on',
+          title: 'Follow-on approved quotes whose previous approved sale is archived',
+          explanation:
+            'The follow-on still counts as a normal sale under Repeat customer (never a Converted Later credit). Review it: restore the earlier sale, correct the follow-on link, or leave it as is.',
+          effect: '',
+          columns: ['jobNumber', 'newJobNumber', 'invoiceNumber', 'invoiceDate', 'saleValue', 'previousSale'],
+        },
+        rows
+      )
+    );
+  }
+
   {
     const rows = all(
       `SELECT j.id AS jobId, j.job_number AS jobNumber, j.visit_date AS visitDate, t.name AS technician, j.lead AS lead,

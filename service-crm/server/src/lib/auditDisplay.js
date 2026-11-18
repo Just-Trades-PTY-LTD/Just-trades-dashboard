@@ -35,6 +35,7 @@ const REF_FIELDS = {
   job_id: { kind: 'job', label: 'Linked job', deleted: 'Deleted job' },
   sale_id: { kind: 'sale', label: 'Linked sale', deleted: 'Deleted sale' },
   superseded_by_id: { kind: 'pending_cancellation', label: 'Superseded by', deleted: 'Deleted cancellation' },
+  follows_sale_id: { kind: 'sale', label: 'Follows on from approved sale', deleted: 'Deleted sale' },
 };
 
 // Sentence-style entries for archive / conversion links (id held in `to`,
@@ -115,8 +116,11 @@ const LOOKUPS = {
     name: (r) => `JN ${r.job_number || DASH}${shortDate(r.visit_date) ? ` (visit ${shortDate(r.visit_date)})` : ''}`,
   },
   sale: {
-    sql: 'SELECT id, job_number, invoice_number FROM sales',
+    sql: 'SELECT id, job_number, new_job_number, invoice_number FROM sales',
     name: (r) => `JN ${r.job_number || DASH}${r.invoice_number ? `, invoice ${r.invoice_number}` : ''}`,
+    // Follow-on links: the earlier approved sale by id and both Job Numbers.
+    chainName: (r) =>
+      `sale #${r.id} (JN ${r.job_number || DASH} → ${r.new_job_number || DASH}${r.invoice_number ? `, invoice ${r.invoice_number}` : ''})`,
   },
   call: {
     sql: 'SELECT id, call_at, job_number FROM calls',
@@ -159,6 +163,10 @@ function loadNames(want) {
     const cfg = LOOKUPS[kind];
     const rows = all(`${cfg.sql} WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
     rows.forEach((r) => names[kind].set(Number(r.id), cfg.name(r)));
+    if (cfg.chainName) {
+      names[`${kind}Chain`] = new Map();
+      rows.forEach((r) => names[`${kind}Chain`].set(Number(r.id), cfg.chainName(r)));
+    }
   }
   return names;
 }
@@ -183,6 +191,18 @@ function describeOne(changes, names) {
           ? `converted by Quote Approved Later sale ${ref('sale', 'Deleted sale', ch.to)}`
           : `no longer converted by Quote Approved Later sale ${ref('sale', 'Deleted sale', ch.from)}`
       );
+    } else if (field === 'follows_sale_id') {
+      const n = (v) => (blank(v) ? DASH : names.saleChain?.get(Number(v)) ?? `Deleted sale (ID ${v})`);
+      out.push(`Follows on from approved sale: ${n(ch.from)} → ${n(ch.to)}`);
+    } else if (field === 'follow_on_chain') {
+      out.push(`Follow-on approved quote (Repeat customer). Chain when saved: ${blank(ch.to) ? DASH : ch.to}`);
+    } else if (field === 'follow_on_linked') {
+      out.push(`Follow-on approved quote linked: ${ch.detail || ref('sale', 'Deleted sale', ch.to)}${ch.reason ? ` (link corrected — reason: ${ch.reason})` : ''}`);
+    } else if (field === 'follow_on_unlinked') {
+      out.push(`Follow-on approved quote unlinked by a link correction: ${ch.detail || ref('sale', 'Deleted sale', ch.from)}${ch.reason ? ` — reason: ${ch.reason}` : ''}`);
+    } else if (field === 'follow_on_link_corrected') {
+      const side = (x) => (x ? `follows ${x.link}, Original Job Number ${x.originalJobNumber || DASH}, chain ${x.chain || DASH}` : DASH);
+      out.push(`Follow-on link corrected — reason: ${ch.reason || DASH}. Before: ${side(ch.from)}. After: ${side(ch.to)}`);
     } else if (field === 'stored_knockback_flag') {
       out.push(`stored knock-back flag corrected (${plainValue(field, ch.from)} → ${plainValue(field, ch.to)})`);
     } else if (field === 'aroflo_invoice_id') {

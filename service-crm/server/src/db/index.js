@@ -221,6 +221,18 @@ const MIGRATIONS = [
       add('users', 'removed_at', 'TEXT');
     },
   },
+  {
+    // Follow-on approved quotes (docs/follow-on-approved-quote-design.md).
+    // Purely additive: one nullable column, NULL on every existing sale
+    // ("not a follow-on"), so no existing record or report changes. Only set
+    // when staff confirm a follow-on approved quote; it points at the
+    // approved sale immediately before it in the chain.
+    id: 'sales_follows_sale_id',
+    run(database) {
+      const hasColumn = database.prepare('PRAGMA table_info(sales)').all().some((c) => c.name === 'follows_sale_id');
+      if (!hasColumn) database.exec('ALTER TABLE sales ADD COLUMN follows_sale_id INTEGER REFERENCES sales(id)');
+    },
+  },
 ];
 
 // One-time data backfills — unlike MIGRATIONS above (safe to re-run forever;

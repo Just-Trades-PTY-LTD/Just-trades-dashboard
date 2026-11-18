@@ -10,6 +10,18 @@ import { mergeId } from '../lib/merge.js';
 import { checkNewJobLead, checkNewJobLeadEdit } from '../lib/leadRules.js';
 import { findEntry, pendingCancellationHasCall, PENDING_CANCELLATION_CALL_ONLY } from '../lib/archive.js';
 import {
+  FollowOnError,
+  applyCorrection as applyFollowOnCorrection,
+  chainDetails,
+  chainSales,
+  chainText,
+  describeSources,
+  followersOf,
+  previewCorrection as previewFollowOnCorrection,
+  saleSummary,
+  validateNewFollowOn,
+} from '../services/followOn.js';
+import {
   findActiveFollowUpForJob,
   findConvertibleKnockback,
   findDuplicateCallBackJobNumber,
@@ -247,6 +259,14 @@ function saleToEntry(s) {
     // /existing-job-upsell's own predatesCrm handling. Always set for a
     // Quote Approved Later entry (creation requires a match).
     jobId: s.job_id || null,
+    // Follow-on approved quote (docs/follow-on-approved-quote-design.md):
+    // the approved sale immediately before this one, the chain so far, and
+    // any sales that follow on from this one. Null / [] for every other sale.
+    followsSaleId: s.follows_sale_id || null,
+    followOnChain: !s.is_upsell && s.follows_sale_id ? chainDetails(s.id) : null,
+    followedBy: s.is_upsell
+      ? []
+      : followersOf(s.id).map((f) => ({ saleId: f.id, newJobNumber: f.new_job_number, invoiceNumber: f.invoice_number, archived: !!f.archived })),
     // Upsell only (Stage 6): on the original job's existing invoice, or on a
     // separate invoice / AroFlo Job Number (newJobNumber, reference only).
     invoiceMode: s.is_upsell ? upsellInvoiceMode(s) : null,
@@ -550,6 +570,7 @@ export function listTechEntries({
   // job's converted_by_sale_id points back to. Neither Delete button should
   // be offered in those cases; Archive is always safe regardless.
   const jobIdsWithSales = new Set(all("SELECT DISTINCT job_id AS id FROM sales WHERE job_id IS NOT NULL").map((r) => r.id));
+  const saleIdsFollowedOn = new Set(all('SELECT DISTINCT follows_sale_id AS id FROM sales WHERE follows_sale_id IS NOT NULL').map((r) => r.id));
   const saleIdsConvertedFrom = new Set(all("SELECT DISTINCT converted_by_sale_id AS id FROM jobs WHERE converted_by_sale_id IS NOT NULL").map((r) => r.id));
   // The exact job each Quote Approved Later sale flipped from knock-back to
   // converted, if any (the reverse of jobs.converted_by_sale_id) — used only
@@ -618,7 +639,8 @@ export function listTechEntries({
           e.convertedLater ? 'a Converted Later link' : jobIdsWithQal.has(e.id) && 'a Quote Approved Later sale saved against it',
         ].filter(Boolean)
       : [];
-    if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id);
+    // ...nor while a follow-on approved quote links to it (follows_sale_id).
+    if (e.kind === 'quote_approved_later') e.canDelete = !saleIdsConvertedFrom.has(e.id) && !saleIdsFollowedOn.has(e.id);
     else if (isJobEntry) e.canDelete = !jobIdsWithSales.has(e.id);
     // An Upsell never flips a knock-back to converted (see findConvertibleKnockback's
     // callers below — it's never called for this entry type), so it can
@@ -990,12 +1012,30 @@ export function createTechSalesRouter() {
     // exact Job Number (never a partial/fuzzy match, so it can never link to
     // the wrong job), and is blocked entirely rather than saved half-linked
     // if nothing matches.
-    const matchedJob = findOriginalJob(b.jobNumber);
-    if (!matchedJob) {
+    // Follow-on approved quote: staff confirmed (by ticking the box, which
+    // sends followsSaleId) that this is new work quoted during an earlier
+    // approved sale's job. It links only to that sale — never to a job.
+    let followSource = null;
+    if (b.followsSaleId) {
+      try {
+        followSource = validateNewFollowOn({ followsSaleId: b.followsSaleId, jobNumber: b.jobNumber, newJobNumber: b.newJobNumber });
+      } catch (err) {
+        if (err instanceof FollowOnError) return res.status(err.status).json({ error: err.message });
+        throw err;
+      }
+    }
+    const matchedJob = followSource ? null : findOriginalJob(b.jobNumber);
+    if (!followSource && !matchedJob) {
+      const sources = describeSources(b.jobNumber);
       return res.status(400).json({
-        error: `No existing job found for Original Job Number ${b.jobNumber}. "Existing Job — Quote Approved Later" must reference a Job Number that was already logged as a New Job entry.`,
+        error: sources.length
+          ? `JN ${b.jobNumber} is the New Job Number of an earlier approved quote (sale #${sources[0].saleId}, ${sources[0].chain}). Tick "record it as a follow-on approved quote" to save it as a follow-on, or check the Original Job Number.`
+          : `No existing job found for Original Job Number ${b.jobNumber}, and no earlier approved sale has it as its New Job Number. "Existing Job — Quote Approved Later" must reference a Job Number already logged as a New Job entry — or, for a follow-on approved quote, the New Job Number of an earlier approved sale (add it to that sale first).`,
       });
     }
+    const origin = followSource
+      ? { trade_id: followSource.trade_id, job_type_id: followSource.job_type_id, suburb: followSource.suburb }
+      : matchedJob;
     // The New Job Number is AroFlo's own, freshly created for the approved
     // work — it must never be reused across more than one Quote Approved
     // Later entry, but this check is scoped to that entry type alone (see
@@ -1025,8 +1065,8 @@ export function createTechSalesRouter() {
         job_number: b.jobNumber || '',
         new_job_number: b.newJobNumber || '',
         credited_technician_id: b.creditedTechnicianId || null,
-        trade_id: b.tradeId || matchedJob.trade_id || null,
-        job_type_id: b.jobTypeId || matchedJob.job_type_id || null,
+        trade_id: b.tradeId || origin.trade_id || null,
+        job_type_id: b.jobTypeId || origin.job_type_id || null,
         invoice_number: b.invoiceNumber || '',
         invoice_date: b.invoiceDate || '',
         sale_value_ex_gst: Number(b.saleValueExGst) || 0,
@@ -1036,14 +1076,17 @@ export function createTechSalesRouter() {
         // stays editable; an explicit value in the request always wins. See
         // reports.js's resolveSuburb for how this stored value is used (and
         // overridden by) the linked job's own Suburb in reporting.
-        suburb: b.suburb || matchedJob.suburb || '',
+        suburb: b.suburb || origin.suburb || '',
+        follows_sale_id: followSource ? followSource.id : null,
+        // History only: the chain as it stood when this follow-on was saved.
+        follow_on_chain: followSource ? chainText(chainSales(followSource.id), b.newJobNumber || '') : null,
       };
       const { lastInsertRowid } = run(
         `INSERT INTO sales (job_id, job_number, new_job_number, source, date_logged, credited_technician_id, trade_id, job_type_id,
-          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id)
-         VALUES (?, ?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          invoice_number, invoice_date, sale_value_ex_gst, comments, suburb, created_by_user_id, follows_sale_id)
+         VALUES (?, ?, ?, 'quote_approved_later', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          matchedJob.id,
+          matchedJob ? matchedJob.id : null,
           saleValues.job_number,
           saleValues.new_job_number,
           b.dateLogged,
@@ -1056,9 +1099,35 @@ export function createTechSalesRouter() {
           saleValues.comments,
           saleValues.suburb,
           req.user.id,
+          saleValues.follows_sale_id,
         ]
       );
-      recordAudit({ entityType: 'sale', entityId: lastInsertRowid, before: null, after: saleValues, fields: SALE_TRACKED_FIELDS, userId: req.user.id });
+      recordAudit({
+        entityType: 'sale',
+        entityId: lastInsertRowid,
+        before: null,
+        after: saleValues,
+        fields: followSource ? [...SALE_TRACKED_FIELDS, 'follows_sale_id', 'follow_on_chain'] : SALE_TRACKED_FIELDS,
+        userId: req.user.id,
+      });
+
+      // A follow-on never converts a knockback and never closes a follow-up
+      // (it has no job link) — it only records the link on the earlier sale.
+      if (followSource) {
+        run('INSERT INTO audit_log (entity_type, entity_id, changes_json, changed_by_user_id) VALUES (?, ?, ?, ?)', [
+          'sale',
+          followSource.id,
+          JSON.stringify({
+            follow_on_linked: {
+              from: null,
+              to: lastInsertRowid,
+              detail: saleSummary({ id: lastInsertRowid, ...saleValues }),
+            },
+          }),
+          req.user.id,
+        ]);
+        return lastInsertRowid;
+      }
 
       const flip = findConvertibleKnockback(b.jobNumber);
       if (flip) {
@@ -1122,6 +1191,26 @@ export function createTechSalesRouter() {
         });
       }
     }
+    // Follow-on approved quotes: the Original Job Number is part of the
+    // chain and only changes through "Correct follow-on link"; an earlier
+    // sale's New Job Number can't change while a follow-on depends on it.
+    if (existing.follows_sale_id && b.jobNumber !== undefined && normKey(b.jobNumber) !== normKey(existing.job_number)) {
+      return res.status(400).json({
+        error: 'The Original Job Number of a follow-on approved quote can only be changed with "Correct follow-on link". Nothing was changed.',
+      });
+    }
+    if (b.newJobNumber !== undefined && normKey(b.newJobNumber) !== normKey(existing.new_job_number)) {
+      const dependents = followersOf(existing.id);
+      if (dependents.length) {
+        return res.status(400).json({
+          error: `Follow-on sale${dependents.length > 1 ? 's' : ''} ${dependents
+            .map((d) => `#${d.id} (JN ${d.new_job_number || '—'})`)
+            .join(', ')} depend${dependents.length > 1 ? '' : 's'} on New Job Number ${existing.new_job_number}. Correct ${
+            dependents.length > 1 ? 'their' : 'its'
+          } follow-on link first. Nothing was changed.`,
+        });
+      }
+    }
     const next = {
       job_number: b.jobNumber ?? existing.job_number,
       new_job_number: b.newJobNumber ?? existing.new_job_number,
@@ -1132,7 +1221,9 @@ export function createTechSalesRouter() {
       // the original job's own (always-present) technician — never a guess,
       // and never applied when an explicit value is given — means this can
       // no longer happen.
-      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id) || originalJobTechnicianId(existing.job_id),
+      credited_technician_id: mergeId(b.creditedTechnicianId, existing.credited_technician_id) || originalJobTechnicianId(existing.job_id) ||
+        // A follow-on has no job: keep its own credited technician.
+        (existing.follows_sale_id ? existing.credited_technician_id : null),
       trade_id: mergeId(b.tradeId, existing.trade_id),
       job_type_id: mergeId(b.jobTypeId, existing.job_type_id),
       invoice_number: b.invoiceNumber ?? existing.invoice_number,
@@ -1227,6 +1318,39 @@ export function createTechSalesRouter() {
       notice: notices.length ? notices.join(' ') : undefined,
     });
   });
+
+  // ---- Correct follow-on link (Admin and Staff only) ----
+  // Two steps, like Archive: /preview shows the current link and the
+  // proposed replacement (with the chain before and after) and a token;
+  // /apply with that token, and a required reason, changes only the link and
+  // the Original Job Number, in one transaction, and adds history entries to
+  // all three sales. Never changes value, technician or any other field.
+  //   body: { jobNumber (the correct earlier approved Job Number), reason, token }
+  const officeOnly = (req, res, next) =>
+    req.user && (req.user.role === 'admin' || req.user.role === 'staff')
+      ? next()
+      : res.status(403).json({ error: 'Only Admin and Staff accounts can correct a follow-on link.' });
+  const followOnHandle = (fn) => (req, res) => {
+    try {
+      res.json(fn(req.body || {}, req));
+    } catch (err) {
+      if (err instanceof FollowOnError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  };
+  router.post(
+    '/quote-approved-later/:id/follow-on-link/preview',
+    officeOnly,
+    followOnHandle((b, req) => previewFollowOnCorrection(req.params.id, b.jobNumber))
+  );
+  router.post(
+    '/quote-approved-later/:id/follow-on-link/apply',
+    officeOnly,
+    followOnHandle((b, req) => {
+      const result = applyFollowOnCorrection(req.params.id, b.jobNumber, b.reason, b.token, req.user.id);
+      return { ...result, entry: saleToEntry(saleRow(req.params.id)) };
+    })
+  );
 
   // ---- Existing Job — Upsell ----
   // A different technician adding extra work onto a job's EXISTING invoice —

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { crmRecordedOnInvoice } from '../services/upsell.js';
+import { describeSources } from '../services/followOn.js';
 import { findCallbackEvidence, findCallbackOriginalJob, findCancellationOrigin, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
@@ -9,9 +10,13 @@ export function createLookupRouter() {
 
   router.get('/job', (req, res) => {
     const job = findOriginalJob(req.query.jn || '');
-    if (!job) return res.json({ found: false });
+    // Follow-on approved quotes: earlier approved sales whose New Job Number
+    // is this Job Number (only the Quote Approved Later form uses this).
+    const followOnSources = describeSources(req.query.jn || '', { excludeSaleId: req.query.excludeSaleId || null });
+    if (!job) return res.json({ found: false, followOnSources });
     res.json({
       found: true,
+      followOnSources,
       tradeId: job.trade_id,
       trade: job.trade_name,
       jobTypeId: job.job_type_id,

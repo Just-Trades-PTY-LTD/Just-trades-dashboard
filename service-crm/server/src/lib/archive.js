@@ -364,6 +364,9 @@ export function planLinkQal(saleId) {
   if (!sale) throw new ArchiveError('Quote Approved Later entry not found.', 404);
   const label = entryLabel('quote_approved_later', sale);
   if (sale.archived) throw new ArchiveError(`${label} is archived. Unarchive it first.`);
+  if (sale.follows_sale_id) {
+    throw new ArchiveError(`${label} is a follow-on approved quote. It links to its earlier approved sale, never to a job, and never converts a knockback. Nothing was changed.`);
+  }
   const already = get('SELECT * FROM jobs WHERE converted_by_sale_id = ?', [sale.id]);
   if (already) throw new ArchiveError(`${label} is already linked to JN ${already.job_number}. Nothing to do.`);
   const job = sale.job_id ? get('SELECT * FROM jobs WHERE id = ?', [sale.job_id]) : null;
