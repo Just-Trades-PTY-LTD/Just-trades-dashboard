@@ -106,9 +106,8 @@ visible in Data Health either way.
 
 1. **Access — Option A.** Admin and office Staff see all Needs Attention items,
    with a **Mine / All** filter. Technician accounts cannot access the page
-   (blocked on the server). *Depends on the owner's definition of "office
-   Staff" (still to be confirmed); until then this means Admin and Staff
-   accounts.*
+   (blocked on the server). **Office users = every account with the Admin or
+   Staff role** (decided 18 Nov 2026).
 2. **Waiting times** — as proposed in §2, except **Booked Lead call with no Job
    Number appears straight away** (not after one day). Final timings:
    - Booked Lead call with no Job Number: straight away.
@@ -125,17 +124,23 @@ visible in Data Health either way.
 4. **Dismissal** — both **Admin and office Staff** can mark an item **"Reviewed —
    leave as is"**. A **reason is required**, and the dismissal is **recorded**
    (who, when, reason). This replaces Option A in §6 with a version of
-   Option B open to office Staff, and needs one small additive table (item key,
-   reason, who, when), included in backups, kept when restoring an older
-   backup, and ignored by the previous code on rollback.
+   Option B open to office users, and needs one small additive table (item
+   key, reason, who and when dismissed, who and when reopened), included in
+   backups, kept when restoring an older backup, and ignored by the previous
+   code on rollback.
 5. **Older records — Option A.** The checks for jobs with no matching booked
    Lead / Call back call (rule 3) and jobs with no suburb (rule 8) only include
    records from **1 October 2026** onwards. September records stay visible in
    Data Health. (Rules 1, 2, 4, 5, 6 and 7 cover all dates.)
 
-### Proposed details for the dismissal (to confirm when Stage 4 is reviewed)
-- A dismissed item **reappears automatically** if its record later changes in a
-  way that matters to that rule (for example the Job Number is removed again).
-- A **"Reviewed" list** shows dismissed items with their reason, who and when;
-  an Admin can **reopen** one if it was dismissed by mistake (also recorded).
+### Dismissal and reopening (final, 18 Nov 2026)
+- A dismissed item **stays dismissed**, even if its underlying record later
+  changes. It never returns to the active list automatically.
+- Dismissed items move to a separate **Closed** section, not the main active
+  page. Each shows the reason, who dismissed it and when.
+- **Admin and Staff** users can view the Closed section and **reopen** an item.
+  Reopening returns it to the active list (if the record still has the
+  problem) and records **who reopened it and when**; the original dismissal
+  (reason, who, when) is kept in its history.
 - Dismissals and reopenings appear in Activity history.
+- Technician accounts can't see the active page or the Closed section.

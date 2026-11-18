@@ -87,6 +87,12 @@ Last updated: 17 Nov 2026 (test CRM removed from the plan the same day).
     against existing contacts, customers, open drafts/Needs Attention items
     and recent activity; see §5.
 
+### 18 Nov 2026
+13. **Office users = every account with the Admin or Staff role.** Wherever
+    this plan says "Admin and office Staff" (Needs Attention, customer phone
+    numbers, AroFlo email/address display, the call bubble), it means Admin and
+    Staff accounts. Technician accounts are always excluded.
+
 ### 16 Nov 2026 (still in force)
 - Customer phone numbers stored securely; Admin and office Staff only, never
   Technician accounts; included in backups.
@@ -187,8 +193,8 @@ backups):
 | Stage | What | Depends on |
 |---|---|---|
 | **0. Preparation** (no code) | Answers below; Podium questions sent; information from Kurt/JET/website/Google | Owner |
-| **1. Needs Attention (Stage 4)** | The approved design (`stage4-needs-attention-design.md`, decisions §11), built so later items plug in | "Office Staff" definition; build approval |
-| **2. Customer foundation** | CRM customer records linked to AroFlo client IDs; encrypted phone numbers + fingerprints; permission-controlled display of AroFlo email/address; no new outside data yet beyond AroFlo reads | Stage 1; "office Staff" definition |
+| **1. Needs Attention (Stage 4)** | The approved design (`stage4-needs-attention-design.md`, decisions §11), built so later items plug in | Build approval |
+| **2. Customer foundation** | CRM customer records linked to AroFlo client IDs; encrypted phone numbers + fingerprints; permission-controlled display of AroFlo email/address; no new outside data yet beyond AroFlo reads | Stage 1 |
 | **3. AroFlo read-only expansion** | Completed visits without a Technician & Sales entry (prefilled entry); invoice vs sale amount differences; job/quote/invoice status on the timeline; checks every 10–15 minutes | Stage 2; AroFlo `/v2` limits and a read-only API user confirmed |
 | **4. Podium call log** | Read-only import on a timer; missed/abandoned reports (time of day, day of week, number called, totals); outgoing calls logged and linked | Podium API access and `read_phones` confirmed |
 | **5. Podium live** | Notifications; matching rules (§5); drafts only when needed; call bubble; AI/webchat enquiries in Needs Attention | Stage 4; Podium answers on timing, staff field, transfers |
@@ -237,6 +243,5 @@ CRM. (It was mainly considered for the JMS idea, now on hold.) Instead:
 
 ## 9. Still needed from the owner
 1. Website platform, and where website enquiries currently go.
-2. Who counts as "office Staff" (all Staff accounts, or some excluded).
-3. From Kurt / JET / Google / Podium: as listed in
+2. From Kurt / JET / Google / Podium: as listed in
    `integration-investigation.md` §9 and `podium-questions.md`.
