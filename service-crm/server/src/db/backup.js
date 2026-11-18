@@ -27,7 +27,7 @@ export const BACKUP_TABLES = [
 // restoring a backup made before they were included keeps current values.
 // settings_activity: Settings & accounts Activity history — kept (not
 // cleared) when restoring an older backup that doesn't have it.
-export const OPTIONAL_BACKUP_TABLES = ['app_settings', 'settings_activity'];
+export const OPTIONAL_BACKUP_TABLES = ['app_settings', 'settings_activity', 'needs_attention_reviews'];
 
 export function buildBackupPayload() {
   const backup = { exportedAt: new Date().toISOString(), tables: {} };

@@ -5,6 +5,7 @@ import { DateField, FilterSelect } from '../../components/Fields.jsx';
 import { formatHistoryEntry } from '../../lib/audit.js';
 import { withInactiveLabel } from '../../lib/activeOptions.js';
 import SettingsActivity from './SettingsActivity.jsx';
+import NeedsAttentionHistory from './NeedsAttentionHistory.jsx';
 
 const ENTITY_TYPES = [
   { id: 'call', name: 'Call' },
@@ -89,6 +90,7 @@ export default function Activity() {
         )}
       </div>
       <SettingsActivity />
+      <NeedsAttentionHistory />
     </div>
   );
 }

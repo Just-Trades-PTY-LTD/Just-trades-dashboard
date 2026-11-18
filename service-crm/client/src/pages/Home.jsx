@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
-export default function Home({ setModule, isAdmin }) {
+export default function Home({ setModule, isAdmin, needsCount }) {
   const [counts, setCounts] = useState({ calls: null, jobs: null, activeFollowUps: null, reviews: null });
 
   useEffect(() => {
@@ -17,6 +17,12 @@ export default function Home({ setModule, isAdmin }) {
   }, []);
 
   const cards = [
+    {
+      id: 'needs',
+      title: 'Needs Attention',
+      desc: 'Records that need a staff action — missing Job Numbers, unlogged visits, mismatches and more.',
+      stat: needsCount === null || needsCount === undefined ? 'Open the list' : needsCount === 0 ? 'Nothing needs attention' : `${needsCount} item${needsCount === 1 ? '' : 's'} need${needsCount === 1 ? 's' : ''} attention`,
+    },
     {
       id: 'calls',
       title: 'Calls & Contacts',
