@@ -1,6 +1,6 @@
 # Follow-on approved quotes — design (approved, not built)
 
-Status: design approved 18 Nov 2026. **Not built.** Nothing in the live CRM has
+Status: design approved 18 Nov 2026; build approved 18 Nov 2026 (not live). Nothing in the live CRM has
 changed, sale #24 has not been edited and JN 2747 has not been entered.
 
 ## 1. The situation this covers
@@ -220,8 +220,8 @@ Converted Later for 2317).
    (no figures change).
 4. Staff enter 2747 as a follow-on of sale #24 using the tick-box.
 
-## 13. Still open
+## 13. More than one follow-on (decided 18 Nov 2026)
 
-- Whether one earlier approved sale may have **more than one** follow-on (two
-  separate pieces of new work quoted during the same job). The design allows it
-  (each needs its own New Job Number) unless decided otherwise.
+- One earlier approved sale **may have more than one** follow-on (separate
+  pieces of new work quoted during the same job). Each needs its own New Job
+  Number. The earlier sale's row lists every follow-on.
