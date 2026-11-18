@@ -192,6 +192,12 @@ CREATE TABLE IF NOT EXISTS sales (
   -- Source"), used for Marketing Category only when the Job Number has no
   -- booked Lead call. NULL for every other sale.
   original_lead_source_id INTEGER REFERENCES list_items(id),
+  -- Follow-on approved quote only: the approved sale immediately before this
+  -- one in the chain (new work quoted during that sale's job and approved
+  -- separately). NULL for every other sale. A follow-on has no job link
+  -- (job_id NULL), reports under Repeat customer, and is never a Converted
+  -- Later credit. See docs/follow-on-approved-quote-design.md.
+  follows_sale_id INTEGER REFERENCES sales(id),
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

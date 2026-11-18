@@ -211,6 +211,60 @@ function ArofloChoice({ children, buttonLabel = 'Use this', onUse }) {
   );
 }
 
+// Follow-on approved quote: the Original Job Number is the New Job Number of
+// an earlier approved sale. Staff must confirm before it can be saved; when
+// the number is also a job entry, they choose which one it is.
+function FollowOnBox({ jobNumber, source, alsoJob, confirmed, choseJob, onChoose, onClear }) {
+  const money = `$${Math.round(Number(source.saleValueExGst) || 0).toLocaleString()}`;
+  const saleLine = `Sale #${source.saleId} · JN ${source.jobNumber} → ${source.newJobNumber} · invoice ${source.invoiceNumber || '—'} · ${money} · ${
+    source.creditedTechnician || '—'
+  } · ${source.invoiceDate || '—'}`;
+  const followText = (
+    <>
+      This is new work quoted during JN {source.newJobNumber} and approved separately — record it as a follow-on approved quote. It
+      counts as a normal sale under Repeat customer, and does not convert a knockback or count as a Converted Later credit.
+    </>
+  );
+  return (
+    <div className="lookup-box lookup-found" data-testid="followon-box" style={{ lineHeight: 1.5 }}>
+      <div>
+        JN {jobNumber.trim()} is the New Job Number of an earlier approved quote{source.followOn ? ' (itself a follow-on)' : ''}:
+      </div>
+      <div className="mono" style={{ fontSize: 12 }}>
+        {saleLine}
+      </div>
+      <div style={{ fontSize: 12 }}>Chain: {source.chain}</div>
+      {alsoJob ? (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontWeight: 600 }}>It is also a job entry. Choose which one this is:</div>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 4, fontWeight: 400 }}>
+            <input type="radio" name="followon-choice" checked={!!choseJob} onChange={() => onChoose(null)} data-testid="followon-choose-job" />
+            <span>
+              The job entry: {alsoJob.trade}
+              {alsoJob.jobType ? ` — ${alsoJob.jobType}` : ''} · attended by {alsoJob.technician || '—'} on {alsoJob.visitDate} (a normal Quote
+              Approved Later)
+            </span>
+          </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 4, fontWeight: 400 }}>
+            <input type="radio" name="followon-choice" checked={!!confirmed} onChange={() => onChoose(source.saleId)} data-testid="followon-choose-sale" />
+            <span>{followText}</span>
+          </label>
+        </div>
+      ) : (
+        <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, fontWeight: 400 }}>
+          <input
+            type="checkbox"
+            checked={!!confirmed}
+            onChange={(e) => (e.target.checked ? onChoose(source.saleId) : onClear())}
+            data-testid="followon-confirm"
+          />
+          <span>{followText}</span>
+        </label>
+      )}
+    </div>
+  );
+}
+
 export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, jumpToJN }) {
   const settings = useSettings();
   const [form, setForm] = useState(emptyForm());
@@ -258,6 +312,12 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   // ({ field: { value, prior } }) and for which number, so changing the new
   // Job Number takes back exactly that — plus its notes and suggestions.
   const qalFilled = useRef({ jn: '', fields: {} });
+  // Follow-on approved quote (new Quote Approved Later entries only): which
+  // earlier approved sale staff confirmed this follows on from, as
+  // { jn, saleId } — or { jn, saleId: null } when they chose the job entry
+  // instead (only asked when the number is both). Tied to the Original Job
+  // Number it was chosen for, so changing that number clears it.
+  const [followOnChoice, setFollowOnChoice] = useState(null);
   const [qalPlan, setQalPlan] = useState(null);
   function applyLookupFill(source, wanted) {
     const { patch: changes, filled } = nextLookupFill(formRef.current, lookupFills.current[source], wanted);
@@ -280,6 +340,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     setArofloAutoFilled([]);
     setQalPlan(null);
     qalFilled.current = { jn: '', fields: {} };
+    setFollowOnChoice(null);
   }, [editing]);
 
   function patch(p) {
@@ -324,6 +385,23 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
   const showJobLookup = isExistingJob || isUpsell || isPendingCancellation;
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', jobLookupMode);
+  // Follow-on approved quotes: earlier approved sales whose New Job Number is
+  // this Original Job Number (new entries only — an existing follow-on's
+  // link is changed with "Correct follow-on link" in Job History).
+  const followOnSources = !editing && isExistingJob ? lookupResult?.followOnSources || [] : [];
+  const followOnSource = followOnSources[0] || null;
+  const followOnAlsoJob = !!followOnSource && !!lookupResult?.found;
+  const choiceForThisJn = followOnChoice && followOnChoice.jn === form.jobNumber.trim().toLowerCase() ? followOnChoice : null;
+  const followOnConfirmed = !!followOnSource && choiceForThisJn?.saleId === followOnSource.saleId;
+  const chooseFollowOn = (saleId) => {
+    setFollowOnChoice({ jn: form.jobNumber.trim().toLowerCase(), saleId });
+    setInvalidFields((prev) => {
+      const next = new Set(prev);
+      next.delete('jobNumber');
+      return next;
+    });
+  };
+  const editingFollowOn = !!editing && isExistingJob && !!editing.followsSaleId;
   // Call Back's own Original Job Number lookup — kept separate from the
   // generic one above (rather than folded into showJobLookup) because Call
   // Back gets its own dedicated field block below, matching Quote Approved
@@ -392,7 +470,15 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
   useEffect(() => {
     const r = lookupResult?.found ? lookupResult : null;
     let wanted = {};
-    if (r && isExistingJob) {
+    if (followOnConfirmed) {
+      // Follow-on: from the earlier approved sale, all still editable.
+      wanted = {
+        creditedTechnicianId: followOnSource.creditedTechnicianId,
+        tradeId: followOnSource.tradeId,
+        jobTypeId: followOnSource.jobTypeId,
+        suburb: followOnSource.suburb,
+      };
+    } else if (r && isExistingJob) {
       wanted = { creditedTechnicianId: r.technicianId, tradeId: r.tradeId, jobTypeId: r.jobTypeId, suburb: r.suburb };
     } else if (r && isUpsell) {
       // Deliberately never auto-fills Credited Technician — that's who made
@@ -404,7 +490,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     }
     applyLookupFill('job', wanted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lookupResult]);
+  }, [lookupResult, followOnConfirmed]);
 
   // Call Back's own Credited (original work) Technician: who actually
   // completed the original work, not necessarily who's credited with the
@@ -856,6 +942,14 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         missing.push('New Job Number');
         fields.add('newJobNumber');
       }
+      if (followOnSource && !followOnAlsoJob && !followOnConfirmed) {
+        missing.push('Follow-on confirmation (tick the box under Original Job Number, or check the number)');
+        fields.add('jobNumber');
+      }
+      if (followOnAlsoJob && !choiceForThisJn) {
+        missing.push('Choose the job entry or the earlier approved sale for this Original Job Number');
+        fields.add('jobNumber');
+      }
       if (!form.creditedTechnicianId) {
         missing.push('Credited Technician');
         fields.add('creditedTechnicianId');
@@ -971,7 +1065,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
           saleValueExGst: form.saleValueExGst,
           comments: form.comments,
           suburb: form.suburb,
+          ...(!editing && followOnConfirmed ? { followsSaleId: followOnSource.saleId } : {}),
         };
+        // A follow-on's Original Job Number only changes through "Correct
+        // follow-on link", so it's never sent on an edit.
+        if (editingFollowOn) delete body.jobNumber;
         res = editing ? { entry: await api.tech.updateQuoteApprovedLater(editing.id, body) } : await api.tech.createQuoteApprovedLater(body);
       } else if (isUpsell) {
         const body = {
@@ -1094,11 +1192,40 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         <div className="grid-form" style={{ marginTop: 14 }}>
           <div className={`field${invalidFields.has('jobNumber') ? ' invalid' : ''}`}>
             <label>Original Job Number *</label>
-            <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
-            <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
-            <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
-              The original visit's Job Number — used to locate the original job and credit the correct technician.
-            </div>
+            {editingFollowOn ? (
+              <>
+                <input className="mono" value={form.jobNumber} readOnly disabled data-testid="followon-original-jn" />
+                <div className="lookup-box lookup-found" data-testid="followon-edit-chain">
+                  Follow-on approved quote · Repeat customer
+                  <br />
+                  Chain: {editing.followOnChain?.text || '—'}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                  To change which earlier approved sale this follows on from, use "Correct follow-on link…" in Job History.
+                </div>
+              </>
+            ) : (
+              <>
+                <input className="mono" placeholder="e.g. 10432" value={form.jobNumber} onChange={(e) => patch({ jobNumber: e.target.value })} />
+                {followOnSource ? (
+                  <FollowOnBox
+                    jobNumber={form.jobNumber}
+                    source={followOnSource}
+                    alsoJob={followOnAlsoJob ? lookupResult : null}
+                    confirmed={followOnConfirmed}
+                    choseJob={followOnAlsoJob && choiceForThisJn?.saleId === null}
+                    onChoose={chooseFollowOn}
+                    onClear={() => setFollowOnChoice(null)}
+                  />
+                ) : (
+                  <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
+                )}
+                <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
+                  The original visit's Job Number — used to locate the original job and credit the correct technician. For new work
+                  quoted during an earlier approved quote, enter that quote's New Job Number.
+                </div>
+              </>
+            )}
           </div>
           <div className={`field${invalidFields.has('newJobNumber') ? ' invalid' : ''}`}>
             <label>New Job Number *</label>
@@ -1759,6 +1886,11 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
         />
       </div>
 
+      {isExistingJob && (followOnConfirmed || editingFollowOn) && (
+        <div style={{ marginTop: 16 }} data-testid="followon-save-label">
+          <span className="badge badge-info">Follow-on approved quote · Repeat customer</span>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
         <button type="submit" className="btn btn-primary" disabled={saving}>
           {saving ? 'Saving…' : editing ? 'Update entry' : 'Save entry'}
