@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './auth/AuthContext.jsx';
+import { api } from './lib/api.js';
 import { useCrmNav, makeSliceSetter } from './lib/crmNav.js';
 import { SettingsProvider } from './lib/SettingsContext.jsx';
 import Login from './pages/Login.jsx';
@@ -9,6 +11,7 @@ import ReportsPage from './pages/Reports/index.jsx';
 import SettingsPage from './pages/Settings/index.jsx';
 import FollowUpsPage from './pages/FollowUps/index.jsx';
 import ReviewsPage from './pages/Reviews/index.jsx';
+import NeedsAttentionPage from './pages/NeedsAttention/index.jsx';
 import TechnicianApp from './pages/Me/TechnicianApp.jsx';
 import logo from './assets/logo.png';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -16,6 +19,7 @@ import NewVersionNotice from './components/NewVersionNotice.jsx';
 
 const BASE_TABS = [
   ['home', 'Home'],
+  ['needs', 'Needs Attention'],
   ['calls', 'Calls & Contacts'],
   ['tech', 'Technician & sales'],
   ['followups', 'Follow-ups'],
@@ -26,6 +30,19 @@ const BASE_TABS = [
 export default function App() {
   const { user, loading, logout } = useAuth();
   const [nav, updateNav] = useCrmNav();
+  // Needs Attention count for the tab (office accounts only), refreshed when
+  // the page changes and every 5 minutes.
+  const isOffice = user && (user.role === 'admin' || user.role === 'staff');
+  const [needsCount, setNeedsCount] = useState(null);
+  const refreshNeedsCount = useCallback(() => {
+    if (!isOffice) return;
+    api.needsAttention.count().then((d) => setNeedsCount(d.count)).catch(() => {});
+  }, [isOffice]);
+  useEffect(() => {
+    refreshNeedsCount();
+    const t = setInterval(refreshNeedsCount, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [refreshNeedsCount, nav.module]);
 
   if (loading) return null;
   if (!user) return <Login />;
@@ -60,6 +77,30 @@ export default function App() {
   function jumpToJobId(target, jobId) {
     updateNav((prev) => ({ ...prev, module: target, pendingJump: { target, jobId } }));
   }
+  // Needs Attention "Open": the record's own normal screen. A call opens in
+  // Calls & Contacts and a Technician & Sales entry opens for editing, both
+  // from the same lists those screens use; a Job Number opens the matching
+  // history list. Nothing is changed by opening.
+  async function openRecord(open) {
+    if (!open) return;
+    if (open.module === 'followups') return setModule('followups');
+    if (open.jn !== undefined) return jumpToJN(open.module, open.jn);
+    try {
+      if (open.module === 'calls') {
+        const rows = await api.calls.list({ includeArchived: true });
+        const call = rows.find((c) => c.id === open.id);
+        if (call) return updateNav((prev) => ({ ...prev, module: 'calls', calls: { ...prev.calls, sub: 'log', editing: call } }));
+      } else {
+        const rows = await api.tech.entries({ includeArchived: 'true' });
+        const entry = rows.find((e) => e.kind === open.kind && e.id === open.id);
+        if (entry) return updateNav((prev) => ({ ...prev, module: 'tech', tech: { ...prev.tech, sub: 'log', editing: entry } }));
+      }
+    } catch {
+      // Fall through to the module itself.
+    }
+    setModule(open.module);
+  }
+
   function clearJump() {
     updateNav((prev) => ({ ...prev, pendingJump: null }), { push: false });
   }
@@ -114,12 +155,18 @@ export default function App() {
           {tabs.map(([id, label]) => (
             <button key={id} className={`tab ${activeModule === id ? 'active' : ''}`} onClick={() => setModule(id)} type="button">
               {label}
+              {id === 'needs' && needsCount > 0 && (
+                <span className="badge badge-warn" style={{ marginLeft: 6 }} data-testid="needs-count">
+                  {needsCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
         <ErrorBoundary key={activeModule} screen={activeModule}>
-        {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} />}
+        {activeModule === 'home' && <Home setModule={setModule} isAdmin={isAdmin} needsCount={needsCount} />}
+        {activeModule === 'needs' && <NeedsAttentionPage openRecord={openRecord} onCountChange={setNeedsCount} />}
         {activeModule === 'calls' && (
           <CallsPage
             sub={nav.calls.sub}

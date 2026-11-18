@@ -165,6 +165,15 @@ export const api = {
     getLayouts: () => request('GET', '/reports/layouts'),
     saveLayout: (reportKey, layout) => request('PUT', `/reports/layouts/${reportKey}`, { layout }),
   },
+  // Needs Attention (Stage 4) — office accounts only.
+  needsAttention: {
+    list: (params) => request('GET', `/needs-attention${qs(params)}`),
+    count: () => request('GET', '/needs-attention/count'),
+    closed: () => request('GET', '/needs-attention/closed'),
+    history: () => request('GET', '/needs-attention/history'),
+    dismiss: (key, reason) => request('POST', '/needs-attention/dismiss', { key, reason }),
+    reopen: (key) => request('POST', '/needs-attention/reopen', { key }),
+  },
   audit: {
     activity: (params) => request('GET', `/audit/activity${qs(params)}`),
     settingsActivity: (params) => request('GET', `/audit/settings-activity${qs(params)}`),

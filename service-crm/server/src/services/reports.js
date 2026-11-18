@@ -1172,7 +1172,7 @@ function repeatCustomerItem() {
 // `resolve(row)` returns { category, leadSourceId } — leadSourceId is what
 // the Lead Source filter compares (null = "Unassigned"). Works for a job,
 // sale, upsell, call back or pending cancellation row. Read-only.
-function marketingAttribution() {
+export function marketingAttribution() {
   const leadCalls = groupBookedLeadsByJobNumber(
     all(
       `SELECT c.*, ls.name AS lead_source_name FROM calls c

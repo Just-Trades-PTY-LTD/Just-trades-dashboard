@@ -445,3 +445,24 @@ CREATE TABLE IF NOT EXISTS settings_activity (
   changed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_settings_activity_changed_at ON settings_activity(changed_at);
+
+-- Needs Attention: items an office user marked "Reviewed — leave as is"
+-- (Stage 4). One row per dismissal; reopening fills reopened_* and the row
+-- is kept as history. A dismissed item stays dismissed (it never returns by
+-- itself, even if its record changes) until someone reopens it. Names are
+-- kept as they were at the time. Nothing else in the CRM reads this table,
+-- so it can never change a record or a report figure.
+CREATE TABLE IF NOT EXISTS needs_attention_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_key TEXT NOT NULL,
+  rule TEXT NOT NULL,
+  item_label TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+  dismissed_by_user_id INTEGER REFERENCES users(id),
+  dismissed_by_name TEXT NOT NULL,
+  dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  reopened_by_user_id INTEGER REFERENCES users(id),
+  reopened_by_name TEXT,
+  reopened_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_needs_attention_open_dismissal ON needs_attention_reviews(item_key) WHERE reopened_at IS NULL;
