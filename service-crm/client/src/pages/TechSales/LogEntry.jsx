@@ -1218,7 +1218,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
                     onClear={() => setFollowOnChoice(null)}
                   />
                 ) : (
-                  <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} />
+                  <JobLookupBox jobNumber={form.jobNumber} mode={jobLookupMode} result={lookupResult} approvedQuote={!editing} />
                 )}
                 <div style={{ fontSize: 11.5, color: 'var(--ink-muted)', marginTop: 4 }}>
                   The original visit's Job Number — used to locate the original job and credit the correct technician. For new work
