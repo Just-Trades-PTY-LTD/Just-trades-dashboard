@@ -64,46 +64,6 @@ const MIGRATIONS = [
     },
   },
   {
-    // Purely additive: only ever INSERTs a new knockback_reason list_item
-    // when a row of that exact name isn't already there, keyed by name so
-    // it's a no-op on every later boot. Never touches, renames or removes
-    // any existing knockback_reason row (or any job that references one),
-    // so no existing record's Reason for Knockback can change.
-    //
-    // Skipped entirely when the category has no rows yet at all — that's a
-    // brand-new database, and this migration always runs before seedLists()
-    // populates the defaults (see seed.js), so acting here would make
-    // seedLists() see the category as already seeded and skip the original
-    // 5 reasons. A genuinely fresh install gets the full list straight from
-    // DEFAULT_LISTS in seed.js instead.
-    id: 'add_knockback_reason_options',
-    run(database) {
-      const NEW_REASONS = [
-        'Customer getting other quotes',
-        'Customer not ready to proceed',
-        'Customer declined',
-        'Unable to contact/customer unavailable',
-        'Finance/payment issue',
-        'Work not required',
-        'Competitor selected',
-        'Unknown/not provided',
-      ];
-      const { n: existingCount } = database.prepare("SELECT COUNT(*) AS n FROM list_items WHERE category = 'knockback_reason'").get();
-      if (existingCount === 0) return;
-      const existingNames = new Set(
-        database.prepare("SELECT name FROM list_items WHERE category = 'knockback_reason'").all().map((r) => r.name)
-      );
-      const { m: maxOrder } = database
-        .prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM list_items WHERE category = 'knockback_reason'")
-        .get();
-      let nextOrder = maxOrder + 1;
-      const insert = database.prepare("INSERT INTO list_items (category, name, sort_order) VALUES ('knockback_reason', ?, ?)");
-      for (const name of NEW_REASONS) {
-        if (!existingNames.has(name)) insert.run(name, nextOrder++);
-      }
-    },
-  },
-  {
     // Purely additive: a brand-new nullable-in-spirit column (TEXT NOT NULL
     // DEFAULT ''), so SQLite backfills '' onto every existing row the moment
     // this runs — no existing sale's job_number, job_id, source or any other
@@ -243,6 +203,39 @@ const MIGRATIONS = [
 // blank) after this first ran. Never rewrite or remove an entry once it has
 // shipped, for the same reason as MIGRATIONS above.
 const ONE_TIME_MIGRATIONS = [
+  {
+    // Adds the 8 newer Knockback reasons ONCE, to a database that had only
+    // the original 5. It used to run on every boot and re-added any of the 8
+    // that staff had since removed in Settings (it happened on 15–17 Nov), so
+    // it is now a one-time migration that also does nothing when ANY of the
+    // 8 already exists (or ever existed and is still present) — i.e. it was
+    // already applied. A brand-new database (no reasons yet) gets the full
+    // list from seed.js instead. Never touches, renames or removes a row.
+    id: 'add_knockback_reason_options',
+    run(database) {
+      const NEW_REASONS = [
+        'Customer getting other quotes',
+        'Customer not ready to proceed',
+        'Customer declined',
+        'Unable to contact/customer unavailable',
+        'Finance/payment issue',
+        'Work not required',
+        'Competitor selected',
+        'Unknown/not provided',
+      ];
+      const existingNames = new Set(
+        database.prepare("SELECT name FROM list_items WHERE category = 'knockback_reason'").all().map((r) => r.name)
+      );
+      if (existingNames.size === 0) return;
+      if (NEW_REASONS.some((name) => existingNames.has(name))) return;
+      const { m: maxOrder } = database
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM list_items WHERE category = 'knockback_reason'")
+        .get();
+      let nextOrder = maxOrder + 1;
+      const insert = database.prepare("INSERT INTO list_items (category, name, sort_order) VALUES ('knockback_reason', ?, ?)");
+      for (const name of NEW_REASONS) insert.run(name, nextOrder++);
+    },
+  },
   {
     // Remember the "Repeat customer" Lead Source by its id, so it can be
     // renamed without breaking callback / repeat-customer attribution. Saved
