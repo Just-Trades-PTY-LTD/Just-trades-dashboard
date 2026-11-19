@@ -1030,7 +1030,7 @@ export function createTechSalesRouter() {
       return res.status(400).json({
         error: sources.length
           ? `JN ${b.jobNumber} is the New Job Number of an earlier approved quote (sale #${sources[0].saleId}, ${sources[0].chain}). Tick "record it as a follow-on approved quote" to save it as a follow-on, or check the Original Job Number.`
-          : `No existing job found for Original Job Number ${b.jobNumber}, and no earlier approved sale has it as its New Job Number. "Existing Job — Quote Approved Later" must reference a Job Number already logged as a New Job entry — or, for a follow-on approved quote, the New Job Number of an earlier approved sale (add it to that sale first).`,
+          : `No existing job found for Original Job Number ${b.jobNumber}, and no earlier approved sale has it as its New Job Number. If ${b.jobNumber} is the New Job Number of an earlier approved quote, first add it to that sale (Job history → Edit that sale → New Job Number → Update entry), then enter this again and tick the follow-on box. Nothing was saved.`,
       });
     }
     const origin = followSource
