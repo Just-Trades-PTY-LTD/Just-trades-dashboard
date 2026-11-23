@@ -420,15 +420,24 @@ export function createSettingsRouter() {
     );
   });
 
+  // Add one suburb from Settings → Suburbs: a name and a 4-digit postcode are
+  // both required, and a suburb already in the list (same name, ignoring
+  // capitals and extra spaces, and the same postcode) is refused with a clear
+  // message and the existing row, so it can be shown instead.
   router.post('/suburbs', adminOnly, (req, res) => {
-    const name = (req.body?.name || '').trim();
-    const postcode = (req.body?.postcode || '').trim();
-    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    const name = String(req.body?.name ?? '').trim().replace(/\s+/g, ' ');
+    const postcode = String(req.body?.postcode ?? '').trim();
+    if (!name) return res.status(400).json({ error: 'Enter the suburb name.' });
+    if (!/^\d{4}$/.test(postcode)) return res.status(400).json({ error: 'Enter the 4-digit postcode.' });
+    const existing = get("SELECT * FROM suburbs WHERE lower(trim(name)) = lower(?) AND trim(postcode) = ?", [name, postcode]);
+    if (existing) {
+      return res.status(409).json({ error: `${existing.name} (${existing.postcode}) is already in the list.`, existing });
+    }
     try {
       const { lastInsertRowid } = run('INSERT INTO suburbs (name, postcode) VALUES (?, ?)', [name, postcode]);
       res.status(201).json(get('SELECT * FROM suburbs WHERE id = ?', [lastInsertRowid]));
     } catch {
-      res.status(409).json({ error: 'That suburb/postcode combination already exists.' });
+      res.status(409).json({ error: `${name} (${postcode}) is already in the list.` });
     }
   });
 

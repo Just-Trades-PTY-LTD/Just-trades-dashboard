@@ -7,6 +7,14 @@ export default function Suburbs({ refreshCount }) {
   const [result, setResult] = useState({ rows: [], total: 0, pageSize: 50 });
   const [bulkText, setBulkText] = useState('');
   const [importResult, setImportResult] = useState(null);
+  // "Add suburb": a small form (name + 4-digit postcode), shown on demand.
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPostcode, setNewPostcode] = useState('');
+  const [addError, setAddError] = useState('');
+  const [addMessage, setAddMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const canSave = newName.trim() && /^\d{4}$/.test(newPostcode.trim()) && !saving;
 
   function reload() {
     api.settings.suburbs({ q: query, page, pageSize: 50 }).then(setResult);
@@ -27,10 +35,37 @@ export default function Suburbs({ refreshCount }) {
     refreshCount();
   }
 
-  async function addRow() {
-    await api.settings.addSuburb('New suburb', '');
-    reload();
-    refreshCount();
+  function openAdd() {
+    setAdding(true);
+    setNewName('');
+    setNewPostcode('');
+    setAddError('');
+    setAddMessage('');
+  }
+
+  // Shows just the given suburb in the list (search by its name).
+  function showSuburb(name) {
+    setQuery(name);
+    setPage(1);
+  }
+
+  async function saveNew(e) {
+    e?.preventDefault();
+    if (!canSave) return;
+    setSaving(true);
+    setAddError('');
+    try {
+      const row = await api.settings.addSuburb(newName.trim(), newPostcode.trim());
+      setAdding(false);
+      setAddMessage(`Added ${row.name} (${row.postcode}).`);
+      showSuburb(row.name);
+      if (query === row.name) reload();
+      refreshCount();
+    } catch (err) {
+      setAddError(err.message || 'The suburb could not be added.');
+      if (/already in the list/i.test(err.message || '')) showSuburb(newName.trim());
+    }
+    setSaving(false);
   }
 
   async function importBulk() {
@@ -85,10 +120,52 @@ export default function Suburbs({ refreshCount }) {
           </div>
         ))}
       </div>
+      {addMessage && !adding && (
+        <div className="notice panel" role="status" style={{ marginBottom: 10 }} data-testid="suburb-added">
+          {addMessage}
+        </div>
+      )}
+      {adding && (
+        <form
+          onSubmit={saveNew}
+          className="panel"
+          style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}
+          data-testid="add-suburb-form"
+          data-unsaved-ignore
+        >
+          <div className="field" style={{ flex: '2 1 200px', margin: 0 }}>
+            <label>Suburb name *</label>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Two Wells" autoFocus data-testid="new-suburb-name" />
+          </div>
+          <div className="field" style={{ flex: '1 1 110px', margin: 0 }}>
+            <label>Postcode *</label>
+            <input
+              value={newPostcode}
+              onChange={(e) => setNewPostcode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="e.g. 5501"
+              inputMode="numeric"
+              data-testid="new-suburb-postcode"
+            />
+          </div>
+          <button className="btn btn-primary" type="submit" disabled={!canSave} data-testid="new-suburb-save">
+            {saving ? 'Saving…' : 'Save suburb'}
+          </button>
+          <button className="btn" type="button" onClick={() => setAdding(false)} disabled={saving}>
+            Cancel
+          </button>
+          {addError && (
+            <div className="notice error" style={{ flexBasis: '100%' }} data-testid="new-suburb-error">
+              {addError}
+            </div>
+          )}
+        </form>
+      )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
-        <button className="btn" onClick={addRow} type="button">
-          Add suburb
-        </button>
+        {!adding && (
+          <button className="btn" onClick={openAdd} type="button" data-testid="add-suburb">
+            Add suburb
+          </button>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5 }}>
           <button className="btn btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} type="button">
             Prev
