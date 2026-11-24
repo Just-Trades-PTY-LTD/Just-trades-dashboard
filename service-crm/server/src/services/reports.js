@@ -1192,9 +1192,12 @@ export function marketingAttribution() {
     const call = leadCalls.get(key);
     return { category: marketingCategoryLabel(call.lead_source_name), leadSourceId: call.lead_source_id || null };
   };
+  // Pending Cancellations linked to a follow-on approved quote follow it.
+  const followOnSaleIds = new Set(all('SELECT id FROM sales WHERE follows_sale_id IS NOT NULL').map((r) => r.id));
   function resolveRecord(row) {
-    // Follow-on approved quote: always Repeat customer, whatever its Job Number.
-    if (row.follows_sale_id) return repeatResult;
+    // Follow-on approved quote: always Repeat customer, whatever its Job
+    // Number — and so is a Pending Cancellation linked to one.
+    if (row.follows_sale_id || (row.sale_id && followOnSaleIds.has(row.sale_id))) return repeatResult;
     const key = normKey(row.job_number);
     if (key && callback.byNewCallbackJn(key)) return repeatResult;
     if (key && leadCalls.has(key)) return bookedLeadCall(key);

@@ -259,7 +259,8 @@ export default function LogCall({ editing, onSaved, onCancelEdit, setNotice }) {
 
   // A Pending Cancellation is about a job that's already been sold, so it
   // links against the sale record; everything else links against the job.
-  const lookupMode = form.callType === 'Quote approved' || isPendingCancellation ? 'sale' : 'job';
+  // A Pending Cancellation also finds an approved quote by its New Job Number.
+  const lookupMode = isPendingCancellation ? 'cancellationSale' : form.callType === 'Quote approved' ? 'sale' : 'job';
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', lookupMode);
 
   // Silently autofill trade/job type from whatever the JN matched, the same

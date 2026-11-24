@@ -53,6 +53,39 @@ export function findLatestSale(jobNumber, { excludeUpsells = false } = {}) {
   );
 }
 
+/** Whether a sale (not an Upsell) is the sale for this Job Number when a
+ * customer cancels: a Sale Made or approved quote by its own Job Number, an
+ * approved quote also by its New Job Number (the AroFlo job of the approved
+ * work, which is what staff usually type), and a follow-on approved quote
+ * only by its New Job Number (its Original Job Number is the earlier
+ * approved job, whose invoice is a different one). */
+export function saleMatchesForCancellation(sale, jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key || !sale || sale.is_upsell) return false;
+  const newJn = sale.source === 'quote_approved_later' ? normKey(sale.new_job_number) : '';
+  if (sale.follows_sale_id) return newJn === key;
+  return normKey(sale.job_number) === key || newJn === key;
+}
+
+/** Most recent active sale (never an Upsell) for a cancellation of this Job
+ * Number — see saleMatchesForCancellation(). */
+export function findLatestSaleForCancellation(jobNumber) {
+  const key = normKey(jobNumber);
+  if (!key) return null;
+  return (
+    all(
+      `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name, jt.name AS job_type_name
+       FROM sales s
+       LEFT JOIN technicians t ON t.id = s.credited_technician_id
+       LEFT JOIN trades tr ON tr.id = s.trade_id
+       LEFT JOIN job_types jt ON jt.id = s.job_type_id
+       WHERE s.archived = 0 AND s.is_upsell = 0 AND (lower(trim(s.job_number)) = ? OR lower(trim(s.new_job_number)) = ?)
+       ORDER BY s.invoice_date DESC, s.id DESC`,
+      [key, key]
+    ).find((s) => saleMatchesForCancellation(s, key)) || null
+  );
+}
+
 /** The earliest active Calls & Contacts record matching this Job Number
  * (case/whitespace-insensitive), if any — i.e. the linked/original booking
  * record, never a later, unrelated contact that happens to share the JN.

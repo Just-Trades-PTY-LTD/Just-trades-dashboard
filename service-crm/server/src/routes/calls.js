@@ -4,7 +4,7 @@ import { all, get, run, transaction } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { recordAudit, getHistory, getHistoryCounts, getLastEditedInfo } from '../lib/audit.js';
 import { mergeId } from '../lib/merge.js';
-import { findLatestSale, findOriginalJob, isUserActive } from '../services/lookup.js';
+import { findLatestSaleForCancellation, findOriginalJob, isUserActive } from '../services/lookup.js';
 import { buildCallHistoryWorkbook } from '../lib/xlsxHistory.js';
 import { checkDetails, confirmationNeeded, applyDetails, detailsOf, checkCreditedTechnician, applyCreditedTechnician } from '../services/pendingCancellation.js';
 import { adelaideDateStamp } from '../lib/adelaideTime.js';
@@ -63,7 +63,7 @@ function syncPendingCancellation({ previous, existingPendingCancellationId, call
   }
 
   const resolveLinks = () => {
-    const sale = findLatestSale(jobNumber, { excludeUpsells: true });
+    const sale = findLatestSaleForCancellation(jobNumber);
     // A job never sold has no sale to take a technician from; fall back to
     // the job's own (mandatory) Technician so it never ends up "Unassigned".
     const originalJob = sale ? null : findOriginalJob(jobNumber);

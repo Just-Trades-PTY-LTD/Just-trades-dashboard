@@ -148,6 +148,7 @@ export const api = {
   lookup: {
     job: (jn) => request('GET', `/lookup/job${qs({ jn })}`),
     sale: (jn) => request('GET', `/lookup/sale${qs({ jn })}`),
+    cancellationSale: (jn) => request('GET', `/lookup/sale${qs({ jn, for: 'cancellation' })}`),
     call: (jn) => request('GET', `/lookup/call${qs({ jn })}`),
     callbackOrigin: (jn) => request('GET', `/lookup/callback-origin${qs({ jn })}`),
     upsellInvoice: (jn, invoice, excludeSaleId) => request('GET', `/lookup/upsell-invoice${qs({ jn, invoice, excludeSaleId })}`),
