@@ -4,7 +4,7 @@
 export function JobLookupBox({ jobNumber, mode, result, approvedQuote = false }) {
   if (!jobNumber || !jobNumber.trim() || !result) return null;
 
-  if (mode === 'sale') {
+  if (mode === 'sale' || mode === 'cancellationSale') {
     if (!result.found) return <div className="lookup-box lookup-missing">No recorded sale found yet for JN {jobNumber}.</div>;
     return (
       <div className="lookup-box lookup-found">

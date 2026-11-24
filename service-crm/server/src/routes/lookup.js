@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { crmRecordedOnInvoice } from '../services/upsell.js';
 import { describeSources } from '../services/followOn.js';
-import { findCallbackEvidence, findCallbackOriginalJob, findCancellationOrigin, findLatestSale, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
+import { findCallbackEvidence, findCallbackOriginalJob, findCancellationOrigin, findLatestSale, findLatestSaleForCancellation, findOriginalBookingCall, findOriginalJob, findReportingLeadCall } from '../services/lookup.js';
 
 export function createLookupRouter() {
   const router = Router();
@@ -42,7 +42,9 @@ export function createLookupRouter() {
   });
 
   router.get('/sale', (req, res) => {
-    const sale = findLatestSale(req.query.jn || '');
+    // ?for=cancellation: a Pending Cancellation also finds an approved quote
+    // by its New Job Number (see findLatestSaleForCancellation).
+    const sale = req.query.for === 'cancellation' ? findLatestSaleForCancellation(req.query.jn || '') : findLatestSale(req.query.jn || '');
     if (!sale) return res.json({ found: false });
     res.json({
       found: true,

@@ -22,7 +22,7 @@ export function useJobLookup(jobNumber, mode) {
     let current = true;
     debounceRef.current = setTimeout(() => {
       const fn =
-        mode === 'sale' ? api.lookup.sale : mode === 'call' ? api.lookup.call : mode === 'callbackOrigin' ? api.lookup.callbackOrigin : api.lookup.job;
+        mode === 'sale' ? api.lookup.sale : mode === 'cancellationSale' ? api.lookup.cancellationSale : mode === 'call' ? api.lookup.call : mode === 'callbackOrigin' ? api.lookup.callbackOrigin : api.lookup.job;
       fn(jobNumber)
         .then((r) => current && setResult(r))
         .catch(() => current && setResult(null));

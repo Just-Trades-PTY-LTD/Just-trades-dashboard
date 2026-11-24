@@ -382,7 +382,7 @@ export default function LogEntry({ editing, onSaved, onCancelEdit, setNotice, ju
     setForm(next);
   }
 
-  const jobLookupMode = isPendingCancellation ? 'sale' : 'job';
+  const jobLookupMode = isPendingCancellation ? 'cancellationSale' : 'job';
   const showJobLookup = isExistingJob || isUpsell || isPendingCancellation;
   const lookupResult = useJobLookup(showJobLookup ? form.jobNumber : '', jobLookupMode);
   // Follow-on approved quotes: earlier approved sales whose New Job Number is

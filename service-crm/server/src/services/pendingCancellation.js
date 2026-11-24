@@ -1,6 +1,6 @@
 import { all, get, run } from '../db/index.js';
 import { recordAudit } from '../lib/audit.js';
-import { invoiceKey, normKey } from './lookup.js';
+import { invoiceKey, normKey, saleMatchesForCancellation } from './lookup.js';
 
 // Stage 5 — a Pending Cancellation's affected invoice and lost value,
 // recorded only through its Calls & Contacts call (Cancellation -> Pending
@@ -33,9 +33,18 @@ export const money = (n) => `$${cents(n).toLocaleString('en-AU', { minimumFracti
 export function crmInvoicesForJob(jobNumber) {
   const key = normKey(jobNumber);
   if (!key) return [];
-  const sales = all(
+  const allSales = all(
     "SELECT s.*, t.name AS credited_technician_name FROM sales s LEFT JOIN technicians t ON t.id = s.credited_technician_id WHERE s.archived = 0 AND s.invoice_number != '' ORDER BY s.id"
-  ).filter((s) => normKey(s.job_number) === key);
+  );
+  // Original sales: by Job Number, or an approved quote by its New Job
+  // Number (see saleMatchesForCancellation). Upsells: by Job Number as
+  // before, or by the Job Number of the original sale they were added to.
+  const originals = allSales.filter((s) => saleMatchesForCancellation(s, key));
+  const originalJns = new Set(originals.map((s) => normKey(s.job_number)));
+  const sales = [
+    ...originals,
+    ...allSales.filter((s) => s.is_upsell && (normKey(s.job_number) === key || originalJns.has(normKey(s.job_number)))),
+  ];
   const byInvoice = new Map();
   for (const s of sales.filter((x) => !x.is_upsell)) {
     const k = invoiceKey(s.invoice_number);
