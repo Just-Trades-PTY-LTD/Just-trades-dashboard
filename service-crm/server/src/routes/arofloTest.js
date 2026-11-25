@@ -26,6 +26,7 @@ import {
   cleanArofloError,
 } from '../aroflo/client.js';
 import { LEAD_SOURCE_FIELD_NAMES } from '../aroflo/customerHistory.js';
+import { MAX_RANGE_DAYS, runMissingEntriesTest } from '../aroflo/missingEntries.js';
 import { gatherCustomerHistory } from '../aroflo/repeatCheck.js';
 import { matchSuburbFromLocationText, analyzeTaskSuburb, legacyMatchSuburbFromLocationText, addressSummary } from '../aroflo/suburbMatch.js';
 
@@ -286,6 +287,30 @@ export function createArofloTestRouter() {
       if (result.error) return res.status(502).json({ error: result.error });
       const tally = result.rows.reduce((acc, r) => ({ ...acc, [r.outcome]: (acc[r.outcome] || 0) + 1 }), {});
       res.json({ ...result, tally, totalCalls: calls, elapsedMs: Date.now() - started });
+    } catch (err) {
+      if (err instanceof ArofloNotConfiguredError) return res.status(400).json({ error: err.message });
+      if (err instanceof ArofloRequestError) return res.status(502).json({ error: err.message });
+      throw err;
+    }
+  });
+
+  // Missing entries check — read-only TEST (Reports, Admin only). Which
+  // AroFlo Job Numbers had labour logged by an active CRM technician in the
+  // range, and whether each is already accounted for in the CRM. GET-only to
+  // AroFlo, SELECT-only on the CRM; nothing is saved. See
+  // aroflo/missingEntries.js.
+  router.get('/missing-entries', async (req, res) => {
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+    const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00Z`).getTime());
+    if (!isDate(from) || !isDate(to)) return res.status(400).json({ error: 'Choose a From and To date.' });
+    if (from > to) return res.status(400).json({ error: 'From must be on or before To.' });
+    const days = Math.round((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000) + 1;
+    if (days > MAX_RANGE_DAYS) return res.status(400).json({ error: `Choose ${MAX_RANGE_DAYS} days or fewer for this test.` });
+    try {
+      const result = await runMissingEntriesTest({ from, to });
+      if (result.error) return res.status(502).json({ error: result.error });
+      res.json(result);
     } catch (err) {
       if (err instanceof ArofloNotConfiguredError) return res.status(400).json({ error: err.message });
       if (err instanceof ArofloRequestError) return res.status(502).json({ error: err.message });

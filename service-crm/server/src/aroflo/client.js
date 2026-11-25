@@ -549,3 +549,17 @@ export async function listRecentTasks(businessUnitId, count) {
 export async function getTaskAddress(taskId) {
   return arofloProbe(`/tasks/${encodeURIComponent(taskId)}`, { _fields: 'id,jobNumber,location,locationText' }, '/tasks/{taskId} (address only)');
 }
+
+// ---- Missing entries check (admin-only read-only test, Reports) ----
+// Same GET-only probe as above, exported so the test can try candidate
+// date filters on list endpoints and report what AroFlo accepts.
+export async function probeListing(path, params, label) {
+  return arofloProbe(path, params, label);
+}
+
+// One page of tasks, newest Job Number first, only the fields the check
+// needs (no client, contact or address details beyond the suburb).
+export async function listTasksPage(businessUnitId, page, fields) {
+  const body = await arofloGet('/tasks', { businessUnitId, sortBy: 'jobnumber', ascending: 'false', page, limit: LIST_PAGE_SIZE, _fields: fields });
+  return itemsOf(body);
+}

@@ -186,6 +186,7 @@ export const api = {
   },
   arofloTest: {
     lookup: (jn) => request('GET', `/aroflo-test/lookup${qs({ jn })}`),
+    missingEntries: (from, to) => request('GET', `/aroflo-test/missing-entries${qs({ from, to })}`),
     taskTypes: () => request('GET', '/aroflo-test/task-types'),
     locations: () => request('GET', '/aroflo-test/locations'),
     users: () => request('GET', '/aroflo-test/users'),
