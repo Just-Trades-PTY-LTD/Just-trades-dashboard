@@ -105,7 +105,7 @@ test('invoice list: one entry per invoice, CRM value incl. Upsells, AroFlo value
   }
 });
 
-test('saving: links to the CRM sale for the chosen invoice (not the latest sale), CRM value from the CRM, all in Activity history; sales and reports unchanged', async () => {
+test('saving: links to the CRM sale for the chosen invoice (not the latest sale), CRM value from the CRM, all in Activity history; sales records unchanged, reports use AroFlo\'s reduced amount', async () => {
   const server = await startTestServer();
   const restore = fakeAroflo();
   try {
@@ -127,7 +127,14 @@ test('saving: links to the CRM sale for the chosen invoice (not the latest sale)
     const last = h[h.length - 1];
     assert.deepEqual([last.invoice_number.to, last.lost_value_ex_gst.to, last.lost_value_basis.to, last.sale_id.from, last.sale_id.to], ['2181', 754, 'part_of_work', saleId('2190'), saleId('2181')]);
     assert.equal(JSON.stringify(dbAll('SELECT * FROM sales ORDER BY id')), salesBefore, 'no sale changed');
-    assert.equal(await reports(server), before, 'every report figure unchanged');
+    // Since 26 Nov 2026 a recorded part cancellation counts the sale at
+    // AroFlo's reduced invoice amount ($4,000 for invoice 2181, which the CRM
+    // recorded at $5,000 incl. the $246 Upsell): one sale, $1,000 less, in the
+    // invoice's own period. The records themselves are unchanged (above).
+    const t0 = JSON.parse(before).t.company;
+    const t1 = JSON.parse(await reports(server)).t.company;
+    assert.deepEqual([t1.sales, t1.totalSaleExGst, t1.upsellsCount], [t0.sales, t0.totalSaleExGst - 1000, t0.upsellsCount]);
+    assert.deepEqual(t1.cancellations, { fullCount: 0, fullValueExGst: 0, partCount: 1, partReductionExGst: 1000 });
 
     // Invalid input: refused, nothing saved.
     const bad = await server.request('PATCH', `/calls/${call.id}`, { pendingCancellationDetails: details({ lostValueExGst: -5 }), notes: 'x' });

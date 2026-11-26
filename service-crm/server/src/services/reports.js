@@ -4,6 +4,7 @@ import { mondayOf, utcToAdelaideDisplay } from '../lib/adelaideTime.js';
 import { classifyRating } from '../lib/reviewRating.js';
 import { normKey, findOriginalJob } from './lookup.js';
 import { getLastEditedInfo } from '../lib/audit.js';
+import { cancellationAdjustments } from './pendingCancellation.js';
 
 export function pct(a, b) {
   return b ? Math.round((a / b) * 100) : 0;
@@ -677,7 +678,7 @@ function fetchSalesAll({
   jobNumber,
   createdByUserId,
   lastEditedByUserId,
-} = {}) {
+} = {}, { includeCancelled = false, adjustments = null } = {}) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -706,10 +707,24 @@ function fetchSalesAll({
       deduped.push(s);
     }
   });
+  // Pending Cancellations (see pendingCancellation.js cancellationAdjustments):
+  // an entire-invoice cancellation removes the sale; a part cancellation
+  // counts it at its reduced amount. `includeCancelled` keeps the sales as
+  // recorded — used only for Converted Later credits, which a cancellation
+  // never takes away. Each row keeps its recorded value in recorded_value_ex_gst.
+  const adj = includeCancelled ? null : adjustments || cancellationAdjustments();
+  const adjusted = adj
+    ? deduped
+        .filter((s) => !adj.full.has(s.id))
+        .map((s) => {
+          const p = adj.partial.get(s.id);
+          return p ? { ...s, recorded_value_ex_gst: s.sale_value_ex_gst, sale_value_ex_gst: p.reportedValue, part_cancelled: 1 } : s;
+        })
+    : deduped;
   const resolveOriginalJob = makeOriginalJobResolver();
   const leadSourceAttribution = leadSourceId ? marketingAttribution() : null;
   return applyLinkedJobFilters(
-    deduped,
+    adjusted,
     'sale',
     { leadQualification, leadSourceId, saleMade, knockback, convertedLater, suburb, lastEditedByUserId },
     resolveOriginalJob,
@@ -739,7 +754,7 @@ function fetchUpsellsAll({
   jobNumber,
   createdByUserId,
   lastEditedByUserId,
-} = {}) {
+} = {}, { includeCancelled = false, adjustments = null } = {}) {
   const rows = all(
     `SELECT s.*, t.name AS credited_technician_name, tr.name AS trade_name
      FROM sales s
@@ -747,8 +762,11 @@ function fetchUpsellsAll({
      LEFT JOIN trades tr ON tr.id = s.trade_id
      WHERE s.archived = 0 AND s.is_upsell = 1`
   );
+  // An Upsell on an invoice that was cancelled in full stops counting too.
+  const adj = includeCancelled ? null : adjustments || cancellationAdjustments();
   const filtered = rows.filter(
     (s) =>
+      (!adj || !adj.upsellRemoved(s)) &&
       inRange(s.invoice_date, from, to) &&
       (!technicianId || s.credited_technician_id === Number(technicianId)) &&
       (!tradeId || s.trade_id === Number(tradeId)) &&
@@ -872,19 +890,42 @@ const ENTRY_TYPE_POPULATIONS = {
   pending_cancellation: 'pendingCancelsAll',
 };
 
+// What Pending Cancellations took off this report's sales figures: sales
+// (and their invoice's Upsells) cancelled in full, and the reduction on part
+// cancellations. For the report's "Cancelled" line and its drill-down.
+function cancellationSummary(salesAll, creditSalesAll, upsellsAll, recordedUpsellsAll) {
+  const shown = new Set(salesAll.map((s) => s.id));
+  const shownUpsells = new Set(upsellsAll.map((u) => u.id));
+  const removed = creditSalesAll.filter((s) => !shown.has(s.id));
+  const removedUpsells = recordedUpsellsAll.filter((u) => !shownUpsells.has(u.id));
+  const partial = salesAll.filter((s) => s.part_cancelled);
+  const sum = (rows, f) => Math.round(rows.reduce((t, r) => t + f(r), 0) * 100) / 100;
+  return {
+    fullCount: removed.length,
+    fullValueExGst: sum(removed, (s) => num(s.sale_value_ex_gst)) + sum(removedUpsells, (u) => num(u.sale_value_ex_gst)),
+    partCount: partial.length,
+    partReductionExGst: sum(partial, (s) => num(s.recorded_value_ex_gst) - num(s.sale_value_ex_gst)),
+  };
+}
+
 function fetchTechRaw(filters) {
   const { entryType } = filters;
+  const adjustments = cancellationAdjustments();
   const raw = {
     jobsAll: fetchJobsAll(filters),
-    salesAll: fetchSalesAll(filters),
-    upsellsAll: fetchUpsellsAll(filters),
+    salesAll: fetchSalesAll(filters, { adjustments }),
+    upsellsAll: fetchUpsellsAll(filters, { adjustments }),
     callBacksAll: fetchCallBacksAll(filters),
     pendingCancelsAll: fetchPendingCancelsAll(filters),
+    // Sales as recorded (no cancellation applied): Converted Later credits
+    // only — a cancelled approved quote keeps its credit.
+    creditSalesAll: fetchSalesAll(filters, { includeCancelled: true }),
+    recordedUpsellsAll: fetchUpsellsAll(filters, { includeCancelled: true }),
   };
   if (entryType) {
     const keep = ENTRY_TYPE_POPULATIONS[entryType];
     Object.keys(raw).forEach((key) => {
-      if (key !== keep) raw[key] = [];
+      if (key !== keep && !(keep === 'salesAll' && key === 'creditSalesAll') && !(keep === 'upsellsAll' && key === 'recordedUpsellsAll')) raw[key] = [];
     });
     if (keep === 'jobsAll') {
       raw.jobsAll = raw.jobsAll.filter((j) => (entryType === 'new_job_sale_made') === !!j.had_sale_at_visit);
@@ -892,6 +933,7 @@ function fetchTechRaw(filters) {
   }
   return {
     ...raw,
+    cancellationAdjustments: adjustments,
     // null means "every population is in play" (no Entry Type filter active);
     // otherwise the one array key (jobsAll/salesAll/upsellsAll/callBacksAll/
     // pendingCancelsAll) that this report's figures actually reflect — every
@@ -1509,13 +1551,14 @@ function pickSalesByCategorySubset(salesAll, upsellsAll, category, field) {
 
 export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, granularity = 'week', ...restFilters } = {}) {
   const filters = { from, to, technicianId, tradeId, jobTypeId, ...restFilters };
-  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, includedPopulations } = fetchTechRaw(filters);
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, creditSalesAll, recordedUpsellsAll, includedPopulations } = fetchTechRaw(filters);
 
   const trades = all('SELECT * FROM trades ORDER BY sort_order');
 
   const company = {
     ...computeMetrics(jobsAll, salesAll, callBacksAll, pendingCancelsAll, upsellsAll),
-    ...computeConvertedLaterAdjustment(jobsAll, salesAll),
+    ...computeConvertedLaterAdjustment(jobsAll, creditSalesAll),
+    cancellations: cancellationSummary(salesAll, creditSalesAll, upsellsAll, recordedUpsellsAll),
   };
 
   const byTrade = trades.map((trade) => ({
@@ -1585,7 +1628,10 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
         pendingCancelsAll.filter((p) => (p.credited_technician_name || 'Unassigned') === name),
         techUpsells
       ),
-      ...computeConvertedLaterAdjustment(techJobs, techSales),
+      ...computeConvertedLaterAdjustment(
+        techJobs,
+        creditSalesAll.filter((s) => (s.credited_technician_name || 'Unassigned') === name)
+      ),
       positiveReviewsCount: positiveReviewCounts[name] || 0,
     };
   });
@@ -1630,7 +1676,7 @@ export function computeTechReport({ from, to, technicianId, tradeId, jobTypeId, 
   const revenueBySuburb = computeRevenueBySuburb(salesAll, upsellsAll);
 
   const salesByMarketingCategory = computeSalesByMarketingCategory(salesAll, upsellsAll);
-  const marketingConversionByCategory = computeMarketingConversionByCategory(jobsAll, salesAll);
+  const marketingConversionByCategory = computeMarketingConversionByCategory(jobsAll, creditSalesAll);
 
   return {
     company,
@@ -1728,7 +1774,7 @@ function tagUpsells(list) {
 // Returns { rows: [{kind,id}], label, outcomes? } tagged by source table
 // (jobs span two kinds depending on whether a sale was made at the visit),
 // or null for an unrecognised field.
-function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }, field) {
+function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [], creditSales = sales }, field) {
   const { qualifiedJobs, unqualifiedJobs, saleMade, knockbacks, convertedLater } = splitJobs(jobs);
   const jobKind = (j) => (j.had_sale_at_visit ? 'new_job_sale_made' : 'new_job_no_sale');
   const tagJobs = (list) => list.map((j) => ({ kind: jobKind(j), id: j.id }));
@@ -1783,7 +1829,7 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
     // Bucketing first guarantees this drill-down's row count always equals
     // the displayed number, with no possibility of drift.
     case 'actualKnockbacks': {
-      const buckets = bucketConvertedLaterCredits(jobs, sales);
+      const buckets = bucketConvertedLaterCredits(jobs, creditSales);
       const knockbackJobs = [];
       buckets.forEach((b) => knockbackJobs.push(...b.knockbackJobs));
       return { rows: tagJobs(knockbackJobs), label: 'Actual Knockbacks' };
@@ -1795,7 +1841,7 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
       // invoice on an already-sold job) still counts in Sales/Value, but is
       // not "Converted Later" and so is excluded here too, keeping this
       // drill-down's total equal to the displayed figure.
-      const buckets = bucketConvertedLaterCredits(jobs, sales);
+      const buckets = bucketConvertedLaterCredits(jobs, creditSales);
       const usedCreditSales = [];
       buckets.forEach((b) => usedCreditSales.push(...bucketOutcome(b).usedCredits));
       return { rows: tagSales(usedCreditSales), label: 'Converted Later' };
@@ -1871,7 +1917,20 @@ function pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells = [] }
 // computed in computeTechReport() above. Returns null for a metric this
 // report has no accurate record-level answer for.
 export function drilldownTech({ metric, category, series, scopeTrade, scopeTechnician, field, ...filters }) {
-  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll } = fetchTechRaw(filters);
+  const { jobsAll, salesAll, upsellsAll, callBacksAll, pendingCancelsAll, creditSalesAll, recordedUpsellsAll } = fetchTechRaw(filters);
+
+  if (metric === 'cancelledSales') {
+    const shown = new Set(salesAll.map((s) => s.id));
+    const shownUpsells = new Set(upsellsAll.map((u) => u.id));
+    return {
+      rows: [
+        ...tagSales(creditSalesAll.filter((s) => !shown.has(s.id))),
+        ...tagSales(salesAll.filter((s) => s.part_cancelled)),
+        ...tagUpsells(recordedUpsellsAll.filter((u) => !shownUpsells.has(u.id))),
+      ],
+      label: 'Cancelled sales (Pending Cancellations)',
+    };
+  }
 
   if (metric === 'revenueBySuburb') {
     const resolveOriginalJob = makeOriginalJobResolver();
@@ -1896,7 +1955,7 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
     return pickSalesByCategorySubset(salesAll, upsellsAll, category, field);
   }
   if (metric === 'marketingConversionByCategory') {
-    return pickMarketingConversionSubset(jobsAll, salesAll, category, field);
+    return pickMarketingConversionSubset(jobsAll, creditSalesAll, category, field);
   }
   if (metric === 'salesByTradePie') {
     // This pie's own dollar value includes Upsell value for this trade (see
@@ -1930,6 +1989,7 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
 
   let jobs = jobsAll;
   let sales = salesAll;
+  let creditSales = creditSalesAll;
   let upsells = upsellsAll;
   let callbacks = callBacksAll;
   let pendingCancels = pendingCancelsAll;
@@ -1937,6 +1997,7 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
   if (scopeTrade) {
     jobs = jobs.filter((j) => j.trade_name === scopeTrade);
     sales = sales.filter((s) => s.trade_name === scopeTrade);
+    creditSales = creditSales.filter((s) => s.trade_name === scopeTrade);
     upsells = upsells.filter((u) => u.trade_name === scopeTrade);
     callbacks = callbacks.filter((c) => c.trade_name === scopeTrade);
     pendingCancels = pendingCancels.filter((p) => p.trade_name === scopeTrade);
@@ -1944,13 +2005,14 @@ export function drilldownTech({ metric, category, series, scopeTrade, scopeTechn
   } else if (scopeTechnician) {
     jobs = jobs.filter((j) => (j.technician_name || 'Unassigned') === scopeTechnician);
     sales = sales.filter((s) => (s.credited_technician_name || 'Unassigned') === scopeTechnician);
+    creditSales = creditSales.filter((s) => (s.credited_technician_name || 'Unassigned') === scopeTechnician);
     upsells = upsells.filter((u) => (u.credited_technician_name || 'Unassigned') === scopeTechnician);
     callbacks = callbacks.filter((c) => (c.credited_technician_name || 'Unassigned') === scopeTechnician);
     pendingCancels = pendingCancels.filter((p) => (p.credited_technician_name || 'Unassigned') === scopeTechnician);
     scopeLabel = `${scopeTechnician} — `;
   }
 
-  const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells }, metric);
+  const picked = pickTechSubset({ jobs, sales, callbacks, pendingCancels, upsells, creditSales }, metric);
   if (!picked) return null;
   return { ...picked, label: `${scopeLabel}${picked.label}` };
 }

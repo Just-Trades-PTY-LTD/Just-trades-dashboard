@@ -9,6 +9,7 @@ import { adelaideDateStamp } from '../lib/adelaideTime.js';
 import { mergeId } from '../lib/merge.js';
 import { checkNewJobLead, checkNewJobLeadEdit } from '../lib/leadRules.js';
 import { findEntry, pendingCancellationHasCall, PENDING_CANCELLATION_CALL_ONLY } from '../lib/archive.js';
+import { saleCancellationStatus } from '../services/pendingCancellation.js';
 import {
   FollowOnError,
   applyCorrection as applyFollowOnCorrection,
@@ -221,6 +222,8 @@ function jobToEntry(j) {
     installTechnicianName: j.install_technician_name,
     installDate: j.install_date,
     invoiceNumber: sale?.invoice_number || '',
+    // How a Pending Cancellation changes this job's sale in reports (null = not at all).
+    cancellation: sale && !sale.archived ? saleCancellationStatus(sale) : null,
     invoiceDate: sale?.invoice_date || '',
     saleValueExGst: sale?.sale_value_ex_gst ?? '',
     comments: j.comments,
@@ -262,6 +265,8 @@ function saleToEntry(s) {
     // Follow-on approved quote (docs/follow-on-approved-quote-design.md):
     // the approved sale immediately before this one, the chain so far, and
     // any sales that follow on from this one. Null / [] for every other sale.
+    // How a Pending Cancellation changes this sale in reports (null = not at all).
+    cancellation: saleCancellationStatus(s),
     followsSaleId: s.follows_sale_id || null,
     followOnChain: !s.is_upsell && s.follows_sale_id ? chainDetails(s.id) : null,
     followedBy: s.is_upsell

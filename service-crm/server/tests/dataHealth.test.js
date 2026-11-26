@@ -54,7 +54,7 @@ test('a clean database reports nothing on every check', async () => {
     ok(await server.request('POST', '/calls', { callAt: '2026-05-01T09:00', direction: 'Inbound', callType: 'Lead', booked: 'Yes', leadSourceId: ctx.L.lead_source[0].id, jobNumber: 'OK-1' }));
     const res = await server.request('GET', '/data-health');
     assert.equal(res.status, 200);
-    assert.equal(res.data.checks.length, 13, '12 checks plus the follow-on check');
+    assert.equal(res.data.checks.length, 14, '12 checks plus the follow-on and cancellation checks');
     for (const c of res.data.checks) assert.equal(c.count, 0, `${c.id} should be clean`);
   } finally {
     server.close();

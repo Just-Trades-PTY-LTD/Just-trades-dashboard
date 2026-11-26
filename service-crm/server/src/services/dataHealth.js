@@ -100,6 +100,35 @@ export function runDataHealthChecks() {
   }
 
   // 8. Stored knock-back flag disagrees with Lead / Sale Made.
+  // Pending Cancellations whose cancellation isn't recorded (no "Entire
+  // invoice" / "Part of the work" and lost value) — they change no sales
+  // figure until someone reviews them and records it on the call.
+  {
+    const rows = all(
+      `SELECT pc.job_number AS jobNumber, pc.date_logged AS dateLogged, t.name AS technician,
+              s.invoice_number AS invoiceNumber, s.invoice_date AS invoiceDate, s.sale_value_ex_gst AS saleValue
+       FROM pending_cancellations pc
+       LEFT JOIN sales s ON s.id = pc.sale_id
+       LEFT JOIN technicians t ON t.id = pc.credited_technician_id
+       WHERE pc.archived = 0 AND pc.superseded_by_id IS NULL AND (pc.lost_value_basis IS NULL OR pc.lost_value_basis = '')
+       ORDER BY pc.date_logged`
+    );
+    checks.push(
+      check(
+        {
+          id: 'pendingCancellationNotRecorded',
+          finding: 'Cancellations',
+          title: 'Pending Cancellations with no cancellation recorded',
+          explanation:
+            "These were logged without choosing Entire invoice / Part of the work and a lost value, so they don't change any sales figure yet. Open the cancellation's call in Calls & Contacts, choose the invoice and record the cancellation; the sales figures then update for the original invoice period.",
+          effect: rows.length ? `Recording them could take up to $${sum(rows, 'saleValue')} ex GST off sales in their invoice periods.` : '',
+          columns: ['jobNumber', 'dateLogged', 'technician', 'invoiceNumber', 'invoiceDate', 'saleValue'],
+        },
+        rows
+      )
+    );
+  }
+
   // Follow-on approved quotes whose previous approved sale is archived (or
   // gone). The follow-on still counts normally under Repeat customer — this
   // only lists it so Admin or Staff can review it.
