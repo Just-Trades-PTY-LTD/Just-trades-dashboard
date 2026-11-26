@@ -404,6 +404,24 @@ export default function TechReport({ jumpToJN, jumpToJobId, drilldown, setDrilld
         </div>
       )}
 
+      {!access.technician && (data?.company?.cancellations?.fullCount > 0 || data?.company?.cancellations?.partCount > 0) && (
+        <div
+          className="notice panel clickable-stat"
+          style={{ marginBottom: 16, cursor: 'pointer' }}
+          onClick={() => openDrilldown('cancelledSales')}
+          title="View the cancelled sales"
+          data-testid="cancelled-sales-note"
+        >
+          Pending Cancellations in this range:{' '}
+          {data.company.cancellations.fullCount > 0 &&
+            `${data.company.cancellations.fullCount} sale${data.company.cancellations.fullCount > 1 ? 's' : ''} cancelled in full (${money(data.company.cancellations.fullValueExGst)} ex GST) not counted`}
+          {data.company.cancellations.fullCount > 0 && data.company.cancellations.partCount > 0 && '; '}
+          {data.company.cancellations.partCount > 0 &&
+            `${data.company.cancellations.partCount} part cancelled (${money(data.company.cancellations.partReductionExGst)} ex GST taken off)`}
+          . The figures below already reflect this — click to view.
+        </div>
+      )}
+
       {!access.technician && missingTechnicianCount > 0 && (
         <div
           className="notice panel error clickable-stat"

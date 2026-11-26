@@ -246,3 +246,85 @@ export function applyCreditedTechnician(pcId, id, userId) {
   run("UPDATE pending_cancellations SET credited_technician_id = ?, updated_at = datetime('now') WHERE id = ?", [id, pcId]);
   recordAudit({ entityType: 'pending_cancellation', entityId: pcId, before, after: { ...before, credited_technician_id: id }, fields: ['credited_technician_id'], userId });
 }
+
+// ---------------------------------------------------------------------------
+// Report adjustments (decided 26 Nov 2026). A Pending Cancellation with its
+// cancellation recorded changes the SALES figures — in the original sale's
+// own invoice period, from the moment it's saved:
+// - Entire invoice cancelled: the sale (and any Upsells on that invoice)
+//   stops counting in sales count, value, average, technician and
+//   marketing-category figures. The job is never turned into a knockback
+//   and an approved quote's Converted Later credit is kept (the technician
+//   did make the sale).
+// - Part of the work cancelled: the sale still counts as one sale, at the
+//   invoice amount AroFlo showed for it (read when the cancellation was
+//   saved or last refreshed). Until AroFlo shows a lower amount, the CRM's
+//   recorded amount less the lost value staff entered is used instead.
+// Only active cancellations that aren't superseded count, and only once the
+// cancellation itself is recorded (a basis chosen) — older ones without it
+// change nothing until they're reviewed. Nothing here writes: the sale and
+// the cancellation stay exactly as recorded.
+const UPSELLS_SQL = "SELECT id, invoice_number, sale_value_ex_gst FROM sales WHERE archived = 0 AND is_upsell = 1 AND invoice_number != ''";
+
+export function cancellationAdjustments() {
+  const pcs = all(
+    `SELECT pc.* FROM pending_cancellations pc JOIN sales s ON s.id = pc.sale_id
+     WHERE pc.archived = 0 AND pc.superseded_by_id IS NULL AND pc.lost_value_basis IN ('whole_sale', 'part_of_work')
+       AND s.archived = 0 AND s.is_upsell = 0
+     ORDER BY pc.date_logged, pc.id`
+  );
+  const full = new Map(); // saleId -> cancellation id
+  const fullInvoiceKeys = new Set();
+  const partialPcs = new Map(); // saleId -> [cancellations]
+  for (const pc of pcs) {
+    if (pc.lost_value_basis === 'whole_sale') {
+      full.set(pc.sale_id, pc.id);
+      const key = invoiceKey(pc.invoice_number || get('SELECT invoice_number FROM sales WHERE id = ?', [pc.sale_id])?.invoice_number);
+      if (key) fullInvoiceKeys.add(key);
+    } else {
+      if (!partialPcs.has(pc.sale_id)) partialPcs.set(pc.sale_id, []);
+      partialPcs.get(pc.sale_id).push(pc);
+    }
+  }
+  const upsells = partialPcs.size || fullInvoiceKeys.size ? all(UPSELLS_SQL) : [];
+  const partial = new Map();
+  for (const [saleId, list] of partialPcs) {
+    if (full.has(saleId)) continue;
+    const sale = get('SELECT * FROM sales WHERE id = ?', [saleId]);
+    const key = invoiceKey(sale.invoice_number);
+    const upsellTotal = cents(upsells.filter((u) => key && invoiceKey(u.invoice_number) === key).reduce((t, u) => t + Number(u.sale_value_ex_gst || 0), 0));
+    const original = cents(sale.sale_value_ex_gst || 0);
+    const crmTotal = cents(original + upsellTotal);
+    const latest = list[list.length - 1];
+    const aroflo = latest.aroflo_invoice_value_ex_gst;
+    const lost = cents(list.reduce((t, pc) => t + Number(pc.lost_value_ex_gst || 0), 0));
+    const fromAroflo = aroflo !== null && aroflo !== undefined && Number(aroflo) < crmTotal;
+    const invoiceTotal = fromAroflo ? cents(aroflo) : Math.max(0, cents(crmTotal - lost));
+    partial.set(saleId, {
+      cancellationId: latest.id,
+      originalValue: original,
+      reportedValue: Math.max(0, cents(invoiceTotal - upsellTotal)),
+      source: fromAroflo ? 'aroflo' : 'lostValue',
+    });
+  }
+  return { full, fullInvoiceKeys, partial, upsellRemoved: (u) => fullInvoiceKeys.has(invoiceKey(u.invoice_number)) };
+}
+
+/** How a sale is counted in reports because of a cancellation, or null. */
+export function saleCancellationStatus(sale, adj = cancellationAdjustments()) {
+  if (!sale) return null;
+  if (sale.is_upsell) return adj.upsellRemoved(sale) ? { type: 'full', note: 'Invoice cancelled — not counted in reports' } : null;
+  if (adj.full.has(sale.id)) return { type: 'full', cancellationId: adj.full.get(sale.id), note: 'Entire invoice cancelled — not counted in reports' };
+  const p = adj.partial.get(sale.id);
+  if (p) {
+    return {
+      type: 'partial',
+      cancellationId: p.cancellationId,
+      reportedValue: p.reportedValue,
+      originalValue: p.originalValue,
+      source: p.source,
+      note: `Part cancelled — counted as ${money(p.reportedValue)} ex GST${p.source === 'aroflo' ? " (AroFlo's invoice amount)" : ' (recorded amount less lost value, until AroFlo shows the lower amount)'}`,
+    };
+  }
+  return null;
+}

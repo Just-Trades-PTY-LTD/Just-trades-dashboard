@@ -753,6 +753,11 @@ export default function JobHistory({
                             {money(e.saleValueExGst)} ex GST — inv {e.invoiceNumber}
                           </span>
                         )}
+                        {e.cancellation && (
+                          <div style={{ fontSize: 11, marginTop: 2, color: 'var(--alert)' }} data-testid="sale-cancellation">
+                            {e.cancellation.note}
+                          </div>
+                        )}
                         {e.kind === 'existing_job_upsell' && (
                           <span className="badge badge-success">
                             Upsell: {money(e.saleValueExGst)} ex GST — inv {e.invoiceNumber}
